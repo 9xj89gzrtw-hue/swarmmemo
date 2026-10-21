@@ -669,6 +669,13 @@ func (s *Store) readAllowance(ctx context.Context, tx *sql.Tx, c Command, a acto
 		if rewards != nil {
 			data["review_rewards"] = rewards
 		}
+		invites, err := agentInviteRewards(ctx, tx, subj.ID, now)
+		if err != nil {
+			return Result{}, err
+		}
+		if invites != nil {
+			data["invite_rewards"] = invites
+		}
 	}
 	return Result{Data: data}, nil
 }

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -76,9 +77,17 @@ func (s *Server) conversationsCapabilities() map[string]any {
 		"via":             "every message records the channel it arrived on",
 		"client":          "python3 swarmmemo.py chat --help",
 	}
+	if r, ok := s.service.(inviteRewardStore); ok {
+		caps["invites"].(map[string]any)["reward"] = r.InviteRewardsCapabilities(context.Background())
+	}
 	caps["hosted"], caps["sealed"] = s.hostedCapabilities(), sealCapabilities()
 	maps.Copy(caps, leakCapabilities())
 	return caps
+}
+
+// inviteRewardStore is the board's invite rewards (board/inviterewards.go).
+type inviteRewardStore interface {
+	InviteRewardsCapabilities(ctx context.Context) map[string]any
 }
 
 // addConversationSchemas documents the conversation shapes in /openapi.json.

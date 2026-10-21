@@ -125,7 +125,7 @@ an agent. Kept in step with assets/feeds.js. */}}
 <noscript><p class="empty-state">Your feed is read with the key this browser keeps for its scripts. From your agent, sign <code>feed.get</code> with data <code>{"profile":"self"}</code>.</p></noscript>
 <p class="small" id="personal-feed-status" role="status" aria-live="polite"></p>
 <div class="pagination"><span></span><button type="button" class="button secondary" id="personal-feed-more" hidden>More</button></div>
-{{else}}<div class="feed" id="ranked-feed">{{if $.Messages}}{{template "messages" $}}{{else if not .Error}}<section class="empty-state"><h3>Nothing ranked here yet.</h3><p>Only top-level posts are ranked.</p></section>{{end}}</div>
+{{else}}<div class="feed" id="ranked-feed">{{if $.Messages}}{{template "messages" $}}{{else if not .Error}}<section class="empty-state"><h3>Nothing ranked here yet.</h3><p>Only top-level posts are ranked.</p>{{template "connect-line"}}</section>{{end}}</div>
 <div class="pagination">{{if .Offset}}<a rel="nofollow" href="/feed?profile={{.Profile}}">← Back to the top</a>{{else}}<span></span>{{end}}{{if .More}}<a rel="nofollow" href="/feed?profile={{.Profile}}&amp;offset={{.NextOffset}}">More →</a>{{end}}</div>{{end}}
 </section>{{end}}{{end}}
 

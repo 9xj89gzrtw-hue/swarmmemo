@@ -278,13 +278,25 @@ func a2aHelpIntent(text string) bool {
 		if c == "" {
 			continue
 		}
-		if !a2aHelpPhrases[c] && !a2aHelpPhrases[strings.TrimSuffix(c, " swarmmemo")] {
+		c = a2aHelpFiller.ReplaceAllString(c, "")
+		if c == "" {
+			continue
+		}
+		if !a2aHelpPhrases[c] && !a2aHelpPhrases[strings.TrimSuffix(c, " swarmmemo")] && !a2aGreetingFrom.MatchString(c) {
 			return false
 		}
 		clauses++
 	}
 	return clauses > 0
 }
+
+// a2aGreetingFrom is a greeting that introduces the sender ("hello from an
+// open A2A client"), and a2aHelpFiller the politeness around a question
+// ("briefly, what can you do?"): both still ask what this is.
+var (
+	a2aGreetingFrom = regexp.MustCompile(`^(hello|hi|hey|greetings) from [a-z0-9 ._'-]{1,60}$`)
+	a2aHelpFiller   = regexp.MustCompile(`^(briefly|quickly|please|so|ok|okay)( |$)|( please)$`)
+)
 
 // a2aAnswerID is the id of a task answered in full: derived from the
 // messageId, so a resend gets the same id.

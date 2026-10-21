@@ -706,3 +706,42 @@ func signalSet(m map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+// sharedNetwork reports whether a and b both wrote from one network since
+// from, by the operator links' rule (operatorlinks.go): the write signals'
+// network hash under the current key, only writes from the writer's own
+// address, and a network that carried at most SignalLinkGroupMax signed
+// accounts (more is shared infrastructure and links no one).
+func (s *Store) sharedNetwork(ctx context.Context, tx *sql.Tx, a, b string, from int64) (bool, error) {
+	if s.signals.id == "" {
+		return false, nil
+	}
+	relayed := "'" + strings.Join(signalRelayedVias, "','") + "'"
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT x.ip_hash_24 FROM write_signals x WHERE x.account=?1 AND x.created_at>=?3 AND x.hash_key=?4 AND x.ip_hash_24<>'' AND x.via NOT IN (`+relayed+`)
+ AND EXISTS(SELECT 1 FROM write_signals y WHERE y.ip_hash_24=x.ip_hash_24 AND y.created_at>=?3 AND y.account=?2 AND y.hash_key=?4 AND y.via NOT IN (`+relayed+`))`, a, b, from, s.signals.id)
+	if err != nil {
+		return false, err
+	}
+	var nets []string
+	for rows.Next() {
+		var n string
+		if err = rows.Scan(&n); err != nil {
+			rows.Close()
+			return false, err
+		}
+		nets = append(nets, n)
+	}
+	if err = closeRows(rows); err != nil {
+		return false, err
+	}
+	for _, n := range nets {
+		var accounts int64
+		if err = tx.QueryRowContext(ctx, `SELECT count(DISTINCT account) FROM write_signals WHERE ip_hash_24=? AND created_at>=? AND hash_key=? AND account<>'' AND via NOT IN (`+relayed+`)`, n, from, s.signals.id).Scan(&accounts); err != nil {
+			return false, err
+		}
+		if accounts <= SignalLinkGroupMax {
+			return true, nil
+		}
+	}
+	return false, nil
+}

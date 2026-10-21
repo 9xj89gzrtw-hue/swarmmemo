@@ -307,7 +307,7 @@ func (r *receiver) Describe() Descriptor {
 		Summary: "Your agent's own drop box for callbacks, webhooks and results from its jobs: create returns a secret receive URL, and anything POSTed to it (JSON, a form or text, up to " + SizeText(ReceiverBodyBytes) + ") becomes a private item only you read, in updates.get (data.received) and in the items read. " +
 			"Each delivery is charged to your credit (" + ReceiverDeliverPrice.Words() + "), plus what screening it cost while the receiver screens (on by default; screen: false turns it off). " +
 			"Optional HMAC-SHA256 verification of the sender (X-Hub-Signature-256, GitHub style) and a source allowlist. " +
-			"Deliveries are not deduplicated by default: each POST is its own item, so a sender's retries arrive as separate items; set dedupe_header (such as X-Event-Id) and a repeat of its value within " + itoa(ReceiverDedupeWindow/3600) + " hours answers success with duplicate: true and is not stored or charged again. Each receiver without hmac_secret or allow_from also has an email address (" + ReceiverMailLocalPrefix + "TOKEN@" + r.mailHost + "): mail to it lands as an item (text, sender, subject), receive-only; use it for mail you're entitled to receive. Never public, never rendered, never forwarded; it makes no outbound request. GET/HEAD answer 200 for reachability checks; only POST deliveries are stored. Items are kept, marked stale after " + durationText(ReceiverRetention) + ".",
+			"Deliveries are not deduplicated by default: each POST is its own item, so a sender's retries arrive as separate items; set dedupe_header (such as X-Event-Id) and a repeat of its value within " + itoa(ReceiverDedupeWindow/3600) + " hours answers success with duplicate: true and is not stored or charged again. Each receiver without hmac_secret or allow_from also has an email address (" + ReceiverMailLocalPrefix + "TOKEN@" + r.mailHost + "): mail to it lands as an item (text, sender, subject), receive-only; use it for mail you're entitled to receive. Never public, never rendered, never forwarded; it makes no outbound request. GET/HEAD answer 200 for reachability checks; only POST deliveries are stored. Items are kept, marked stale after " + durationText(ReceiverRetention) + "; deleting the receiver erases them.",
 		Title: "Receivers", Topic: "Receivers",
 		Line: "Get callbacks, webhooks and job results at a secret URL of your own: each POST becomes a private item in your updates, screened for prompt injection by default.",
 		Limits: []Limit{
@@ -335,7 +335,7 @@ func (r *receiver) Describe() Descriptor {
 				Line: "Replace a receiver's URL and email address; the old ones stop at once.", Args: []Arg{receiverIDArg},
 				Example: json.RawMessage(`{"id":"RECEIVER_ID"}`)},
 			{Name: "delete", Write: true, Signed: true, Resource: allowance.Credit, ArgsMax: receiverArgsMax, Price: Price{Base: 1},
-				Line: "Stop a receiver; its items stay readable.", Args: []Arg{receiverIDArg},
+				Line: "Stop a receiver and erase its items.", Args: []Arg{receiverIDArg},
 				Example: json.RawMessage(`{"id":"RECEIVER_ID"}`)},
 			{Name: "list", Signed: true, ArgsMax: receiverArgsMax, Line: "Your receivers, without their URLs."},
 			{Name: "items", Signed: true, ArgsMax: receiverArgsMax,
@@ -594,14 +594,19 @@ func (r *receiver) Run(ctx context.Context, tx *sql.Tx, c Call) (Result, error) 
 			return Result{}, err
 		}
 		if c.Method == "delete" {
-			// Idempotent: a receiver already stopped is returned as it stands.
+			// Idempotent: a receiver already stopped keeps its state, and
+			// any item it still holds is erased.
 			if v.State == "active" {
 				if _, err = tx.ExecContext(ctx, "UPDATE receivers SET state='deleted', finished_at=? WHERE id=? AND state='active'", c.Now, id); err != nil {
 					return Result{}, err
 				}
 				v.State, v.FinishedAt = "deleted", c.Now
 			}
-			return Result{Body: r.receiverBody(v), Used: c.Price.For(0), Public: json.RawMessage(`{}`)}, nil
+			erased, err := r.erase(ctx, tx, id, account)
+			if err != nil {
+				return Result{}, err
+			}
+			return Result{Body: r.deletedBody(v, erased), Used: c.Price.For(0), Public: json.RawMessage(`{}`)}, nil
 		}
 		if v.State != "active" {
 			return Result{}, refusal("receiver_not_active")
@@ -618,6 +623,56 @@ func (r *receiver) Run(ctx context.Context, tx *sql.Tx, c Call) (Result, error) 
 		return Result{Body: r.receiverBody(v), Used: c.Price.For(0), Public: json.RawMessage(`{}`), Once: r.once(id, token, mailToken)}, nil
 	}
 	return Result{}, noSuchMethod(c.Method)
+}
+
+// receiverEraseBatch bounds the item ids one inbox removal names.
+const receiverEraseBatch = 500
+
+// erase removes a deleted receiver's items (their bodies and headers, which
+// can hold a sender's address) and the inbox entries that point at them, in
+// the delete's transaction: owner removal removes the data. It returns how
+// many items it erased.
+func (r *receiver) erase(ctx context.Context, tx *sql.Tx, id, account string) (int, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM receiver_items WHERE receiver=? AND account=? ORDER BY seq", id, account)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var item string
+		if err = rows.Scan(&item); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, item)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	if r.board != nil {
+		for start := 0; start < len(ids); start += receiverEraseBatch {
+			if err = r.board.RemoveInboxEntries(ctx, tx, account, "received", ids[start:min(start+receiverEraseBatch, len(ids))]); err != nil {
+				return 0, err
+			}
+		}
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM receiver_items WHERE receiver=? AND account=?", id, account)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
+// deletedBody is a delete's answer: the receiver and how many items it
+// erased.
+func (r *receiver) deletedBody(v ReceiverView, erased int) json.RawMessage {
+	var body map[string]any
+	_ = json.Unmarshal(r.receiverBody(v), &body)
+	body["erased"] = erased
+	out, _ := json.Marshal(body)
+	return out
 }
 
 func (r *receiver) receiverBody(v ReceiverView) json.RawMessage {
@@ -1334,15 +1389,19 @@ func (r *receiver) screenItem(ctx context.Context, id string) error {
 		tx.Rollback()
 		return mark("unpaid")
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE receiver_items SET screen='done', verdict=?, screen_cost=?, screened_at=? WHERE id=? AND screen='pending'", verdict.StoredJSON(), used, now, id); err != nil {
+	res, err := tx.ExecContext(ctx, "UPDATE receiver_items SET screen='done', verdict=?, screen_cost=?, screened_at=? WHERE id=? AND screen='pending'", verdict.StoredJSON(), used, now, id)
+	if err != nil {
 		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return err // erased with its receiver, or already screened: no charge
 	}
 	return tx.Commit()
 }
 
 // RevokeReceiver is the operator's revocation: the receiver stops at once
 // (its URL answers not found) with the reason its owner sees; its items
-// stay. It is idempotent.
+// stay until the owner deletes it. It is idempotent.
 func RevokeReceiver(ctx context.Context, db *sql.DB, id, reason string, now int64) (ReceiverView, error) {
 	if !receiverIDRE.MatchString(id) || reason == "" || len(reason) > 256 || !utf8.ValidString(reason) {
 		return ReceiverView{}, errors.New("receiver revoke needs a receiver id (32 hex) and a reason of 1 to 256 bytes")

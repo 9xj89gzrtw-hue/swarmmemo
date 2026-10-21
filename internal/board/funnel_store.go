@@ -479,6 +479,13 @@ func (s *Store) flushFunnel(ctx context.Context, now int64) (err error) {
 			}
 		}
 	}
+	// An invitee that wrote may have activated: its inviter's reward
+	// (inviterewards.go), in this transaction, after its days are written.
+	for _, a := range accounts {
+		if pending[a].derive >= 0 {
+			s.checkInviteReward(ctx, tx, a, now, excluded)
+		}
+	}
 	if readsLive {
 		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO meta(key,value) VALUES(?,?)", metaFunnelReads, fmt.Sprint(now)); err != nil {
 			return err
@@ -1217,6 +1224,10 @@ func (s *Store) recomputeBatch(ctx context.Context, today int64, after string, l
 			r.Durable, r.LastActiveDay, r.Holdout, r.Excluded, r.Role, int64(r.Roles), r.Tenure, r.Transport, r.Family, r.Client, FunnelTaxonomyVersion, now); err != nil {
 			return 0, "", err
 		}
+		// A reward that waited (a cap, a dry pool) is retried daily.
+		if r.ActivatedAt > 0 && today < r.FirstSeen/86400+FunnelActivationDays+InviteRewardRetryDays {
+			s.checkInviteReward(ctx, tx, r.Account, now, excluded)
+		}
 	}
 	if save != nil {
 		if err = save(tx, last); err != nil {
@@ -1468,4 +1479,14 @@ func (s *Store) FunnelRows(ctx context.Context) ([]FunnelRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// funnelActivated reports, through tx, whether account has an activation act
+// within the activation window from its first_seen day d0, as the stored
+// days say: the activated stage computeFunnel derives (invite rewards read
+// it, inviterewards.go).
+func funnelActivated(ctx context.Context, tx *sql.Tx, account string, d0 int64) (bool, error) {
+	var ok bool
+	err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_days WHERE account=? AND day>=? AND day<? AND (acts & ?)<>0)", account, d0, d0+FunnelActivationDays, int64(ActivationActs)).Scan(&ok)
+	return ok, err
 }

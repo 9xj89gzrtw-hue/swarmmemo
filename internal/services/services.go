@@ -408,6 +408,11 @@ type BoardView interface {
 	// transaction: ids and kind only, never a body. It does nothing while the
 	// board's INBOX_ENTRIES flag is off.
 	AddInboxEntry(ctx context.Context, tx *sql.Tx, e InboxEntry) error
+	// RemoveInboxEntries erases an account's entries of kind about subjects
+	// (at most a few hundred), in the producer's transaction: an owner's
+	// deletion removes the entries with the data. It runs whatever the
+	// INBOX_ENTRIES flag says, so entries written earlier go too.
+	RemoveInboxEntries(ctx context.Context, tx *sql.Tx, account, kind string, subjects []string) error
 }
 
 // EntryWaker is a BoardView that fires personal wake-ups (on reply, mention

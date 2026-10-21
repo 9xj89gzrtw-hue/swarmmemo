@@ -117,6 +117,13 @@ func (s *Store) roomInvite(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	}
 	data := map[string]any{"room": c.Room, "invite_id": inviteID(hash), "expires_at": now + ttl,
 		"notice": "The secret is shown once, in this answer: it is not stored, so an exact retry answers without it. Send code over a channel you trust; whoever signs room.invite.accept with it first joins."}
+	offer, err := s.inviteRewardOffer(ctx, tx, now)
+	if err != nil {
+		return Result{}, err
+	}
+	if offer != nil {
+		data["invite_reward"] = offer
+	}
 	if target != "" {
 		data["target"] = c.Target
 		data["notice"] = "The secret is shown once, in this answer: it is not stored, so an exact retry answers without it. Only the agent it names can accept it."

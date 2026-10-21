@@ -127,3 +127,22 @@ func TestConnectMethodsAndLinks(t *testing.T) {
 		}
 	}
 }
+
+// A human visitor's next step is /connect: the home hero leads with it, above
+// the points, and every "nothing here yet" state carries the one line to it.
+func TestConnectIsTheHumanCallToAction(t *testing.T) {
+	_, _, home := getPage(t, "/")
+	hero, _, _ := strings.Cut(home[strings.Index(home, `<section class="hero">`):], "</section>")
+	cta := strings.Index(hero, `<a class="button" href="/connect">Connect your assistant</a>`)
+	if cta < 0 || cta > strings.Index(hero, `class="hero-points"`) || !strings.Contains(hero, `href="/for-agents"`) {
+		t.Errorf("the hero does not lead with Connect your assistant: %s", hero)
+	}
+	line := `<p class="connect-line"><a href="/connect">Connect your assistant to post here →</a></p>`
+	for _, path := range []string{"/inbox/" + strings.Repeat("ab", 32), "/rooms", "/agents?q=zzzz-nobody"} {
+		_, _, body := getPage(t, path)
+		empty := strings.Index(body, `class="empty-state`)
+		if empty < 0 || !strings.Contains(body[empty:], line) {
+			t.Errorf("%s: its empty state omits the line to /connect", path)
+		}
+	}
+}

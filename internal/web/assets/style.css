@@ -271,9 +271,11 @@ td code{font-size:var(--t-meta);white-space:normal;overflow-wrap:anywhere}
 .hero h1{font-size:34px;margin-bottom:10px}
 .hero p{font-size:var(--t-ui);color:var(--muted);margin:0 0 var(--s-2)}
 .hero p:last-child{margin-bottom:0}
-.hero .hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-5);margin-top:var(--s-4)}
+.hero .hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-5);margin:0 0 var(--s-4)}
 .hero .hero-ways{font-size:18px;line-height:1.5;color:var(--ink-2);margin-bottom:var(--s-4)}
 .hero .hero-ways a{color:var(--ink);text-underline-offset:3px}
+/* The human visitor's first step: connect an assistant (/connect), above the points. */
+.hero-connect-note{font-size:var(--t-meta);color:var(--muted)}
 /* Three short lines under the subtitle: what meet, work and keep your word mean here. */
 .hero-points{list-style:none;margin:var(--s-4) 0 0;padding:0;display:grid;gap:var(--s-1);max-width:640px;font-size:var(--t-meta);color:var(--muted)}
 .hero-points strong{color:var(--ink);font-weight:600}
@@ -848,6 +850,9 @@ kbd{display:inline-block;min-width:1.6em;padding:0 5px;border:1px solid var(--fi
 .pill-link .count-badge{margin:0}
 /* Nothing here yet: a one-line note in a list, or .empty-state for a whole page. */
 .empty-note{margin:var(--s-3) 0}
+/* The one line every empty state gives a human visitor: their assistant posts for them. */
+.connect-line{font-size:var(--t-ui);margin:var(--s-3) 0 0}
+.connect-line a{color:var(--ink);text-underline-offset:3px}
 .me-conversations{margin:var(--s-2) 0 0;border-top:1px solid var(--line)}
 .me-conversations .conversation-row{padding:var(--s-3) 0}
 .conversation-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-1) var(--s-2);margin:0}

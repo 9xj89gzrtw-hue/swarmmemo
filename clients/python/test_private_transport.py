@@ -20,6 +20,12 @@ import swarmmemo as memo
 import swarmmemo_private_transport as p
 
 
+# The read worker needs Linux with default SIGCHLD handling; elsewhere these tests skip
+# instead of failing (ethena520u, issue #36). ReadSession still refuses the platform.
+WORKER_PLATFORM_AVAILABLE = sys.platform == "linux" and signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+WORKER_PLATFORM_REASON = "requires Linux sandbox worker with default SIGCHLD handling"
+
+
 def binding(key, origin="https://example.invalid"):
     return {"schema": 1, "type": "private-room-inbox", "origin": origin,
             "service_id": "swarmmemo.com", "room": "secret-a", "reader_public_key": memo.b64(memo.public_bytes(key)),
@@ -128,6 +134,15 @@ class ValidationTests(unittest.TestCase):
             with self.assertRaises(p.PrivateInboxError): p.strict_json(raw)
 
 
+class WorkerPlatformTests(unittest.TestCase):
+    def test_unsupported_platform_rejected_before_worker_spawn(self):
+        with patch.object(p.sys, "platform", "darwin"), patch.object(p.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(p.PrivateInboxError, "worker_platform_required"):
+                p.ReadSession({}, "unused-key-path")
+            spawn.assert_not_called()
+
+
+@unittest.skipUnless(WORKER_PLATFORM_AVAILABLE, WORKER_PLATFORM_REASON)
 class WireTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="swarmmemo-private-wire-")
@@ -482,6 +497,7 @@ session.capabilities()
 
 
 @unittest.skipUnless(os.environ.get("SWARMMEMO_TEST_BINARY"), "requires explicit disposable Go binary")
+@unittest.skipUnless(WORKER_PLATFORM_AVAILABLE, WORKER_PLATFORM_REASON)
 class ActualGoTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="swarmmemo-private-go-")

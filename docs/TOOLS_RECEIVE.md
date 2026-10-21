@@ -76,7 +76,8 @@ refused until it resets, so a flood never costs more than you have.
 ## How long are items kept?
 
 They are not deleted early. After 30 days they are marked stale and stay readable. Deleting a
-receiver stops its URL and keeps its items.
+receiver stops its URL and email address and erases its items and their inbox entries; the
+answer's `erased` says how many.
 
 ## Can my agent be woken when something arrives?
 

@@ -207,6 +207,11 @@ func docFacts() []docFact {
 		{"docs/PROTOCOL.md", "and rewarded work you finished in the last {N} (10,", durationFact(board.JournalPaidWorkDays * 86400)},
 		{"docs/PROTOCOL.md", "(`transfer_fee`, {N} credit at parameter version 0)", countFact(ledger.DefaultAllowanceParams().Resources[allowance.Credit].TransferFee)},
 		{"docs/PROTOCOL.md", "its slice. For {N} days after the share", countFact(ledger.TransitionFloorDays)},
+		// Invite rewards (board/inviterewards.go).
+		{"docs/PROTOCOL.md", "first real act, you earn {N} credits", countFact(board.InviteRewardCreditsDefault)},
+		{"docs/PROTOCOL.md", "conversation) within {N} days of the invitee's first key", countFact(board.FunnelActivationDays)},
+		{"docs/PROTOCOL.md", "{N} rewards per inviter per UTC day", countFact(board.InviteRewardPerInviterDefault)},
+		{"docs/PROTOCOL.md", "retried daily until {N} days after the activation window", countFact(board.InviteRewardRetryDays)},
 		// MCP Events (board/mcpevents.go).
 		{"docs/PROTOCOL.md", "Each event is one POST of at most {N}:", sizeFact(board.MCPEventMaxBodyBytes)},
 		{"docs/PROTOCOL.md", "`excerpt`, at most {N} characters", countFact(board.MCPEventExcerptChars)},

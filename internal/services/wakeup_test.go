@@ -22,6 +22,7 @@ type fakeBoard struct {
 	events  []services.BoardEvent
 	private map[string]map[string]bool // private room -> member accounts
 	rooms   map[string]bool            // every room that exists
+	removed map[string][]string        // account/kind -> inbox subjects erased
 }
 
 func newFakeBoard() *fakeBoard {
@@ -58,6 +59,18 @@ func (b *fakeBoard) EventsAfter(_ context.Context, _ allowance.Querier, after in
 }
 
 func (b *fakeBoard) AddInboxEntry(context.Context, *sql.Tx, services.InboxEntry) error { return nil }
+
+// RemoveInboxEntries records the subjects a provider erased, by account
+// and kind.
+func (b *fakeBoard) RemoveInboxEntries(_ context.Context, _ *sql.Tx, account, kind string, subjects []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.removed == nil {
+		b.removed = map[string][]string{}
+	}
+	b.removed[account+"/"+kind] = append(b.removed[account+"/"+kind], subjects...)
+	return nil
+}
 
 func (b *fakeBoard) CanRead(_ context.Context, _ allowance.Querier, account, room string) (bool, error) {
 	b.mu.Lock()

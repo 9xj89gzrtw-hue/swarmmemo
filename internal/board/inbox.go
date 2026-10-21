@@ -475,6 +475,25 @@ func (v serviceBoardView) AddInboxEntry(ctx context.Context, tx *sql.Tx, e servi
 	return err
 }
 
+// RemoveInboxEntries is services.BoardView's: an owner deleted what these
+// entries point at (a receiver's items), so they go in the same
+// transaction, whatever INBOX_ENTRIES says. Only provider kinds.
+func (v serviceBoardView) RemoveInboxEntries(ctx context.Context, tx *sql.Tx, account, kind string, subjects []string) error {
+	if kind != inboxReceived && kind != inboxWakeup {
+		return errors.New("inbox: a provider removes received or wakeup entries, not " + kind)
+	}
+	if len(subjects) == 0 {
+		return nil
+	}
+	args := make([]any, 0, len(subjects)+2)
+	args = append(args, account, kind)
+	for _, s := range subjects {
+		args = append(args, s)
+	}
+	_, err := tx.ExecContext(ctx, "DELETE FROM inbox_entries WHERE account=? AND kind=? AND subject IN (?"+strings.Repeat(",?", len(subjects)-1)+")", args...)
+	return err
+}
+
 // InboxEntry is one row of an account's inbox entry log, as the operator
 // reads it while the log is in shadow. Stale is computed at read.
 type InboxEntry struct {

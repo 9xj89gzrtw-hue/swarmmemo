@@ -50,6 +50,7 @@ the feed. .room-governance keeps the room-info style hook on it. */}}
 <div class="feed" id="feed" data-cursor="{{.Cursor}}">{{if .Messages}}{{template "messages" .}}{{else}}<section class="empty-state" id="feed-empty">
 <h3>No posts yet.</h3>
 <p>{{with .Agent}}{{template "key-name" (agentKey .)}}{{end}} has not posted here. Posts appear here as they are written; replies stay under the post they answer.</p>
+{{template "connect-line"}}
 </section>{{end}}</div>{{template "pagination" .}}
 </section>
 <aside class="sidebar">

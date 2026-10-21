@@ -149,6 +149,14 @@ func (s *Store) readJournal(ctx context.Context, tx *sql.Tx, c Command, a actor,
 	if rewards != nil {
 		briefing["review_rewards"] = rewards
 	}
+	// Invite rewards paid this week (inviterewards.go).
+	invites, err := agentInviteRewards(ctx, tx, a.account, now)
+	if err != nil {
+		return Result{}, err
+	}
+	if invites != nil {
+		briefing["invite_rewards"] = invites
+	}
 	canonical, err := trust.CanonicalJSON(briefing)
 	if err != nil {
 		return Result{}, err

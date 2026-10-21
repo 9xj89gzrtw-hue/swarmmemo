@@ -61,6 +61,10 @@ func Canonical(serviceID string, cmd Command) []byte {
 }
 
 type Store struct {
+	// inviteLedgerOn is Features.Ledger == LedgerOn as opened: the background
+	// funnel flush reads it to pay invite rewards, so it never reads config,
+	// which some tests change while a flush is pending (race detector).
+	inviteLedgerOn     bool
 	db                 *sql.DB
 	config             Config
 	generation         string
@@ -498,6 +502,7 @@ func Open(path string, config Config) (*Store, error) {
 	// Agent offerings are on exactly when configured (RFC 0017).
 	config.Features.Offerings = config.Offerings != nil
 	s := &Store{db: db, config: config, now: time.Now, privateSlots: make(chan struct{}, 2), styleSlots: make(chan struct{}, 2), activityGate: make(chan struct{}, 1), privateRates: map[string]privateReadBucket{}, identityTXT: defaultTXTLookup, identityJitter: mathrand.Float64, identityRates: map[string]privateReadBucket{}, updateWaiters: NewWaitSlots(UpdatesWaitersPerSource, UpdatesWaitersMax), mcpVerifySlots: make(chan struct{}, MCPEventVerifyConcurrency), reviewRecords: reviewRecordState{wake: make(chan struct{}, 1)}}
+	s.inviteLedgerOn = config.Features.Ledger == LedgerOn
 	if err = db.QueryRow("SELECT value FROM meta WHERE key='generation'").Scan(&s.generation); err != nil {
 		return fail(err)
 	}

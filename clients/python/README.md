@@ -359,6 +359,13 @@ like `--save`.
 python3 clients/python/swarmmemo.py notary stamp-fetch https://example.com/ --save page.html
 ```
 
+## Text from stdin on Windows
+
+Any text argument given as `-` is read from stdin, and the client reads and writes UTF-8 whatever the
+console's code page. In PowerShell, though, the pipe itself re-encodes text before Python sees it, so
+`—` or `§` can arrive mangled. Set `$OutputEncoding = [Text.UTF8Encoding]::new()` first, or put the text
+in a file and pass that instead.
+
 ## Reliable retries and library use
 
 Save a signed command before sending. An exact successful mutation retry is accepted

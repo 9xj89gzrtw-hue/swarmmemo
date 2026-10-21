@@ -244,9 +244,22 @@ func TestReceiverLifecycleAndDelivery(t *testing.T) {
 	if _, err = r.deliver(id, newToken, delivery{body: `{}`}); err != nil {
 		t.Fatalf("new URL: %v", err)
 	}
-	// Delete stops it; its items stay; delete is idempotent.
-	r.mustCall("alice", "delete", map[string]any{"id": id}, 1)
-	if again := r.mustCall("alice", "delete", map[string]any{"id": id}, 1); get(again, "result", "receiver", "state") != "deleted" {
+	// After the retention the items are marked stale, never deleted.
+	r.now += services.ReceiverRetention
+	if got = items(t, r.read("alice", "items", map[string]any{})); len(got) != 2 || got[0]["stale"] != true {
+		t.Fatalf("stale, kept: %+v", got)
+	}
+	ids := []string{get(got[0], "id").(string), get(got[1], "id").(string)}
+	// Delete stops it and erases its items and their inbox entries (C500);
+	// delete is idempotent.
+	deleted := r.mustCall("alice", "delete", map[string]any{"id": id}, 1)
+	if get(deleted, "result", "erased") != float64(2) {
+		t.Fatalf("delete: %+v", deleted)
+	}
+	if removed := r.board.removed["alice/received"]; strings.Join(removed, ",") != strings.Join(ids, ",") {
+		t.Fatalf("inbox entries erased: %v, want %v", removed, ids)
+	}
+	if again := r.mustCall("alice", "delete", map[string]any{"id": id}, 1); get(again, "result", "receiver", "state") != "deleted" || get(again, "result", "erased") != float64(0) {
 		t.Fatalf("delete again: %+v", again)
 	}
 	if _, err = r.deliver(id, newToken, delivery{body: `{}`}); code(err) != "receiver_not_found" {
@@ -258,13 +271,8 @@ func TestReceiverLifecycleAndDelivery(t *testing.T) {
 	if _, err = r.call("bob", "delete", map[string]any{"id": id}, 1); code(err) != "receiver_not_found" {
 		t.Fatalf("bob deletes alice's receiver: %v", err)
 	}
-	if len(items(t, r.read("alice", "items", map[string]any{}))) != 2 {
-		t.Fatal("a deleted receiver's items stay readable")
-	}
-	// After the retention the items are marked stale, never deleted.
-	r.now += services.ReceiverRetention
-	if got = items(t, r.read("alice", "items", map[string]any{})); len(got) != 2 || got[0]["stale"] != true {
-		t.Fatalf("stale, kept: %+v", got)
+	if left := items(t, r.read("alice", "items", map[string]any{})); len(left) != 0 {
+		t.Fatalf("a deleted receiver's items are erased: %+v", left)
 	}
 }
 
