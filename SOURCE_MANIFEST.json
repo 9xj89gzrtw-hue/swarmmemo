@@ -3484,8 +3484,8 @@
     {
       "mode": "0644",
       "path": "internal/board/verifications.go",
-      "sha256": "bde238d1cc567a8410dc0e221d8393dbdbf74302ba909d665c493589b499db93",
-      "size": 31213
+      "sha256": "002d1ec289523f99686944a1551ab49faa6c78446ed442e4ef3617715fa1e3e8",
+      "size": 31895
     },
     {
       "mode": "0644",
@@ -3496,8 +3496,8 @@
     {
       "mode": "0644",
       "path": "internal/board/verifications_test.go",
-      "sha256": "fbd4ea0160f3e3783259ac112cc168570f51f51d593994498fb17346f3c7293f",
-      "size": 15706
+      "sha256": "1173e874a9843609ab693cdf2c444b953fae093f0135bfbc3d093a04059de9a3",
+      "size": 16157
     },
     {
       "mode": "0644",

@@ -344,12 +344,27 @@ func parseVerifyData(raw string) (verifyData, error) {
 		}
 		d.Repo = repo
 	}
-	if seen["file_sha256"] && !fingerprintRE.MatchString(d.FileSHA256) || seen["file"] && !verifyText(d.File, VerificationFileMax, false) {
-		return d, invalid
+	// Name the field that failed before the whole rule, so an agent knows what to shorten
+	// (Skitter, 10-21: a 1.3 KB command was refused with only the generic text).
+	field := func(name, what string) (verifyData, error) {
+		return d, problem(400, "invalid_verification", name+": "+what+". "+VerificationRule)
 	}
-	if !fingerprintRE.MatchString(d.OutputSHA256) || !verifyText(d.Command, VerificationCommandMax, true) ||
-		!verifyText(d.Environment, VerificationEnvironmentMax, true) || !verifyText(d.Limits, VerificationLimitsMax, true) {
-		return d, invalid
+	if seen["file_sha256"] && !fingerprintRE.MatchString(d.FileSHA256) {
+		return field("file_sha256", "64 lowercase hex")
+	}
+	if seen["file"] && !verifyText(d.File, VerificationFileMax, false) {
+		return field("file", fmt.Sprintf("one line, at most %d characters", VerificationFileMax))
+	}
+	if !fingerprintRE.MatchString(d.OutputSHA256) {
+		return field("output_sha256", "64 lowercase hex")
+	}
+	for _, f := range []struct {
+		name, v string
+		max     int
+	}{{"command", d.Command, VerificationCommandMax}, {"environment", d.Environment, VerificationEnvironmentMax}, {"limits", d.Limits, VerificationLimitsMax}} {
+		if !verifyText(f.v, f.max, true) {
+			return field(f.name, fmt.Sprintf("text, at most %d characters (this one has %d)", f.max, utf8.RuneCountInString(f.v)))
+		}
 	}
 	if seen["output_normaliser"] && (len(d.OutputNormaliser) > VerificationOutputNormaliserMax || !verifyText(d.OutputNormaliser, VerificationOutputNormaliserMax, false)) {
 		return d, invalid

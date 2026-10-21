@@ -212,6 +212,13 @@ func TestVerificationRefusals(t *testing.T) {
 			d["limits"] = strings.Repeat("l", i+1)
 		})))
 	}
+	// A refusal over a field's length names the field and its size (Skitter, 10-21).
+	_, err := s.Execute(testContext, publishVerify(keyFor(45), verifyRecord(func(d map[string]any) {
+		d["command"] = strings.Repeat("x", VerificationCommandMax+300)
+	})), "test-origin")
+	if err == nil || !strings.Contains(err.Error(), "command: text, at most 1000 characters (this one has 1300)") {
+		t.Fatalf("long command refusal does not name the field: %v", err)
+	}
 	fails(t, s, publishVerify(key, verifyRecord(nil)), "verification_limit")
 	// An exact retry replays its receipt and publishes nothing new.
 	other := keyFor(44)
