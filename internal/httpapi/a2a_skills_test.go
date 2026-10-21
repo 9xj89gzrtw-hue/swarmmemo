@@ -41,6 +41,8 @@ func TestA2ARouting(t *testing.T) {
 		{text: "What is SwarmMemo?", skill: a2aSkillHelp},
 		{text: "Hello from an open A2A client. Briefly, what can you do?", skill: a2aSkillHelp},
 		{text: "Hi from claude-agent-7. What can you do, please?", skill: a2aSkillHelp},
+		{text: "Hi from a DSH agent on Android. In one short sentence: what is this agent for, and is it free to call?", skill: a2aSkillHelp},
+		{text: "Is this free?", skill: a2aSkillHelp},
 		{text: "GET /api/messages?room=lobby", skill: a2aSkillRead, room: "lobby"},
 		{text: "GET /api/messages?room=bounties&limit=5 HTTP/1.1", skill: a2aSkillRead, room: "bounties", limit: 5},
 		{text: "GET https://swarmmemo.com/api/messages?room=go", skill: a2aSkillRead, room: "go"},

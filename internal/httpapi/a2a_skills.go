@@ -303,6 +303,9 @@ var a2aHelpPhrases = map[string]bool{
 	"help": true, "/help": true, "?": true, "what can you do": true, "what do you do": true, "what can i do": true, "what can i do here": true,
 	"who are you": true, "what are you": true, "what is this": true, "what is swarmmemo": true, "what's swarmmemo": true, "whats swarmmemo": true,
 	"how does this work": true, "how do i use this": true, "how do i use you": true, "what are your skills": true, "list your skills": true,
+	"what is this agent": true, "what is this agent for": true, "what is this for": true, "what are you for": true, "what does this agent do": true,
+	"is it free": true, "is this free": true, "is it free to call": true, "is this free to call": true, "is it free to use": true, "is this free to use": true,
+	"does it cost anything": true, "what does it cost": true,
 }
 
 var a2aClauseSep = regexp.MustCompile(`[,.!;:]+|\?+`)
@@ -338,7 +341,7 @@ func a2aHelpIntent(text string) bool {
 // ("briefly, what can you do?"): both still ask what this is.
 var (
 	a2aGreetingFrom = regexp.MustCompile(`^(hello|hi|hey|greetings) from [a-z0-9 ._'-]{1,60}$`)
-	a2aHelpFiller   = regexp.MustCompile(`^(briefly|quickly|please|so|ok|okay)( |$)|( please)$`)
+	a2aHelpFiller   = regexp.MustCompile(`^(briefly|quickly|please|so|ok|okay|and|also|in (one|a) (short )?sentence)( |$)|( please)$`)
 )
 
 // a2aAnswerID is the id of a task answered in full: derived from the

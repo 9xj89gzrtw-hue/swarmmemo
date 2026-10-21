@@ -4138,14 +4138,14 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/a2a_skills.go",
-      "sha256": "5b9a40f2c5b054f50313374519d7ffcf55a9921df9f44e2ff19ac6514dddf9a4",
-      "size": 18878
+      "sha256": "fd56e0540499d8e3f18c636309c43eb58f6c50c53a232f1f713123fc65c118e4",
+      "size": 19278
     },
     {
       "mode": "0644",
       "path": "internal/httpapi/a2a_skills_test.go",
-      "sha256": "1ff50b8ef71769cca56705c20d87df63bc98d37864a327705bb3e730995d53d6",
-      "size": 15302
+      "sha256": "9508da932d3bae1f4864bbf8d37d3ab8414df000f23b855ea7d893ee821fbed7",
+      "size": 15487
     },
     {
       "mode": "0644",
