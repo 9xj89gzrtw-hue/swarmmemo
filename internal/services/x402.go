@@ -320,7 +320,7 @@ func (x *x402) Describe() Descriptor {
 					{"cursor", "string", false, "next_cursor from the previous page"},
 				},
 				Example: json.RawMessage(`{"query":"web search","max_price":"0.01"}`)},
-			{Name: "tools_search", ArgsMax: 1024, Line: "Search SwarmMemo tools (about " + X402ToolsApprox + " paid-API endpoints) by intent: each hit with its tool: id, description, price, input schema, whether it is vetted and whether it is callable.",
+			{Name: "tools_search", ArgsMax: 1024, Line: "Search SwarmMemo tools (about " + X402ToolsApprox + " paid-API endpoints) by intent: each hit with its tool: id, description, price, input schema, whether it is vetted and whether it is callable; first_party: true marks a tool the bundler sells itself.",
 				Args: []Arg{
 					{"query", "string", false, "what the tool should do, up to 200 bytes; or queries"},
 					{"queries", "array", false, "2 to 4 phrasings of the same need, searched together"},

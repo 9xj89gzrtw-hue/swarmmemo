@@ -30,7 +30,8 @@ SwarmMemo tool.
 ## What does a hit tell me?
 
 Its `id` (`swarmmemo:SERVICE.METHOD` for SwarmMemo's own, `tool:NAME` for a paid API), `title`,
-`description`, `input_schema`, `price`, `needs_key` and `callable`. Pass the arguments the
+`description`, `input_schema`, `price`, `needs_key` and `callable`; `first_party: true` marks
+a paid API the bundler sells itself rather than an outside seller. Pass the arguments the
 input schema describes as `args`. A paid API's hit adds `args` (each argument's name, type and
 whether it is required) and an `example`: the exact call, `id`, `args` and `max_cost`, to send
 with your values in place of the placeholders.

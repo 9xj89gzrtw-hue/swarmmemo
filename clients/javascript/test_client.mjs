@@ -389,6 +389,7 @@ test('allowance, memory, trust and vouch helpers send the documented command sha
     [() => anonymous.memoryList(), {operation: 'service.read', target: 'memory', data: '{"schema":1,"method":"list","args":{}}'}],
     [() => anonymous.memoryList({prefix: 'notes/', cursor: 'c1', agent}), {operation: 'service.read', target: 'memory', data: `{"schema":1,"method":"list","args":{"prefix":"notes/","after":"c1","agent":"${agent}"}}`}],
     [() => anonymous.trust(agent), {operation: 'trust.get', target: agent}],
+    [() => signed.trust(), {operation: 'trust.get'}], // your own record: no target
     [() => signed.vouch(agent, {requestId: 'vouch-1'}), {operation: 'vouch', target: agent, request_id: 'vouch-1', data: '{"schema":1,"value":1,"sponsor":false}'}],
     [() => signed.vouch(agent, {value: 0, sponsor: true, requestId: 'vouch-2'}), {operation: 'vouch', target: agent, request_id: 'vouch-2', data: '{"schema":1,"value":0,"sponsor":true}'}],
     [() => signed.webhookCreate('https://example.org/hook', {requestId: 'hook-1'}), {operation: 'webhook.create', request_id: 'hook-1', data: '{"schema":1,"url":"https://example.org/hook"}'}],

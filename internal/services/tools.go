@@ -429,8 +429,9 @@ func namesCapability(query string, keywords []string) bool {
 }
 
 // catalogueTools maps the paid-API search's answer to search hits: id,
-// title, description, input schema and credit price; no listing's upstream,
-// host or payment detail.
+// title, description, input schema and credit price, and first_party when the
+// bundler sells the tool itself; no listing's upstream, host or payment
+// detail.
 func catalogueTools(raw json.RawMessage) ([]toolHit, bool) {
 	var page struct {
 		Hits []struct {
@@ -441,6 +442,7 @@ func catalogueTools(raw json.RawMessage) ([]toolHit, bool) {
 			Status      string          `json:"summary_status"`
 			Callable    bool            `json:"callable"`
 			WhyNot      string          `json:"why_not"`
+			FirstParty  bool            `json:"first_party"`
 			Cost        *int64          `json:"cost"`
 			MaxCost     int64           `json:"max_cost"`
 			Schema      json.RawMessage `json:"input_schema"`
@@ -466,6 +468,9 @@ func catalogueTools(raw json.RawMessage) ([]toolHit, bool) {
 			"summary_status": h.Status, "price": price, "needs_key": !page.Tools.WithoutKey, "callable": h.Callable, "text_is_untrusted": true}
 		if h.WhyNot != "" {
 			entry["why_not"] = h.WhyNot
+		}
+		if h.FirstParty {
+			entry["first_party"] = true
 		}
 		if len(h.Schema) > 0 {
 			entry["input_schema"] = h.Schema

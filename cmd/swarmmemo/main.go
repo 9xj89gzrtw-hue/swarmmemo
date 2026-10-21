@@ -424,6 +424,8 @@ func serve() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// Cancel long-lived SSE requests before waiting for graceful HTTP shutdown.
+	// This cancels every request in flight at SIGTERM too: those answer 503
+	// with Retry-After, never 500 (httpapi goingAway, C498).
 	server.BaseContext = func(net.Listener) context.Context { return ctx }
 	go func() {
 		ticker := time.NewTicker(time.Hour)

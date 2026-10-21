@@ -476,6 +476,7 @@ type bundlerHit struct {
 	Live                   *bool
 	Schema                 json.RawMessage
 	SchemaCut              bool
+	PayTo                  []EVMAddress // where the listing says payments go (bundlerPayTo)
 }
 
 type bundlerSearchPage struct {
@@ -534,6 +535,7 @@ func parseBundlerSearchPage(raw []byte) (bundlerSearchPage, error) {
 			hit.Price, hit.Priced = p, true
 		}
 		hit.Schema, hit.SchemaCut = bundlerSchemaOf(h.InputSchema)
+		hit.PayTo = bundlerPayTo(rawHit)
 		page.hits = append(page.hits, hit)
 	}
 	return page, nil
@@ -723,6 +725,9 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 		if why != "" {
 			e["why_not"] = why
 		}
+		if f.firstParty(h.PayTo) || f.firstParty(f.cachedPayTo(h.ID)) {
+			e["first_party"] = true
+		}
 		if h.Priced {
 			e["price_usd"], e["cost"] = formatUnits(h.Price, 6), price.For(bundlerCost(h.Price))
 			e["price_source"] = map[bool]string{true: "probe", false: "listing"}[h.Probed]
@@ -777,6 +782,67 @@ func (x *x402) bundlerHosts(ctx context.Context, hits []bundlerHit) map[string]s
 	return out
 }
 
+// bundlerPayTo is the EVM addresses a tool's listing (a search hit or its
+// descriptor) says its payments go to: pay_to, payTo or recipient on the
+// listing, its payment block, or an x402 accepts[] entry of either. Anything
+// else is skipped.
+func bundlerPayTo(listing json.RawMessage) []EVMAddress {
+	var out []EVMAddress
+	var walk func(raw json.RawMessage, depth int)
+	walk = func(raw json.RawMessage, depth int) {
+		var o map[string]json.RawMessage
+		if depth > 2 || json.Unmarshal(raw, &o) != nil || o == nil {
+			return
+		}
+		for _, k := range []string{"pay_to", "payTo", "recipient"} {
+			var text string
+			if json.Unmarshal(o[k], &text) == nil {
+				if a, ok := ParseEVMAddress(text); ok && a != (EVMAddress{}) {
+					out = append(out, a)
+				}
+			}
+		}
+		if depth == 0 {
+			walk(o["payment"], 1)
+		}
+		var accepts []json.RawMessage
+		if json.Unmarshal(o["accepts"], &accepts) == nil {
+			for i, a := range accepts {
+				if i == 8 {
+					break
+				}
+				walk(a, 2)
+			}
+		}
+	}
+	walk(listing, 0)
+	return out
+}
+
+// firstParty says whether a tool paying to payTo is the bundler's own (C496):
+// one of them is the bundler's paying wallet (bundlers.frames.payer), so a
+// call's money goes from the bundler back to itself, not to an outside seller.
+func (f *bundlerState) firstParty(payTo []EVMAddress) bool {
+	if f.b.payer == (EVMAddress{}) {
+		return false
+	}
+	for _, a := range payTo {
+		if a == f.b.payer {
+			return true
+		}
+	}
+	return false
+}
+
+// cachedPayTo is the pay-to of a tool's cached descriptor, if any: a hit
+// whose listing leaves it out still shows first_party once tools_get read it.
+func (f *bundlerState) cachedPayTo(tool string) []EVMAddress {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, _ := f.descriptors.get(tool, time.Now())
+	return d.payTo
+}
+
 // bundlerSummary is the open catalogue's terms, in every bundler answer and
 // the resources read.
 func (x *x402) bundlerSummary(price Price) map[string]any {
@@ -814,6 +880,7 @@ type bundlerDescriptor struct {
 	schema             json.RawMessage
 	price              int64
 	priced             bool
+	payTo              []EVMAddress
 }
 
 func (x *x402) bundlerDescriptorOf(ctx context.Context, tool string) (bundlerDescriptor, error) {
@@ -860,6 +927,7 @@ func (x *x402) bundlerDescriptorOf(ctx context.Context, tool string) (bundlerDes
 	}
 	d.schema, _ = bundlerSchemaOf(w.Invocation.ParamsSchema)
 	d.price, d.priced = bundlerPrice(w.Payment.PriceHint)
+	d.payTo = bundlerPayTo(raw)
 	f.mu.Lock()
 	f.descriptors.put(tool, d, time.Now(), bundlerDescriptorTTL)
 	f.mu.Unlock()
@@ -939,6 +1007,9 @@ func (x *x402) bundlerToolRead(ctx context.Context, tool string, row bundlerTool
 	out := map[string]any{"id": bundlerToolID(tool), "title": d.title, "description": desc, "summary_status": status, "capabilities": d.capabilities,
 		"category": d.category, "host": d.host, "live": p.live, "payable": p.payable, "max_cost": price.For(x.fr.cfg.MaxPrice),
 		"tools": x.bundlerSummary(price), "call": bundlerCallNote, "text_is_untrusted": true}
+	if x.fr.firstParty(d.payTo) {
+		out["first_party"] = true
+	}
 	priceNow, priced := p.price, p.priced
 	if !priced {
 		priceNow, priced = d.price, d.priced

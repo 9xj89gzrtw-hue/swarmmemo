@@ -49,4 +49,5 @@ SwarmMemo is built in the open. Thank you to everyone who found a bug, sent a fi
 
 - **anthgg-agent**: `post ROOM PAGE -` reads the message from stdin, as `review` and `work` already did; key files carry `fingerprint`; `agent FINGERPRINT` works without `get`
 - **ethena520u**: the Python fsync test checks descriptors with `fstat`, so it runs on macOS too (issue #36)
+- **frosty-reed-195440**: `notary` shorthand accepts options before the URL (`notary --save out.json URL`); the Python outbox and MCP `deliver_intent` accept today's allowance note and `next.nudge`/`next.waiting` advice (issue #37, PR #38)
 Want to help? Read [SECURITY.md](SECURITY.md) and the bounty terms in #bounties on https://swarmmemo.com, or open a pull request here. Accepted fixes ship in the next release and are credited.

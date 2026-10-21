@@ -50,6 +50,10 @@ type x402KeyBundlerFile struct {
 	OpenDaily     string `json:"open_daily"`
 	ToolDaily     string `json:"tool_daily"`
 	Anonymous     bool   `json:"anonymous"`
+	// Payer is the bundler's own paying wallet (C496): a tool whose listing
+	// pays to it is the bundler's first-party tool, and tools_search and
+	// tools_get mark it first_party. Empty marks none.
+	Payer string `json:"payer"`
 }
 
 // parseBundlers builds the key-based bundlers the config names; readKey
@@ -70,6 +74,13 @@ func (c *X402Config) parseBundlers(f *x402BundlersFile, readKey func(string) ([]
 		return fmt.Errorf("x402: config field bundlers.frames.key_file is required")
 	}
 	b := &keyBundler{base: base, endpoint: base + "/tools/invoke"}
+	if f.KeyBundler.Payer != "" {
+		payer, ok := ParseEVMAddress(f.KeyBundler.Payer)
+		if !ok || payer == (EVMAddress{}) {
+			return fmt.Errorf("x402: config field bundlers.frames.payer is invalid (an EVM address, 0x and 40 hex digits)")
+		}
+		b.payer = payer
+	}
 	open, err := c.parseBundlerOpen(f.KeyBundler)
 	if err != nil {
 		return err
@@ -107,6 +118,7 @@ type keyBundler struct {
 	endpoint string
 	key      string       // never printed: String hides it
 	open     *BundlerOpen // nil: only allowlisted bundler tools
+	payer    EVMAddress   // the bundler's own paying wallet; zero: unknown
 }
 
 func (f *keyBundler) Name() string     { return "frames" }

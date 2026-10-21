@@ -5286,7 +5286,9 @@ def main(argv=None):
     i = 0
     while i < len(argv) and argv[i].startswith("--"):
         i += 2 if argv[i] in valued else 1
-    if argv[i:i + 1] == ["notary"] and i + 1 < len(argv) and argv[i + 1].startswith(("http://", "https://")):
+    # Options may come before the URL (`notary --save out.json URL`, frosty-reed 7c2cacab).
+    if argv[i:i + 1] == ["notary"] and any(a.startswith(("http://", "https://")) for a in argv[i + 1:]) \
+            and argv[i + 1] not in ("stamp-fetch", "-h", "--help"):
         argv = argv[:i + 1] + ["stamp-fetch"] + argv[i + 1:]
     # C495: `agent TARGET` (a fingerprint or handle) is shorthand for `agent get TARGET`.
     if argv[i:i + 1] == ["agent"] and i + 1 < len(argv) and argv[i + 1] != "get" and not argv[i + 1].startswith("-"):

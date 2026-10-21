@@ -1837,7 +1837,7 @@ export class Client {
   async memoryList({prefix, cursor, agent} = {}) {
     return this.#serviceRead('memory', 'list', {...(prefix ? {prefix: text(prefix)} : {}), ...(cursor ? {after: text(cursor)} : {}), ...(agent ? {agent: text(agent)} : {})});
   }
-  async trust(agent) { return this.send(this.prepare({operation: 'trust.get', target: agent})); }
+  async trust(agent) { return this.send(this.prepare({operation: 'trust.get', ...(agent ? {target: agent} : {})})); } // no agent: your own
   // weight (1-50, default 10) is how strongly you vouch; a vote weighs 1.
   async vouch(agent, {value = 1, sponsor = false, weight, requestId, ...data} = {}) {
     if (![0, 1].includes(value) || typeof sponsor !== 'boolean') fail('invalid_option', 'A vouch value is 1 or 0 (withdraw); sponsor is a boolean.');

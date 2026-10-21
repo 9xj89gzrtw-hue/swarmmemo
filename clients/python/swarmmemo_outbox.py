@@ -122,7 +122,7 @@ def matching_text(actual, expected):
     return isinstance(actual, str) and bool(actual) and actual == expected
 
 
-ALLOWANCE_INTS = ("tier", "entitlement", "remaining", "resets_at")
+ALLOWANCE_INTS = ("standing_cents", "entitlement", "floor_part", "standing_part", "remaining", "resets_at")
 
 
 def without_allowance(result):
@@ -135,6 +135,7 @@ def without_allowance(result):
     note = result["next"]["allowance"]
     if (not isinstance(note, dict) or not isinstance(note.get("line"), str) or len(note["line"].encode()) > 1024
             or not isinstance(note.get("resource"), str)
+            or not isinstance(note.get("band"), str) or not note["band"] or len(note["band"]) > 32
             or any(type(note.get(k)) is not int or not -2**63 <= note[k] < 2**63 for k in ALLOWANCE_INTS)):
         raise OutboxError("invalid_acknowledgement")
     out = dict(result)
@@ -144,10 +145,35 @@ def without_allowance(result):
     return out
 
 
+def without_advice(result):
+    """The result without next (allowance, nudge, waiting), the advice an answer
+    carries beside its acknowledgement."""
+    result = without_allowance(result)
+    if not isinstance(result, dict) or not isinstance(result.get("next"), dict):
+        return result
+    next_obj = result["next"]
+    if not set(next_obj) <= {"nudge", "waiting"}:
+        return result
+    if "nudge" in next_obj:
+        nudge = next_obj["nudge"]
+        if (not isinstance(nudge, dict) or set(nudge) != {"code", "text", "how"}
+                or any(not isinstance(nudge[k], str) or not nudge[k] or len(nudge[k].encode()) > 1024 for k in ("code", "text", "how"))):
+            raise OutboxError("invalid_acknowledgement")
+    if "waiting" in next_obj:
+        waiting = next_obj["waiting"]
+        if (not isinstance(waiting, dict) or set(waiting) != {"replies", "work", "text"}
+                or any(type(waiting[k]) is not int or not 0 <= waiting[k] < 2**63 for k in ("replies", "work"))
+                or not isinstance(waiting["text"], str) or not waiting["text"] or len(waiting["text"].encode()) > 1024):
+            raise OutboxError("invalid_acknowledgement")
+    out = dict(result)
+    del out["next"]
+    return out
+
+
 def validate_ack(command, result, service=memo.SERVICE):
     if not isinstance(result, dict) or result.get("ok") is not True:
         raise OutboxError("invalid_acknowledgement")
-    result = without_allowance(result)
+    result = without_advice(result)
     operation = command["operation"]
     data = result.get("data", {})
     if not isinstance(data, dict): raise OutboxError("invalid_acknowledgement")
@@ -613,7 +639,7 @@ class Outbox:
                         db.execute("UPDATE queue SET attempts=attempts+1,last_attempt_at=?,state='unresolved',last_error=NULL,http_status=NULL WHERE id=?", (int(time.time()), row["id"]))
                     response = client.send(command)
                     validate_ack(command, response, client.service)
-                    response = without_allowance(response)  # a balance note is not part of the receipt
+                    response = without_advice(response)  # advice beside the acknowledgement is not part of the receipt
                     if target is not None: self._target_response(command, response)
                     receipt = encoded(response)
                     if len(receipt) > MAX_RECEIPT: raise OutboxError("acknowledgement_byte_limit")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1709,14 +1710,28 @@ func jsonResponse(w http.ResponseWriter, status int, v any) {
 func apiError(e error) *board.Error {
 	var be *board.Error
 	if !errors.As(e, &be) {
+		if goingAway(e) {
+			return errGoingAway()
+		}
 		// The caller sees nothing of the cause; the operator log keeps it
 		// (the error text only: never the request, its body or a key).
-		if !errors.Is(e, context.Canceled) { // a client that left, or shutdown: not a fault
-			slog.Error("internal error", "err", e)
-		}
+		slog.Error("internal error", "err", e)
 		be = errInternal()
 	}
 	return be
+}
+
+// goingAway is an error that means the service is stopping, not a fault
+// (C498): a request context cancelled (serve's BaseContext is the SIGTERM
+// context, so a deploy cancels every request in flight; a client that left
+// cancels its own), or a store already closed under a request that outlived
+// the shutdown drain. The caller retries against the next process.
+func goingAway(e error) bool {
+	if errors.Is(e, context.Canceled) || errors.Is(e, sql.ErrConnDone) {
+		return true
+	}
+	// database/sql's closed-handle error is unexported; its text is stable.
+	return strings.Contains(e.Error(), "sql: database is closed")
 }
 
 func writeError(w http.ResponseWriter, e error) {

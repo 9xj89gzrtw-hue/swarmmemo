@@ -970,3 +970,71 @@ func FuzzBundlerSearchPage(f *testing.F) {
 		}
 	})
 }
+
+// bundlerPayer is the bundler's own paying wallet in the C496 tests.
+const bundlerPayer = "0xe62923133a417cee4241677865ed5a63f44f4b54"
+
+// TestBundlerFirstParty (C496): a tool whose listing pays to the bundler's
+// own wallet (bundlers.frames.payer) is the bundler's first-party tool;
+// tools_search, tools_get and the unified tools search mark it first_party.
+// Others, and every tool when no payer is configured, carry no flag.
+func TestBundlerFirstParty(t *testing.T) {
+	h, api := newBundlerHarness(t, `,"payer":"0X`+bundlerPayer[2:]+`"`, "")
+	api.hits = `[{"id":"` + toolVendor + `","title":"Coin price","description":"Price of a coin","payment":{"price_hint":"0.002","pay_to":"` + bundlerPayer + `"}},
+ {"id":"` + toolOK + `","title":"Weather","description":"Forecast","payment":{"price_hint":"0.002","accepts":[{"payTo":"0x52e200000000000000000000000000000000f3ea"}]}},
+ {"id":"` + toolUnvet + `","title":"Accepts","description":"Paid through accepts","payment":{"price_hint":"0.001","accepts":[{"payTo":"0x` + strings.ToUpper(bundlerPayer[2:]) + `"}]}},
+ {"id":"` + toolDead + `","title":"Quiet","description":"No pay-to in its hit","payment":{"price_hint":"0.001"}}]`
+	api.tools[toolDead] = strings.Replace(bundlerDescriptorJSON(toolDead, "dead.example.com", "Quiet"), `"price_hint":"0.002"`, `"price_hint":"0.002","accepts":[{"payTo":"`+bundlerPayer+`"}]`, 1)
+	page, err := h.bundlerRead(testSubject, "tools_search", `{"query":"coin price"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits := hitsByID(page)
+	for id, want := range map[string]any{"tool:" + toolVendorP: true, "tool:" + toolOK: nil, "tool:" + toolUnvet: true, "tool:" + toolDead: nil} {
+		if hits[id] == nil || hits[id]["first_party"] != want {
+			t.Errorf("tools_search %s first_party = %v, want %v", id, hits[id]["first_party"], want)
+		}
+	}
+	// tools_get reads the descriptor's pay-to; afterwards a search hit that
+	// leaves it out carries the flag too.
+	for id, want := range map[string]any{toolDead: true, toolOK: nil} {
+		tool, err := h.bundlerRead(testSubject, "tools_get", `{"id":"tool:`+id+`"}`)
+		if err != nil || tool["first_party"] != want {
+			t.Fatalf("tools_get %s first_party = %v (%v), want %v", id, tool["first_party"], err, want)
+		}
+	}
+	page, err = h.bundlerRead(testSubject, "tools_search", `{"query":"coin price"}`)
+	if err != nil || hitsByID(page)["tool:"+toolDead]["first_party"] != true {
+		t.Fatalf("a hit whose descriptor pays the bundler: %v %v", hitsByID(page)["tool:"+toolDead], err)
+	}
+	// The unified tools search passes the flag through.
+	raw, _ := json.Marshal(page)
+	unified, _ := catalogueTools(raw)
+	marked := 0
+	for _, hit := range unified {
+		if hit.entry["first_party"] == true {
+			marked++
+		}
+	}
+	if marked != 3 {
+		t.Fatalf("unified tools search marked %d first-party hits, want 3", marked)
+	}
+
+	// No payer configured: nothing is marked.
+	h2, api2 := newBundlerHarness(t, "", "")
+	api2.hits = api.hits
+	page, err = h2.bundlerRead(testSubject, "tools_search", `{"query":"coin price"}`)
+	if err != nil || len(hitsByID(page)) != 4 {
+		t.Fatalf("%v %v", page, err)
+	}
+	for id, hit := range hitsByID(page) {
+		if _, ok := hit["first_party"]; ok {
+			t.Errorf("%s first_party without a payer configured", id)
+		}
+	}
+	for _, bad := range []string{`"payer":"0x123"`, `"payer":"0x0000000000000000000000000000000000000000"`, `"payer":"e62923133a417cee4241677865ed5a63f44f4b54"`} {
+		if _, err := bundlerOpenConfig(t, bundlerTestCaps, `"open":true,`+bad, ""); err == nil || !strings.Contains(err.Error(), "bundlers.frames.payer") {
+			t.Errorf("config %s: %v", bad, err)
+		}
+	}
+}

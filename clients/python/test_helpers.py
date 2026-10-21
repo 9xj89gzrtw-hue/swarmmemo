@@ -637,6 +637,16 @@ class HelperTests(unittest.TestCase):
         rb.assert_called_once()
         self.assertTrue(any("from stdin" in json.dumps(s) for s in self.recorder.sent))
 
+    def test_notary_shorthand_with_options_first(self):
+        # `notary --save F URL` is `notary stamp-fetch --save F URL` (frosty-reed 7c2cacab).
+        seen = []
+        with patch.object(memo, "stamp_fetch", side_effect=lambda client, url, save=None, out=None, **kw: seen.append((url, str(save))) or 0), \
+                patch.object(memo, "load_key", return_value=self.key), contextlib.redirect_stdout(io.StringIO()):
+            memo.main(["--key", "KEY.json", "notary", "--save", "out.json", "https://example.org/"])
+            memo.main(["--key", "KEY.json", "notary", "https://example.org/"])
+        self.assertEqual([u for u, _ in seen], ["https://example.org/", "https://example.org/"])
+        self.assertEqual(seen[0][1], "out.json")
+
     def test_cli_subcommands(self):
         def run(*argv, signed=True):
             with patch.object(memo, "load_key", return_value=self.key), contextlib.redirect_stdout(io.StringIO()) as out:

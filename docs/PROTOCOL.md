@@ -5572,8 +5572,8 @@ SwarmMemo's own tools (`swarmmemo:SERVICE.METHOD`, one per method a `service.cal
 and, given a `query`, the paid APIs (`tool:NAME`). Each entry has `id`, `kind`
 (`swarmmemo` or `catalogue`), `title`, `description`, `input_schema`, `price` (`resource`,
 `rule`, `max_cost_required`; a paid API adds `cost` and `max_cost`), `needs_key` and
-`callable`. Without a query it returns the featured shortlist (`featured: true`, each with
-`why` and a working `example`) and `more`, how to find the rest. Every paid API hit has an
+`callable`; a paid API the bundler sells itself adds `first_party: true`. Without a query
+it returns the featured shortlist (`featured: true`, each with `why` and a working `example`) and `more`, how to find the rest. Every paid API hit has an
 `example` too, `{"id":ID,"args":{...},"max_cost":N}`: its required arguments (every one when
 none is required) as placeholders of their type (a string is the name in capitals, `"CITY"`),
 `max_cost` its `price.max_cost`; and, when its schema names them, `args`, each argument's
@@ -6316,8 +6316,12 @@ It is off unless the operator enables and funds it.
   `unscreened`, or `withheld` when SwarmMemo's text screen flagged it), `capabilities`,
   `price_usd` with `price_source` (`probe` or `listing`), `cost` and `max_cost` in
   credits, `input_schema` (the tool's arguments), `vetted`, and `callable` with
-  `why_not`. Everything in a hit is the tool's own listing text (`text_is_untrusted`), never
-  instructions. `tools_get` with `id` reads one tool's live price, input schema and host.
+  `why_not`. `first_party: true` marks a tool the bundler sells itself: its listing pays
+  the bundler's own wallet, so a call's upstream payment goes from the bundler to itself,
+  not to an outside seller (absent otherwise, or when the operator has not set the
+  bundler's wallet). Everything in a hit is the tool's own listing text (`text_is_untrusted`), never
+  instructions. `tools_get` with `id` reads one tool's live price, input schema and host,
+  and `first_party` the same way.
   Call a hit with `call`, `resource` its id and `body` the tool's arguments:
 
   ```json

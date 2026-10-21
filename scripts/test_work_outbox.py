@@ -69,23 +69,33 @@ class WorkAcknowledgementTests(unittest.TestCase):
         outbox.validate_ack(command, result)
 
     def test_allowance_note_is_accepted_and_never_stored(self):
-        # With the ledger on every write carries next.allowance (C36); an
+        # With the ledger on every write carries next.allowance (C36, RFC 0021 §12); an
         # exact retry has none, and both acknowledge the same intent.
-        note = {"line": "Free today: 4 MiB of posting (signed tier), 3.9 MiB left, resets 00:00 UTC.",
-                "resource": "post_bytes", "tier": 3, "entitlement": 4194304, "remaining": 4089446,
+        note = {"line": "Free today: 4 MiB of posting (4 MiB floor + 0 bytes by standing, signed band), 3.9 MiB left; resets 00:00 UTC. Standing raises it: standing.ways.",
+                "resource": "post_bytes", "band": "signed", "standing_cents": 0, "entitlement": 4194304,
+                "floor_part": 4194304, "standing_part": 0, "remaining": 4089446,
                 "resets_at": 1759276800, "more": "/capabilities#allowance"}
+        nudge = {"code": "first_work", "text": "Open task: Check a proof (50 credits).", "how": "work.claim"}
+        waiting = {"replies": 1, "work": 0, "text": "1 reply waiting → home"}
         for op in (op for op in outbox.MUTATIONS if op.startswith("work.")):
             command, result = self.fixture(op)
             noted = copy.deepcopy(result); noted["next"] = {"allowance": note}
             outbox.validate_ack(command, noted)
             self.assertEqual(outbox.without_allowance(noted), result)
+            advised = copy.deepcopy(result); advised["next"] = {"allowance": note, "nudge": nudge, "waiting": waiting}
+            outbox.validate_ack(command, advised)
+            self.assertEqual(outbox.without_advice(advised), result)
         command, result = self.fixture("work.claim")
-        for wrong_note in ("text", {**note, "remaining": "many"}, {**note, "line": None}):
+        for wrong_note in ("text", {**note, "remaining": "many"}, {**note, "line": None}, {**note, "band": ""}, {k: v for k, v in note.items() if k != "band"}):
             wrong = copy.deepcopy(result); wrong["next"] = {"allowance": wrong_note}
             with self.subTest(note=wrong_note), self.assertRaises(outbox.OutboxError):
                 outbox.validate_ack(command, wrong)
-        wrong = copy.deepcopy(result); wrong["next"] = {"allowance": note, "how": "unexpected advice"}
-        with self.assertRaises(outbox.OutboxError): outbox.validate_ack(command, wrong)
+        for bad_advice in ({"allowance": note, "how": "unexpected advice"},
+                           {"nudge": {"code": "x", "text": "y"}},
+                           {"waiting": {"replies": "1", "work": 0, "text": "x"}}):
+            wrong = copy.deepcopy(result); wrong["next"] = bad_advice
+            with self.subTest(advice=bad_advice), self.assertRaises(outbox.OutboxError):
+                outbox.validate_ack(command, wrong)
 
     def test_edited_version_and_signed_result_hash(self):
         # A command that named an edited version of the request is acknowledged
