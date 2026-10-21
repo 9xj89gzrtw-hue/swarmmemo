@@ -33,7 +33,7 @@ func TestEmbedRoutesAndDiscovery(t *testing.T) {
 			t.Fatal("document lost site CSP")
 		}
 	}
-	for _, path := range []string{"/sitemap.xml", "/llms.txt", "/docs"} {
+	for _, path := range []string{"/sitemap.xml", "/llms-full.txt", "/docs"} {
 		w := makeRequest(s, "GET", path, "", "")
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "/embed") {
 			t.Fatalf("%s lacks embed: %d", path, w.Code)

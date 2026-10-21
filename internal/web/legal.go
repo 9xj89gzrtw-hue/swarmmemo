@@ -30,6 +30,9 @@ type legalView struct {
 	Questions [][2]string
 	HowTo     string
 	Steps     []string
+	// Board is the line pointing a tool seeker at the board (boardpointer.go):
+	// on the tool pages and their job pages, nil elsewhere.
+	Board *boardPointer
 }
 
 // pageMeta is the title (when it is not the document's heading) and the meta
@@ -71,6 +74,9 @@ var legalViews = func() map[string]*legalView {
 		if job, ok := publicdocs.JobFor(path); ok {
 			title, description = job.Title, job.Description
 		}
+		if c, ok := publicdocs.CompareFor(path); ok {
+			title, description = c.Title, c.Description
+		}
 		if title == "" {
 			title = heading
 		}
@@ -80,6 +86,7 @@ var legalViews = func() map[string]*legalView {
 			Markdown:    path + ".md",
 			Body:        markdown.Render(text, markdown.Options{Anchors: true, SkipTitle: true, Document: true}),
 			Questions:   questionAnswers(text),
+			Board:       boardPointerFor(path),
 		}
 		if path == "/trust-model" {
 			views[path].Body = withTrustModelFigure(views[path].Body)

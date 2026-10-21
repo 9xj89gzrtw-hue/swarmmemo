@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"swarmmemo/internal/services"
 	"swarmmemo/internal/services/servicestest"
 )
 
@@ -55,7 +56,7 @@ func TestServiceArgErrorsNameTheArgument(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := message(tc.c)
-		if !strings.Contains(got, tc.want) || !strings.Contains(got, "services.list") || strings.Contains(got, "strict JSON") {
+		if !strings.Contains(got, tc.want) || !strings.Contains(got, services.ListWhere) || strings.Contains(got, "strict JSON") {
 			t.Errorf("%s %s: message %q, want it to contain %q", tc.c.Target, tc.c.Data, got, tc.want)
 		}
 		for _, sent := range []string{"1h", "everyone", "10.0.0.0/8", "ten", "yes"} {

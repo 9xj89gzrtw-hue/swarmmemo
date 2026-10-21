@@ -180,8 +180,8 @@ func TestMPPTopupOverHTTP(t *testing.T) {
 	if p, _ := dig(caps, "payments", "protocols").([]any); len(p) != 2 || p[1] != "mpp" || dig(caps, "topup", "mpp", "method") != "evm" {
 		t.Fatalf("capabilities payments %v topup %v", caps["payments"], caps["topup"])
 	}
-	if body := get(s, "/llms.txt", "").Body.String(); !strings.Contains(body, "/protocol.md#mpp") {
-		t.Fatal("llms.txt has no MPP line while MPP is on")
+	if body := get(s, "/llms-full.txt", "").Body.String(); !strings.Contains(body, "/protocol.md#mpp") {
+		t.Fatal("llms-full.txt has no MPP line while MPP is on")
 	}
 }
 

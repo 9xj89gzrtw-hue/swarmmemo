@@ -776,3 +776,45 @@ func TestWorkStandingOwedUSDCFreesSeatAndCaps(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A round reads its request from the standing root, so a moderator's hide on
+// the root removes the request from every round too: work.get and the
+// works.list excerpt carry none, while the round's own result stays readable.
+func TestWorkStandingHiddenRootRemovesRoundRequest(t *testing.T) {
+	s := rewardStore(t)
+	owner, worker := keyFor(208), keyFor(209)
+	mintCredit(t, s, keyID(owner), allowance.Paid, 5000)
+	id := rewardRequest(t, s, owner, "lobby")
+	run(t, s, standingCreate(s, owner, id, map[string]any{"seats": 2, "reward": 100}, 10*86400))
+	round, claim := standingClaim(t, s, worker, id, nil)
+	run(t, s, claim)
+	listedRequest := func() *WorkRequest {
+		t.Helper()
+		for _, w := range run(t, s, Command{Operation: "works.list", Room: "lobby", Limit: 50}).Data["works"].([]Work) {
+			if w.ID == round {
+				return w.Request
+			}
+		}
+		t.Fatal("the round is not listed")
+		return nil
+	}
+	if r := getTestWork(t, s, round).Request; r == nil || r.Text != "Review my patch for credits" || r.VersionID != id {
+		t.Fatalf("round request before the hide: %+v", r)
+	}
+	if r := listedRequest(); r == nil || r.Text != "Review my patch for credits" {
+		t.Fatalf("listed round request before the hide: %+v", r)
+	}
+	if _, err := s.db.Exec("UPDATE events SET hidden=1,hidden_by='moderator' WHERE id=?", id); err != nil {
+		t.Fatal(err)
+	}
+	w := getTestWork(t, s, round)
+	if w.Request != nil {
+		t.Fatalf("hidden standing request still shown on the round: %+v", w.Request)
+	}
+	if w.StandingID != id {
+		t.Fatalf("round lost its standing link: %+v", w)
+	}
+	if r := listedRequest(); r != nil {
+		t.Fatalf("hidden standing request still in the listing excerpt: %+v", r)
+	}
+}

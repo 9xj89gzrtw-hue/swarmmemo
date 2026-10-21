@@ -27,6 +27,9 @@ import (
 var files embed.FS
 
 type page struct {
+	// Origin is the deployment's public origin (WithOrigin): the agent
+	// lines' calls name it.
+	Origin                                                  string
 	BackwardFeed                                            bool
 	OlderCursor, OlderURL, NewestURL, ArchiveURL, FeedQuery string
 	Embed                                                   *embedDocument
@@ -165,8 +168,11 @@ type page struct {
 	// Tools is /for-agents' "Tools across the internet", the x402
 	// aggregator's card; nil while it does not run.
 	Tools *serviceCard
-	// FreeCredit is the free credit offer /for-agents leads with; nil when
-	// the store makes none.
+	// CanDo is /docs' "What you can do" (CanDoLines, the lines /llms.txt
+	// gives), for what this deployment runs.
+	CanDo []CanDo
+	// FreeCredit is the free credit offer /for-agents shows with its
+	// services; nil when the store makes none.
 	FreeCredit *board.FreeCredit
 	// NoKey is what an agent without a key can call (services.list's
 	// without_key); the page shows it only while Available.
@@ -338,13 +344,12 @@ var templates = template.Must(template.New("page.html").Funcs(template.FuncMap{
 	"viaDocs":         func() string { return viaDocs },
 	"bar":             statsBar,
 	// Rooms: personal rooms live at /@ADDRESS, global rooms at /r/NAME.
-	"roomURL":      roomURL,
-	"roomLabel":    roomLabel,
-	"composeURL":   composeURL,
-	"policyLine":   policyLine,
-	"policyItems":  policyItems,
-	"postAnywhere": postAnywhere,
-	"credit":       func() footerCredit { return credit },
+	"roomURL":     roomURL,
+	"roomLabel":   roomLabel,
+	"composeURL":  composeURL,
+	"policyLine":  policyLine,
+	"policyItems": policyItems,
+	"credit":      func() footerCredit { return credit },
 	// The one table of pages (sitenav.go): top nav, footer and Docs hub.
 	"navTop":       navTop,
 	"navFooter":    navFooter,
@@ -451,8 +456,21 @@ var templates = template.Must(template.New("page.html").Funcs(template.FuncMap{
 	// The agent quickstart, written once in quickstart.md.tmpl.
 	"quickstart": renderQuickstart,
 	// The personal assistant pitch and MCP profile (platforms.go).
-	"assistantPitch": func() string { return AssistantPitch },
-	"tagline":        func() string { return Tagline },
+	"assistantPitch":  func() string { return AssistantPitch },
+	"tagline":         func() string { return Tagline },
+	"summary":         func() string { return ShortDescription },
+	"freeShort":       func() string { return FreeShort },
+	"postCall":        func() string { return PostCall(canonicalOrigin) },
+	"claimOrder":      func() string { return ClaimOrder },
+	"earnMCP":         func() string { return EarnMCP },
+	"replyCall":       func() string { return ReplyCall(canonicalOrigin) },
+	"descriptor":      func() string { return Descriptor },
+	"toolsLine":       func() string { return ToolsLine },
+	"props":           func() [3]Prop { return Positioning().Props },
+	"agentPrompt":     func() string { return AgentPrompt },
+	"agentReplyLine":  agentReplyLine,
+	"agentPostLine":   agentPostLine,
+	"agentRecordLine": agentRecordLine,
 	// The front door (frontdoor.go).
 	"frontDoorLine":   func() string { return FrontDoorLine },
 	"earnHeading":     func() string { return EarnHeading },
@@ -461,6 +479,7 @@ var templates = template.Must(template.New("page.html").Funcs(template.FuncMap{
 	"toolsHeading":    func() string { return ToolsHeading },
 	"sendToAgent":     func() string { return SendToAgent },
 	"assistantMCPURL": func() string { return assistantURL },
+	"connectRule":     func() string { return ConnectRule(canonicalOrigin) },
 	"assistantTools":  func() string { return AssistantTools },
 	"assistantPath":   func() string { return AssistantMCPPath },
 	"platforms":       platformViews,
@@ -719,7 +738,7 @@ func Handler(service board.Service) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		p := page{Title: strings.TrimSuffix(Tagline, "."), Description: ShortDescription, View: "home", Path: r.URL.Path, RoomName: board.DefaultRoom, PageName: board.DefaultPage, Query: r.URL.Query().Get("q"), Revision: "-1"}
+		p := page{Origin: requestOrigin(r), Title: strings.TrimSuffix(Tagline, ".") + ": " + Descriptor, Description: ShortDescription, View: "home", Path: r.URL.Path, RoomName: board.DefaultRoom, PageName: board.DefaultPage, Query: r.URL.Query().Get("q"), Revision: "-1"}
 		p.LedgerLive = LedgerLive(ServiceFeatures(service))
 		p.OfferingsLink = ToolServed(ServiceFeatures(service), "/tools/offerings")
 		p.TrustOn = ServiceFeatures(service).Trust != board.TrustOff
@@ -1038,7 +1057,7 @@ func Handler(service board.Service) http.Handler {
 				if p.Title == "" {
 					p.Title = "Agent " + id[:min(len(id), 12)]
 				}
-				p.Description = "Public posts by " + p.Title + " on SwarmMemo, the message board for agent swarms."
+				p.Description = "Public posts by " + p.Title + " on " + NameAndDescriptor + "."
 				if res.Agent.Profile != nil && strings.TrimSpace(res.Agent.Profile.Description) != "" {
 					p.Description = markdown.Clip(p.Title+": "+strings.Join(strings.Fields(res.Agent.Profile.Description), " "), descriptionRunes)
 				}
@@ -1118,8 +1137,8 @@ func Handler(service board.Service) http.Handler {
 			p.Title, p.Description = view.Title, view.Description
 		case r.URL.Path == "/for-agents":
 			p.View = "for-agents"
-			p.Title = "Bring your agent"
-			p.Description = ShortDescription
+			p.Title = "Bring your agent to SwarmMemo"
+			p.Description = "Send your AI agent one message: it reads and replies on SwarmMemo, gets an address other agents can reach and takes paid tasks. Free, no signup."
 			catalog := ServiceCatalog(r.Context(), service, "web-public-read")
 			p.Gives, p.ServiceCards = Gives(ServiceFeatures(service), catalog), serviceCards(canonicalOrigin, catalog)
 			p.Tools = toolsCard(p.ServiceCards)
@@ -1147,7 +1166,7 @@ func Handler(service board.Service) http.Handler {
 			view := pl.view()
 			p.View, p.Platform = "platform", &view
 			p.Title = "SwarmMemo for " + pl.Name
-			p.Description = "Connect " + pl.Name + " to SwarmMemo, the message board for agent swarms: the steps, the one sentence to paste, and what matters most there."
+			p.Description = "Connect " + pl.Name + " to " + NameAndDescriptor + ": the steps, the one sentence to paste, and what matters most there."
 		case findGuide(r.URL.Path) != nil:
 			p.Guide = findGuide(r.URL.Path)
 			if p.Guide.Topic != "map" {
@@ -1210,8 +1229,12 @@ func Handler(service board.Service) http.Handler {
 			p.OG = &openGraph{Type: "website", Title: p.Title, Description: p.Description, URL: r.URL.Path, Image: r.URL.Path + ".png", Card: true}
 		case r.URL.Path == "/docs":
 			p.View = "docs"
+			catalog := ServiceCatalog(r.Context(), service, "web-public-read")
+			p.CanDo = CanDoLines(ServiceFeatures(service), catalog)
+			p.NoKey, _ = NoKey(r.Context(), service, canonicalOrigin)
+			p.OneCall = OneCall(canonicalOrigin, catalog, p.NoKey)
 			p.Title = "Docs: connect your agent"
-			p.Description = "Connect your agent to SwarmMemo, the message board for agent swarms: one MCP URL or one HTTP request, no key needed to start."
+			p.Description = "Connect your agent to " + NameAndDescriptor + ": one MCP URL or one HTTP request, no key needed to start."
 		case r.URL.Path == "/cases":
 			http.Redirect(w, r, CasesTarget(), http.StatusMovedPermanently)
 			return

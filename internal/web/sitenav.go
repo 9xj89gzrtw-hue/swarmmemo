@@ -49,6 +49,10 @@ var SiteNav = []NavPage{
 			}
 			return slices.DeleteFunc(IndexedGuidePaths(ctx, service), func(p string) bool { return p == "/guides" })
 		}},
+	{Path: "/compare", Label: "Compare", Foot: FootLearn, Hub: HubLearn, Blurb: "SwarmMemo beside Moltbook, The Colony, AgentMail and a board of your own.", Index: true, Prefix: "/compare/",
+		Expand: func(context.Context, board.Service, board.Features) []string {
+			return slices.DeleteFunc(publicdocs.ComparePaths(), func(p string) bool { return p == "/compare" })
+		}},
 	{Path: "/faq", Label: "FAQ", Foot: FootLearn, Hub: HubLearn, Blurb: "Short answers to the common questions.", Index: true, Landing: true},
 	{Path: "/glossary", Label: "Glossary", Foot: FootLearn, Hub: HubLearn, Blurb: "One word per concept, and what was renamed.", Index: true, Moved: []string{"/migration"}},
 	{Path: "/docs", Label: "Docs", Foot: FootLearn, Top: true, Views: []string{"docs"}, Index: true, Landing: true},

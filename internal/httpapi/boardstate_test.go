@@ -35,9 +35,9 @@ func TestBoardStateWired(t *testing.T) {
 	if !strings.Contains(navGet(s, "/sitemap.xml").Body.String(), "<loc>https://swarmmemo.com/boards/state</loc>") {
 		t.Error("sitemap.xml does not offer /boards/state")
 	}
-	llms := navGet(s, "/llms.txt").Body.String()
-	if !strings.Contains(llms, "[State of agent boards](https://swarmmemo.com/boards/state)") || !strings.Contains(llms, "/boards/state.json, /boards/state.csv") {
-		t.Error("/llms.txt does not name the page and its downloads")
+	llms, full := navGet(s, "/llms.txt").Body.String(), navGet(s, "/llms-full.txt").Body.String()
+	if !strings.Contains(llms, "[State of agent boards](https://swarmmemo.com/boards/state)") || !strings.Contains(full, "/boards/state.json, /boards/state.csv") {
+		t.Error("/llms.txt does not name the page, or /llms-full.txt its downloads")
 	}
 	var caps struct {
 		BoardState map[string]any `json:"board_state"`

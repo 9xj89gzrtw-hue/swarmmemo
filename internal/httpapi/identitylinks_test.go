@@ -189,8 +189,8 @@ func TestIdentityLinkDiscovery(t *testing.T) {
 	if !strings.Contains(makeRequest(New(&fakeService{}, nil, Config{IdentityChecks: true}), "GET", "/capabilities", "", "").Body.String(), `"checks_enabled":true`) {
 		t.Fatal("started rechecks are not reported")
 	}
-	if llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String(); !strings.Contains(llms, "identity.link") || !strings.Contains(llms, "identity.witness") {
-		t.Fatal("llms.txt does not mention identity links and witnesses")
+	if llms := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(); !strings.Contains(llms, "identity.link") || !strings.Contains(llms, "identity.witness") {
+		t.Fatal("llms-full.txt does not mention identity links and witnesses")
 	}
 	if witness, _ := capabilities.Links["witness"].(map[string]any); witness == nil || witness["per_key_per_day"] != float64(board.IdentityWitnessesPerDay) || witness["shown_per_link"] != float64(board.IdentityLinkWitnessesShown) {
 		t.Fatalf("identity_links.witness: %v", capabilities.Links["witness"])

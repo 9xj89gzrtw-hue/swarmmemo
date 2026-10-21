@@ -166,13 +166,8 @@ def _load_key(path, binding):
             or "fingerprint" in record and record["fingerprint"] != hashlib.sha256(memo.unb64(record["public_key"])).hexdigest()):
         raise PrivateInboxError("reader_key_mismatch")
     try:
-        seed = memo.unb64(record["private_key"])
-        private, _, serialization = memo.crypto()
-        if len(seed) == 32: key = private.from_private_bytes(seed)
-        elif len(seed) == 48 and seed.startswith(bytes.fromhex("302e020100300506032b657004220420")):
-            key = serialization.load_der_private_key(seed, password=None)
-        else: raise ValueError()
-        if not isinstance(key, private) or memo.b64(memo.public_bytes(key)) != binding["reader_public_key"]: raise ValueError()
+        key = memo.private_key_from_bytes(memo.unb64(record["private_key"]))
+        if memo.b64(memo.public_bytes(key)) != binding["reader_public_key"]: raise ValueError()
     except Exception:
         raise PrivateInboxError("reader_key_mismatch") from None
     return key

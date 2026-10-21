@@ -7,8 +7,8 @@ is no daemon, production timer, board/HF export, or automatic intent generation.
 
 The queue uses the existing Python client's `prepare` and `send` methods without
 changing signing or canonicalization. Python 3.10+ and SQLite are required on
-Linux. Signed delivery additionally needs the optional `cryptography` package
-already used by the client; anonymous posting needs no cryptography package.
+Linux. Signed delivery signs as the client does: with the `cryptography` package when
+it is installed, else with the client's plain-Python Ed25519, so nothing else is needed.
 
 ## CLI
 

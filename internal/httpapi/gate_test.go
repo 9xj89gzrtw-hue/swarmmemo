@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	publicclients "swarmmemo/clients"
 	"swarmmemo/internal/board"
 	"swarmmemo/internal/gate"
 	"swarmmemo/internal/services"
@@ -155,8 +156,8 @@ func TestGateDiscovery(t *testing.T) {
 			t.Errorf("openapi misses %s", p)
 		}
 	}
-	if text := s.instructions(); !strings.Contains(text, "/gate") || !strings.Contains(text, "gate_solve") {
-		t.Fatal("llms.txt misses the gate")
+	if text := s.instructionsFor(s.staticCatalog(), true); !strings.Contains(text, "/gate") || !strings.Contains(text, "gate_solve") {
+		t.Fatal("llms-full.txt misses the gate")
 	}
 	if !strings.Contains(makeRequest(s, "GET", "/sitemap.xml", "", "").Body.String(), "/gate/agent") {
 		t.Fatal("sitemap misses /gate/agent")
@@ -233,16 +234,23 @@ func TestGateCheckSnippets(t *testing.T) {
 	sig := parts[2]
 	twin := parts[0] + "." + parts[1] + "." + sig[:len(sig)-1] + string(alphabet[strings.IndexByte(alphabet, sig[len(sig)-1])|1])
 	dir := t.TempDir()
-	for _, tc := range []struct{ name, bin, file, src string }{
-		{"node", "node", "check-gate.mjs", web.GateCheckNode},
-		{"python", "python3", "check_gate.py", web.GateCheckPython},
+	// The Python check falls back to the client beside it when cryptography
+	// is absent: "python, no cryptography" makes that import fail.
+	client, _, ok := publicclients.ReadPath("/clients/python/swarmmemo.py")
+	if !ok || os.WriteFile(filepath.Join(dir, "swarmmemo.py"), client, 0o600) != nil {
+		t.Fatal("could not place the Python client beside the check")
+	}
+	const withoutCryptography = "import runpy, sys; sys.modules['cryptography'] = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+	for _, tc := range []struct {
+		name, bin, file, src string
+		pre                  []string
+	}{
+		{"node", "node", "check-gate.mjs", web.GateCheckNode, nil},
+		{"python", "python3", "check_gate.py", web.GateCheckPython, nil},
+		{"python, no cryptography", "python3", "check_gate.py", web.GateCheckPython, []string{"-c", withoutCryptography}},
 	} {
 		if _, err := exec.LookPath(tc.bin); err != nil {
 			t.Logf("%s: no %s here", tc.name, tc.bin)
-			continue
-		}
-		if tc.name == "python" && exec.Command("python3", "-c", "import cryptography").Run() != nil {
-			t.Logf("python: no cryptography package here")
 			continue
 		}
 		src := strings.ReplaceAll(tc.src, "https://swarmmemo.com", srv.URL)
@@ -250,8 +258,13 @@ func TestGateCheckSnippets(t *testing.T) {
 		if err := os.WriteFile(file, []byte(src), 0o600); err != nil {
 			t.Fatal(err)
 		}
+		run := func(args ...string) ([]byte, error) {
+			cmd := exec.Command(tc.bin, append(append(append([]string{}, tc.pre...), file), args...)...)
+			cmd.Dir = dir
+			return cmd.CombinedOutput()
+		}
 		for tok, want := range map[string]string{good: "pass", other: "fail", tampered: "fail", twin: "fail", "smg1.x.y": "fail"} {
-			out, err := exec.Command(tc.bin, file, tok).CombinedOutput()
+			out, err := run(tok)
 			if err != nil || strings.TrimSpace(string(out)) != want {
 				t.Fatalf("%s %.20s…: want %s, got %q %v", tc.name, tok, want, out, err)
 			}
@@ -259,7 +272,7 @@ func TestGateCheckSnippets(t *testing.T) {
 		// C325-sec: a token passes once; the same token again (a replayed
 		// form post) fails, and another fresh token still passes.
 		again := token("https://your.site")
-		out, err := exec.Command(tc.bin, file, good, good, again).CombinedOutput()
+		out, err := run(good, good, again)
 		if err != nil || strings.Join(strings.Fields(string(out)), " ") != "pass fail pass" {
 			t.Fatalf("%s replay: got %q %v", tc.name, out, err)
 		}

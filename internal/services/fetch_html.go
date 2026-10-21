@@ -17,6 +17,14 @@ import (
 // Every loop advances through the input, so the work is linear in its size
 // (at most FetchBodyBytes).
 
+// FetchHTMLKept and FetchHTMLDropped are what a fetched HTML page keeps and
+// drops, as every page and document that describes fetch says it
+// (skippedElements below; TestFetchHTMLWordsMatchTheConverter).
+const (
+	FetchHTMLKept    = "headings, lists, paragraphs, code blocks, links and a form's text kept"
+	FetchHTMLDropped = "scripts, styles, navigation, footers, sidebars, buttons and menus dropped"
+)
+
 // skippedElements are left out with everything inside them, and so is any
 // element marked role="navigation". <head> and <form> are not here: HTML
 // lets a page leave </head> out (example.com does), and many sites wrap

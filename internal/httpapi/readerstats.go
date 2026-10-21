@@ -74,10 +74,11 @@ type readerCounter struct {
 	flushMu   sync.Mutex // held for a whole flush, and by stats reads, so a read never double counts
 	interval  time.Duration
 	now       func() time.Time
+	tools     *mcpToolCounter // per-tool MCP calls (mcp_toolstats.go), same clock and cadence
 }
 
 func newReaderCounter(own []*net.IPNet) *readerCounter {
-	return &readerCounter{pending: map[string]map[string]int64{}, sketches: map[string]map[string]*board.ReaderSketch{}, own: own, interval: readerFlushInterval, now: time.Now}
+	return &readerCounter{pending: map[string]map[string]int64{}, sketches: map[string]map[string]*board.ReaderSketch{}, own: own, interval: readerFlushInterval, now: time.Now, tools: newMCPToolCounter()}
 }
 
 // readerSalt is the day's HMAC key for reader ids, and the previous day's for
@@ -156,20 +157,7 @@ func ParseOwnNetworks(value string) ([]*net.IPNet, error) {
 // readerNetwork is the peer's network prefix (IPv4 /24, IPv6 /48), or the peer
 // as given when it is not an address, and whether it is in OwnNetworks.
 func (s *Server) readerNetwork(r *http.Request) (prefix string, own bool) {
-	peer := s.peer(r)
-	ip := net.ParseIP(peer)
-	if ip == nil {
-		return peer, false
-	}
-	for _, network := range s.readers.own {
-		if network.Contains(ip) {
-			return "", true
-		}
-	}
-	if v4 := ip.To4(); v4 != nil {
-		return v4.Mask(net.CIDRMask(24, 32)).String(), false
-	}
-	return ip.Mask(net.CIDRMask(48, 128)).String(), false
+	return s.networkPrefix(s.peer(r))
 }
 
 // readerID is the request's id for the distinct-reader sketches, or "" when
@@ -344,12 +332,15 @@ func (c *readerCounter) flush(store readerStatsStore) {
 	}
 }
 
-// FlushReaderCounts writes reader, referrer and client counts not yet stored. Call it after the HTTP server
+// FlushReaderCounts writes reader, MCP tool, referrer and client counts not yet stored. Call it after the HTTP server
 // has stopped accepting requests: the background flush runs at most every
 // readerFlushInterval, so without this a restart loses the final interval.
 func (s *Server) FlushReaderCounts() {
 	if store, ok := s.service.(readerStatsStore); ok {
 		s.readers.flush(store)
+	}
+	if store, ok := s.service.(mcpToolStatsStore); ok {
+		s.readers.tools.flush(store)
 	}
 	if store, ok := s.service.(referrerStatsStore); ok {
 		s.referrers.flush(store)

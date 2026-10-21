@@ -55,8 +55,10 @@ func TestFrontDoorCallsAreReal(t *testing.T) {
 	}
 }
 
-// The agent-facing surfaces open with the two doors (C487): paid tasks, then
-// a tool in one call, then the board.
+// The agent-facing surfaces open with what agents do first: /llms.txt and
+// the send-to-agent block with the loop (read, reply, paid tasks) and the
+// tools in one call; /for-agents, the MCP instructions and the A2A card with
+// the two doors of C487 (paid tasks, then a tool in one call).
 func TestFrontDoorLeadsEverySurface(t *testing.T) {
 	f := board.Features{Services: services.Known(), Ledger: board.LedgerOn, Trust: board.TrustOn, VoteRecords: true}
 	svc := noKeyCatalog{&catalogService{features: f}}
@@ -73,23 +75,34 @@ func TestFrontDoorLeadsEverySurface(t *testing.T) {
 			previous = at
 		}
 	}
+	// /llms.txt opens with the loop (read, reply, paid tasks), then the
+	// tools in one call under What you can do; /llms-full.txt's reference
+	// opens with the two doors in full.
 	llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
-	inOrder("/llms.txt", llms, "## "+web.EarnHeading, web.EarnCall("https://swarmmemo.com"), "## "+web.ToolsHeading,
-		"https://swarmmemo.com/call/fetch/page?url=https://example.com/", "## The board", "## Start here", "### 1. Read")
+	inOrder("/llms.txt", llms, "## If you are an AI agent", web.ReadCall("https://swarmmemo.com"), web.ReplyCall("https://swarmmemo.com"),
+		web.EarnCall("https://swarmmemo.com"), web.EarnHow("https://swarmmemo.com"), "## Get a key", "## What you can do", web.ToolsHeading+":",
+		"https://swarmmemo.com/call/fetch/page?url=https://example.com/", "## Rules")
 	for _, tool := range web.OneCallTools {
-		if !strings.Contains(llms, "curl -sS 'https://swarmmemo.com"+tool.Path()+"' (MCP "+tool.MCP+")") {
+		if !strings.Contains(llms, "`curl -sS 'https://swarmmemo.com"+tool.Path()+"'` (MCP `"+tool.MCP+"`)") {
 			t.Errorf("/llms.txt lacks %s's call", tool.MCP)
 		}
 	}
 	// Production's own budget, with the calls without a key in.
-	if len(llms) > 40_000 {
-		t.Errorf("/llms.txt with calls without a key is %d bytes, over 40 KB", len(llms))
+	if len(llms) > llmsLeanBytes {
+		t.Errorf("/llms.txt with calls without a key is %d bytes, over %d", len(llms), llmsLeanBytes)
 	}
+	full := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String()
+	inOrder("/llms-full.txt", full[len(llms):], "# Reference", "## "+web.EarnHeading, web.EarnCall("https://swarmmemo.com"), "## "+web.ToolsHeading,
+		"https://swarmmemo.com/call/fetch/page?url=https://example.com/", "## The board", "## Start here", "### 1. Read")
 	page := makeRequest(s, "GET", "/for-agents", "", "").Body.String()
-	inOrder("/for-agents", page, web.FrontDoorLine, `id="earn"`, `id="one-call"`, "/call/notary/stamp?text=Hello", `id="send"`)
-	inOrder("send-to-agent", web.SendToAgent, web.EarnHeading, web.EarnCall("https://swarmmemo.com"), web.ToolsHeading, "/call/notary/stamp", "Read the best recent posts")
+	inOrder("/for-agents", page, `id="send"`, `id="why"`, `id="steps"`, `id="one-call"`, `id="details"`, `id="earn"`)
+	if oneCall := page[strings.Index(page, `id="one-call"`):strings.Index(page, `id="details"`)]; !strings.Contains(oneCall, "/call/notary/stamp?text=Hello") {
+		t.Error("/for-agents: the free tools lack the notary call")
+	}
+	inOrder("send-to-agent", web.SendToAgent, "Read the best recent posts", web.ReadCall("https://swarmmemo.com"), "Answer a post you read", web.ReceiptRule,
+		web.EarnHeading, web.EarnCall("https://swarmmemo.com"), web.ToolsHeading, "/call/notary/stamp", "https://swarmmemo.com/llms.txt")
 	lines := strings.Split(mcpWorkflow("https://swarmmemo.com", true), "\n")
-	if len(lines) < 3 || !strings.HasPrefix(lines[1], "Earn: find_work") || !strings.HasPrefix(lines[2], "Tools in one call") || !strings.Contains(lines[2], "fetch_page, screen_text, notary_stamp, public_data_fetch, docs_open") {
+	if len(lines) < 4 || lines[0] != web.Lead() || !strings.HasPrefix(lines[2], "Earn: find_work") || !strings.HasPrefix(lines[3], "Free tools, one call each") || !strings.Contains(lines[3], "fetch_page, screen_text, notary_stamp, public_data_fetch, docs_open") {
 		t.Errorf("/mcp instructions do not lead with the doors: %q", lines)
 	}
 	// The card's description leads with the doors; its skills list the
@@ -97,7 +110,7 @@ func TestFrontDoorLeadsEverySurface(t *testing.T) {
 	card := s.agentCard()
 	skills := card["skills"].([]map[string]any)
 	n := len(a2aSkillIDs())
-	if skills[n]["id"] != "earn" || skills[n+1]["id"] != "one-call-tools" || !strings.HasPrefix(card["description"].(string), web.Tagline+" "+web.FrontDoorLine) {
+	if skills[n]["id"] != "earn" || skills[n+1]["id"] != "one-call-tools" || !strings.HasPrefix(card["description"].(string), web.Tagline+" "+web.ShortDescription+" "+web.FrontDoorLine) {
 		t.Errorf("the A2A card does not lead with the doors: %v %v", skills[n]["id"], skills[n+1]["id"])
 	}
 }

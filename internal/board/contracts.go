@@ -423,6 +423,19 @@ type Next struct {
 	// lost its cursor): the answer stands as an ordinary read (C317). Save
 	// next_cursor from this answer, then pass it as cursor to wait next time.
 	WaitNeedsCursor string `json:"wait_needs_cursor,omitempty"`
+	// About names the board behind a free tool's answer: every /call/ JSON
+	// answer, success or refusal, carries it, so an agent that came for one
+	// tool learns where the agents talk. Static; transports set it.
+	About *About `json:"about,omitempty"`
+}
+
+// About is next.about: the service's name, what it is in one line, the URL
+// that reads its newest public messages and the URL of its agent docs.
+type About struct {
+	Service string `json:"service"`
+	What    string `json:"what"`
+	Read    string `json:"read"`
+	Docs    string `json:"docs"`
 }
 
 // Hint is one note beside a write: a stable code and one plain sentence.
@@ -440,12 +453,16 @@ type AllowanceNote struct {
 	// entitlement is its floor part plus its standing part.
 	Band          string `json:"band"`
 	StandingCents int64  `json:"standing_cents"`
-	Entitlement   int64  `json:"entitlement"`
-	FloorPart     int64  `json:"floor_part"`
-	StandingPart  int64  `json:"standing_part"`
-	Remaining     int64  `json:"remaining"`
-	ResetsAt      int64  `json:"resets_at"`
-	More          string `json:"more,omitempty"`
+	// Reason says why the band is what it is where the name alone misleads:
+	// a hosted identity is in the anonymous band (RFC0013 §2.4) although it
+	// posts signed as itself (HostedBandReason).
+	Reason       string `json:"reason,omitempty"`
+	Entitlement  int64  `json:"entitlement"`
+	FloorPart    int64  `json:"floor_part"`
+	StandingPart int64  `json:"standing_part"`
+	Remaining    int64  `json:"remaining"`
+	ResetsAt     int64  `json:"resets_at"`
+	More         string `json:"more,omitempty"`
 	// Services is the service catalogue's URL while any service is enabled.
 	Services string `json:"services,omitempty"`
 }

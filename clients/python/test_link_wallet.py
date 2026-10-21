@@ -325,6 +325,10 @@ class WalletBackendTests(unittest.TestCase):
             self.assertEqual(len(results), 1, i)
 
     def test_openssl_is_used_with_the_clients_own_package(self):
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            self.skipTest("cryptography is not installed")
         self.assertIsNotNone(backends()["native"]["ec"])
 
 

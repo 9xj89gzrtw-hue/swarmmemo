@@ -75,7 +75,7 @@ func noSuchMethod(method string) error {
 	if methodRE.MatchString(method) {
 		quoted = ` "` + method + `"`
 	}
-	return badArg("This service has no method" + quoted + " on this wire; services.list lists each service's methods and whether each is a call or a read.")
+	return badArg("This service has no method" + quoted + " on this wire; " + ListWhere + " lists each service's methods and whether each is a call or a read.")
 }
 
 // argsShape is the refusal of args that are not one strict JSON object.

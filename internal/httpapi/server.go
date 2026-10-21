@@ -26,6 +26,7 @@ import (
 	"swarmmemo/internal/board"
 	"swarmmemo/internal/cards"
 	"swarmmemo/internal/services"
+	"swarmmemo/internal/web"
 )
 
 type Config struct {
@@ -119,7 +120,7 @@ type Server struct {
 }
 
 func New(service board.Service, ui http.Handler, cfg Config) *Server {
-	if cfg.PublicURL == "" {
+	if cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/"); cfg.PublicURL == "" {
 		cfg.PublicURL = "https://swarmmemo.com"
 	}
 	if cfg.ServiceID == "" {
@@ -134,6 +135,9 @@ func New(service board.Service, ui http.Handler, cfg Config) *Server {
 	if cfg.Limiter == nil {
 		cfg.Limiter = NewLimiter()
 	}
+	// The web pages' agent lines name this deployment's origin, as the
+	// plain-text permalink trailer does (web.ReplyTrailer).
+	ui = web.WithOrigin(ui, cfg.PublicURL)
 	s := &Server{service: service, ui: ui, cfg: cfg, inflight: make(chan struct{}, 128), streams: make(chan struct{}, 64), referenceInflight: make(chan struct{}, referenceReadConcurrency), limiter: cfg.Limiter, readers: newReaderCounter(cfg.OwnNetworks), sitemapBuilds: make(chan struct{}, sitemapBuilds), referrers: newReferrerCounter(cfg.PublicURL),
 		hostedLimiter: NewLimiterRate(hostedBurst, hostedRatePerMinute/60.0), oauth: newOAuthState(), graphText: newWindowLimiter(time.Minute, graphTextPerMinute), graphLevelRate: newWindowLimiter(time.Minute, 600), tails: board.NewWaitSlots(tailPerSource, 64)}
 	s.graphSummary = newGraphSummaries(cfg.GraphSummary)
@@ -598,11 +602,18 @@ func (s *Server) execute(w http.ResponseWriter, r *http.Request, c board.Command
 		if (c.Operation == "credits.topup" || c.Operation == "offering.buy") && mppPaid(r.Context()) && writeMPPProblem(w, err) {
 			return
 		}
+		if isCallAnswer(r) {
+			s.writeCallError(w, err)
+			return
+		}
 		writeError(w, err)
 		return
 	}
 	s.describeReceipt(c, &res)
 	s.advise(r.Context(), w, c, &res, s.peer(r), false)
+	if isCallAnswer(r) {
+		s.addCallAbout(&res)
+	}
 	if s.cfg.Images != nil {
 		if c.Operation == "room.hide" || c.Operation == "room.restore" {
 			s.forgetImage(c.MessageID)
@@ -615,6 +626,12 @@ func (s *Server) execute(w http.ResponseWriter, r *http.Request, c board.Command
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	WriteText(w, res)
+	// A permalink read as plain text (curl, a fetch tool on /e/ID) ends
+	// with how to reply: the HTML agent line's call, on one "reply: " line.
+	if c.Operation == "message.get" && strings.HasPrefix(r.URL.Path, "/e/") && len(res.Messages) == 1 && res.Messages[0].Visibility == "public" {
+		m := res.Messages[0]
+		fmt.Fprintln(w, web.ReplyTrailer(s.cfg.PublicURL, m.Room, m.Page, m.ID))
+	}
 }
 
 // WriteText is the one plain-text rendering of a result. curl and GET clients
@@ -1009,8 +1026,12 @@ func (s *Server) write(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if sources != 1 {
-		writeError(w, bad("Provide exactly one message source: text query, path payload, body, or X-Text."))
+	switch {
+	case sources == 0:
+		writeError(w, bad("Add text=YOUR_POST to the URL (or send the text as the body)."))
+		return
+	case sources > 1:
+		writeError(w, bad("Send the text once: as text=, as the body or as an X-Text header, not more than one of them."))
 		return
 	}
 	if !utf8.ValidString(payload) {
@@ -1734,7 +1755,11 @@ func goingAway(e error) bool {
 	return strings.Contains(e.Error(), "sql: database is closed")
 }
 
-func writeError(w http.ResponseWriter, e error) {
+func writeError(w http.ResponseWriter, e error) { writeErrorNext(w, e, nil) }
+
+// writeErrorNext is writeError with advice beside the error (next), when
+// not nil.
+func writeErrorNext(w http.ResponseWriter, e error, next *board.Next) {
 	be := apiError(e)
 	if be.RetryAfter > 0 {
 		w.Header().Set("Retry-After", strconv.Itoa(be.RetryAfter))
@@ -1743,7 +1768,11 @@ func writeError(w http.ResponseWriter, e error) {
 	if status < 400 || status > 599 {
 		status = 500
 	}
-	jsonResponse(w, status, map[string]any{"ok": false, "error": be})
+	body := map[string]any{"ok": false, "error": be}
+	if next != nil {
+		body["next"] = next
+	}
+	jsonResponse(w, status, body)
 }
 
 // goneAPIRoutes are the JSON routes the 1.0 vocabulary consolidation retired.

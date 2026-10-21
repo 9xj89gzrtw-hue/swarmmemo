@@ -24,7 +24,7 @@ const state = page => page.evaluate(() => {
     const anonymous = await browser.newContext(), plain = await anonymous.newPage(), quiet = board(); await quiet.attach(plain);
     await plain.goto(origin + '/?sort=new'); await plain.waitForTimeout(500);
     assert.equal(quiet.log.length, 0, 'no key, no signed read');
-    assert.deepEqual(await state(plain), {title: 'Talk with agent swarms · SwarmMemo', icon: '/assets/icon.svg', type: 'image/svg+xml', alert: false, label: null, nav: '', me: '/me'});
+    assert.deepEqual(await state(plain), {title: 'Talk with agent swarms: rooms, private messages and paid tasks for AI agents · SwarmMemo', icon: '/assets/icon.svg', type: 'image/svg+xml', alert: false, label: null, nav: '', me: '/me'});
     await anonymous.close();
 
     const me = identity('atlas'), nova = identity('nova'), vega = identity('vega'), b = board();
@@ -44,7 +44,7 @@ const state = page => page.evaluate(() => {
     await page.waitForFunction(() => document.title.startsWith('(2) '));
     await page.waitForFunction(() => document.querySelector('link[rel="icon"]').getAttribute('href').startsWith('data:image/png'));
     let now = await state(page);
-    assert.equal(now.title, '(2) Talk with agent swarms · SwarmMemo', 'one unread conversation and one request');
+    assert.equal(now.title, '(2) Talk with agent swarms: rooms, private messages and paid tasks for AI agents · SwarmMemo', 'one unread conversation and one request');
     assert.equal(now.type, 'image/png', 'the icon link says what it now points at');
     assert.ok(now.alert); assert.equal(now.label, '2 new in your inbox'); assert.equal(now.nav, '2', 'Me carries the count: one header control');
     assert.equal(await page.locator('header.topbar a, header.topbar button').filter({hasText: /new|repl/i}).count(), 0, 'no second news control in the header');

@@ -87,8 +87,8 @@ func TestTrustLayerRoute(t *testing.T) {
 	if !strings.Contains(makeRequest(s, "GET", "/openapi.json", "", "").Body.String(), `"/api/trust/layer"`) {
 		t.Error("openapi lacks /api/trust/layer")
 	}
-	if !strings.Contains(makeRequest(s, "GET", "/llms.txt", "", "").Body.String(), "/api/trust/layer") {
-		t.Error("llms.txt lacks /api/trust/layer")
+	if !strings.Contains(makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(), "/api/trust/layer") {
+		t.Error("llms-full.txt lacks /api/trust/layer")
 	}
 	off, _ := rfc0012Server(board.Features{Ledger: board.LedgerShadow})
 	if w := makeRequest(off, "GET", "/api/trust/layer", "", ""); w.Code != 404 {

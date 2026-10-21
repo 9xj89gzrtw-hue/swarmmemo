@@ -107,11 +107,12 @@ func TestViaBadgeAndHowToPanel(t *testing.T) {
 	}
 }
 
-// The home page's "Post from anywhere" line and /docs ways to post name a
-// wire only while it runs: with nothing enabled they claim HTTP and MCP alone;
-// each enabled writable transport adds exactly its channel, linked to its
-// example on /docs; a read-only listener adds nothing.
-func TestTaglineNamesOnlyRunningChannels(t *testing.T) {
+// /docs ways to post name a wire only while it runs: with nothing enabled
+// they claim HTTP and MCP alone; each enabled writable transport adds exactly
+// its channel, with its example; a read-only listener adds nothing. The home
+// hero names no transport: it sends an agent to /llms.txt, and /docs keeps the
+// list.
+func TestWaysToPostNameOnlyRunningChannels(t *testing.T) {
 	t.Cleanup(func() { SetWriteTransports(nil) })
 	s, _, _ := roomStore(t)
 	wires := []board.Via{}
@@ -124,8 +125,11 @@ func TestTaglineNamesOnlyRunningChannels(t *testing.T) {
 		t.Helper()
 		home := render(s, "/").Body.String()
 		docs := render(s, "/docs").Body.String()
-		hero := home[strings.Index(home, `class="hero-ways"`):]
-		hero = hero[:strings.Index(hero, "</p>")]
+		hero := home[strings.Index(home, `<section class="hero">`):]
+		hero = hero[:strings.Index(hero, "</section>")]
+		if strings.Contains(hero, "/docs#via-") || strings.Contains(hero, "/docs#ways-to-post") {
+			t.Errorf("the hero lists transports: %s", hero)
+		}
 		ways := docs[strings.Index(docs, `id="ways-to-post"`):]
 		ways = ways[:strings.Index(ways, "</section>")]
 		off := ""
@@ -133,9 +137,6 @@ func TestTaglineNamesOnlyRunningChannels(t *testing.T) {
 			off, ways = ways[i:], ways[:i]
 		}
 		for _, v := range wires {
-			if strings.Contains(hero, `<a href="/docs#via-`+v.Name+`">`+v.Label+`</a>`) != enabled[v.Name] || strings.Contains(hero, ">"+v.Label+"<") != enabled[v.Name] {
-				t.Errorf("tagline %q and %s (running %v)", hero, v.Label, enabled[v.Name])
-			}
 			if strings.Contains(ways, `<h3 id="via-`+v.Name+`">Via `+v.Label+"<") != enabled[v.Name] || strings.Contains(off, v.Label) == enabled[v.Name] {
 				t.Errorf("ways to post and %s (running %v)", v.Label, enabled[v.Name])
 			}
@@ -148,14 +149,8 @@ func TestTaglineNamesOnlyRunningChannels(t *testing.T) {
 	}
 	SetWriteTransports(nil)
 	check(map[string]bool{})
-	if !strings.Contains(render(s, "/").Body.String(), `Post from anywhere: <a href="/docs#ways-to-post">HTTP</a><span aria-hidden="true"> · </span><span class="sr-only">, </span><a href="/docs#via-mcp">MCP</a></p>`) {
-		t.Fatal("HTTP-only tagline")
-	}
 	SetWriteTransports([]string{"dns", "email"})
 	check(map[string]bool{"dns": true, "email": true})
-	if !strings.Contains(render(s, "/").Body.String(), `<a href="/docs#via-mcp">MCP</a><span aria-hidden="true"> · </span><span class="sr-only">, </span><a href="/docs#via-dns">DNS</a><span aria-hidden="true"> · </span><span class="sr-only">, </span><a href="/docs#via-email">email</a></p>`) {
-		t.Fatal("tagline with wires")
-	}
 	SetWriteTransports([]string{"tcp", "gemini", "smtp", "nostr"})
 	check(map[string]bool{"tcp": true, "gemini": true, "email": true, "nostr": true})
 }

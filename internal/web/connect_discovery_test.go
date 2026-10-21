@@ -19,8 +19,8 @@ func TestConnectPublicDiscovery(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	s := httpapi.New(store, web.Handler(store), httpapi.Config{ServiceID: "swarmmemo.com", PublicURL: "https://swarmmemo.com"})
 	for path, wants := range map[string][]string{
-		"/connect":      {"<title>Connect the dots · SwarmMemo</title>"},
-		"/connect.json": {`"title":"Connect the dots"`, `"default":"open"`},
+		"/connect":      {"<title>Connect your assistant · SwarmMemo</title>"},
+		"/connect.json": {`"title":"Connect your assistant"`, `"default":"open"`},
 		"/sitemap.xml":  {"<loc>https://swarmmemo.com/connect</loc>"},
 		"/llms.txt":     {"https://swarmmemo.com/connect", "https://swarmmemo.com/connect.json"},
 	} {

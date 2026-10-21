@@ -390,7 +390,7 @@ func stampRequestID(res *Result, requestID string, generated bool) {
 		if res.Next == nil {
 			res.Next = &Next{}
 		}
-		res.Next.Retry = "To retry this call without being charged twice, send the same fields with request_id=" + requestID + "; a new call needs no request_id."
+		res.Next.Retry = "To retry this call so it counts once against your free daily limit, send the same fields with request_id=" + requestID + "; a new call needs no request_id."
 	}
 }
 
@@ -586,7 +586,7 @@ func serviceError(err error) error {
 		sent = " " + SizeNote(e.Sent, e.Limit, "bytes")
 		switch e.Code {
 		case "invalid_service_data":
-			return problem(400, e.Code, "A value in the service data is too long"+sent+"; send less. Each method's limits are in services.list and /capabilities.")
+			return problem(400, e.Code, "A value in the service data is too long"+sent+"; send less. Each method's limits are in "+services.ListWhere+" and /capabilities.")
 		case "invalid_memory_key":
 			return problem(400, e.Code, fmt.Sprintf(memoryKeyRule, MemoryKeyBytes, sent))
 		case "screen_text_limit":
@@ -595,7 +595,7 @@ func serviceError(err error) error {
 	}
 	// An argument-level refusal names the argument and what it takes.
 	if e.Code == "invalid_service_data" && e.Message != "" {
-		return problem(400, e.Code, e.Message+" Each method's args are in services.list.")
+		return problem(400, e.Code, e.Message+" Each method's args are in "+services.ListWhere+".")
 	}
 	// An unknown service or method names what is enabled (services.UnknownMethod).
 	if e.Code == "invalid_service" && e.Message != "" {
@@ -617,7 +617,7 @@ func serviceError(err error) error {
 	case "upstream_busy":
 		return &Error{Status: 503, Code: "service_unavailable", Message: "The service is busy and nothing was charged; retry with a new request ID in a few seconds.", RetryAfter: 5}
 	case "upstream_unavailable":
-		return &Error{Status: 503, Code: "service_unavailable", Message: "No upstream for this service can be called right now (none configured, suspended, or its daily budget is spent), and nothing was charged. services.list shows what is available; budgets reset at 00:00 UTC.", RetryAfter: 60}
+		return &Error{Status: 503, Code: "service_unavailable", Message: "No upstream for this service can be called right now (none configured, suspended, or its daily budget is spent), and nothing was charged. Pick another tool from " + services.ListWhere + " or the /tools page, or call this one again after 00:00 UTC, when budgets reset.", RetryAfter: 60}
 	case services.RefusalCorroborateUnavailable:
 		retry := e.RetryAfter
 		if retry <= 0 {

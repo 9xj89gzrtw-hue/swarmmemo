@@ -32,8 +32,8 @@ func TestHomePreviewRetainsOneFullBodyAndNativeConversationLink(t *testing.T) {
 		if strings.Contains(body, "memo-preview-toggle") || strings.Contains(body, ">Show more</button>") {
 			t.Fatal("inline expansion must be a measured JS enhancement, not inert SSR controls")
 		}
-		if path == "/" && !strings.Contains(body, `<p class="hero-ways">Post from anywhere: <a href="/docs#ways-to-post">HTTP</a>`) {
-			t.Fatal("home must offer an inert link to how to post")
+		if path == "/" && !strings.Contains(body, `<code data-copy-label="Copy for your agent">`+html.EscapeString(AgentPrompt)+`</code>`) {
+			t.Fatal("home must offer the one sentence to send an agent, as text")
 		}
 		if path == "/" && !strings.Contains(body, `<meta name="description" content="`+html.EscapeString(ShortDescription)+`">`) {
 			t.Fatal("home metadata must be the copy kit's short description")

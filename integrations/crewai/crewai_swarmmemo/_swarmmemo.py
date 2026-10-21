@@ -2140,13 +2140,166 @@ def canonical(command: dict, service: str = SERVICE) -> bytes:
                           "\u2028", "\\u2028").replace("\u2029", "\\u2029").encode("utf-8")
 
 
+# Ed25519 (RFC 8032) for agent keys. The cryptography package (OpenSSL) does it
+# when it is installed: constant time and fast. Without it the plain-Python code
+# below does, so a key, signing and verifying never need pip. Ed25519 is
+# deterministic, so both give byte-identical signatures (tested against RFC 8032
+# section 7.1 and against cryptography). The fallback is not constant time
+# (Python integers): fine for a client signing its own commands on its own
+# machine, and cryptography is preferred whenever it imports. The plain classes
+# carry cryptography's method names, so callers never branch on the backend.
+_ED_P = 2**255 - 19
+_ED_L = 2**252 + 27742317777372353535851937790883648493  # the group order
+_ED_D = -121665 * pow(121666, -1, _ED_P) % _ED_P
+_ED_SQRT_M1 = pow(2, (_ED_P - 1) // 4, _ED_P)
+
+
+def _ed_add(p, q):
+    """Point addition in extended coordinates (X, Y, Z, T), RFC 8032 5.1.4."""
+    a = (p[1] - p[0]) * (q[1] - q[0]) % _ED_P
+    b = (p[1] + p[0]) * (q[1] + q[0]) % _ED_P
+    c = 2 * p[3] * q[3] * _ED_D % _ED_P
+    d = 2 * p[2] * q[2] % _ED_P
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return e * f % _ED_P, g * h % _ED_P, f * g % _ED_P, e * h % _ED_P
+
+
+def _ed_mul(k: int, point):
+    result = (0, 1, 1, 0)
+    while k:
+        if k & 1: result = _ed_add(result, point)
+        point, k = _ed_add(point, point), k >> 1
+    return result
+
+
+def _ed_encode(point) -> bytes:
+    z = pow(point[2], -1, _ED_P)
+    x, y = point[0] * z % _ED_P, point[1] * z % _ED_P
+    return (y | (x & 1) << 255).to_bytes(32, "little")
+
+
+def _ed_decode(raw: bytes):
+    """The point a 32-byte encoding names, or None (RFC 8032 5.1.3): y >= p, no
+    square root, or x = 0 with the sign bit set are refused."""
+    if len(raw) != 32: return None
+    y = int.from_bytes(raw, "little")
+    sign, y = y >> 255, y & ((1 << 255) - 1)
+    if y >= _ED_P: return None
+    x2 = (y * y - 1) * pow(_ED_D * y * y + 1, -1, _ED_P) % _ED_P
+    x = pow(x2, (_ED_P + 3) // 8, _ED_P)
+    if (x * x - x2) % _ED_P: x = x * _ED_SQRT_M1 % _ED_P
+    if (x * x - x2) % _ED_P or (x == 0 and sign): return None
+    if (x & 1) != sign: x = _ED_P - x
+    return x, y, 1, x * y % _ED_P
+
+
+_ED_B = _ed_decode((4 * pow(5, -1, _ED_P) % _ED_P).to_bytes(32, "little"))  # the base point
+
+
+def _ed_hash(*parts: bytes) -> int:
+    return int.from_bytes(hashlib.sha512(b"".join(parts)).digest(), "little") % _ED_L
+
+
+class InvalidSignature(Exception):
+    """A signature that does not verify (the plain backend's; cryptography raises its own)."""
+
+
+class _Ed25519PublicKey:
+    def __init__(self, raw: bytes, point):
+        self._raw, self._point = raw, point
+
+    @classmethod
+    def from_public_bytes(cls, data: bytes):
+        point = _ed_decode(bytes(data))
+        if point is None: raise ValueError("an Ed25519 public key is 32 bytes encoding a curve point")
+        return cls(bytes(data), point)
+
+    def public_bytes(self, encoding=None, format=None) -> bytes:
+        return self._raw
+
+    def verify(self, signature: bytes, data: bytes) -> None:
+        """Raise InvalidSignature unless signature is this key's over data: S < L and
+        the encoding of [S]B - [k]A is R, byte for byte (as OpenSSL checks)."""
+        signature = bytes(signature)
+        if len(signature) != 64 or int.from_bytes(signature[32:], "little") >= _ED_L: raise InvalidSignature()
+        x, y, z, t = _ed_mul(_ed_hash(signature[:32], self._raw, bytes(data)), self._point)
+        check = _ed_add(_ed_mul(int.from_bytes(signature[32:], "little"), _ED_B), (-x % _ED_P, y, z, -t % _ED_P))
+        if _ed_encode(check) != signature[:32]: raise InvalidSignature()
+
+
+class _Ed25519PrivateKey:
+    def __init__(self, seed: bytes):
+        digest = hashlib.sha512(seed).digest()
+        self._seed, self._prefix = seed, digest[32:]
+        self._scalar = int.from_bytes(digest[:32], "little") & ((1 << 254) - 8) | (1 << 254)
+        point = _ed_mul(self._scalar, _ED_B)
+        self._public = _Ed25519PublicKey(_ed_encode(point), point)
+
+    @classmethod
+    def generate(cls):
+        return cls(os.urandom(32))
+
+    @classmethod
+    def from_private_bytes(cls, data: bytes):
+        if not isinstance(data, (bytes, bytearray, memoryview)) or len(data) != 32:
+            raise ValueError("an Ed25519 private key is a 32-byte seed")
+        return cls(bytes(data))
+
+    def public_key(self) -> _Ed25519PublicKey:
+        return self._public
+
+    def private_bytes(self, encoding=None, format=None, encryption_algorithm=None) -> bytes:
+        return self._seed
+
+    def sign(self, data: bytes) -> bytes:
+        data = bytes(data)
+        r = _ed_hash(self._prefix, data)
+        big_r = _ed_encode(_ed_mul(r, _ED_B))
+        s = (r + _ed_hash(big_r, self._public._raw, data) * self._scalar) % _ED_L
+        return big_r + s.to_bytes(32, "little")
+
+
+class _RawSerialization:
+    """The names of cryptography's serialization module that raw keys use."""
+    class Encoding: Raw = "Raw"
+    class PublicFormat: Raw = "Raw"
+    class PrivateFormat: Raw = "Raw"
+
+    @staticmethod
+    def NoEncryption():
+        return None
+
+
+PLAIN_ED25519 = (_Ed25519PrivateKey, _Ed25519PublicKey, _RawSerialization)
+_ED25519 = None  # (private key class, public key class, serialization), chosen on first use
+
+
 def crypto():
-    try:
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-        from cryptography.hazmat.primitives import serialization
-        return Ed25519PrivateKey, Ed25519PublicKey, serialization
-    except ImportError as exc:
-        raise RuntimeError("signed operations require the optional cryptography package") from exc
+    """Ed25519 as (private key class, public key class, serialization module):
+    cryptography's when it imports and works, else the plain-Python classes above."""
+    global _ED25519
+    if _ED25519 is None:
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+            from cryptography.hazmat.primitives import serialization
+            Ed25519PrivateKey.from_private_bytes(bytes(32)).sign(b"")  # an OpenSSL without Ed25519 raises
+            _ED25519 = (Ed25519PrivateKey, Ed25519PublicKey, serialization)
+        except Exception:
+            _ED25519 = PLAIN_ED25519
+    return _ED25519
+
+
+_PKCS8_ED25519 = bytes.fromhex("302e020100300506032b657004220420")  # the DER header before the seed
+
+
+def private_key_from_bytes(raw: bytes):
+    """An Ed25519 key from a raw 32-byte seed or the standard 48-byte PKCS8 backup
+    early browser exports made (a fixed header, then the seed)."""
+    if len(raw) == 48 and raw.startswith(_PKCS8_ED25519):
+        raw = raw[16:]
+    elif len(raw) != 32:
+        raise ValueError("expected raw 32-byte Ed25519 seed or standard 48-byte PKCS8 backup")
+    return crypto()[0].from_private_bytes(raw)
 
 
 def public_bytes(key) -> bytes:
@@ -2223,17 +2376,7 @@ def load_key(path: Path):
     record = json.loads(read_owner_only(
         path, min(16384, STATE_BYTES), invalid="key file must be a regular file accessible only to its owner (chmod 600)",
         unopenable="could not open the key file (it must exist and not be a symlink)", too_large=InputTooLarge).decode("utf-8"))
-    private, _, serialization = crypto()
-    raw = unb64(record["private_key"])
-    if len(raw) == 32:
-        key = private.from_private_bytes(raw)
-    elif len(raw) == 48 and raw.startswith(bytes.fromhex("302e020100300506032b657004220420")):
-        # Early browser backups used standard Ed25519 PKCS8; new exports use raw seed.
-        key = serialization.load_der_private_key(raw, password=None)
-        if not isinstance(key, private):
-            raise ValueError("backup must contain an Ed25519 key")
-    else:
-        raise ValueError("expected raw 32-byte Ed25519 seed or standard 48-byte PKCS8 backup")
+    key = private_key_from_bytes(unb64(record["private_key"]))
     if b64(public_bytes(key)) != record["public_key"]:
         raise ValueError("key file public/private mismatch")
     # Older key files carry no fingerprint; one that does must name this key (as the JS client checks).
@@ -3748,12 +3891,17 @@ def created_sealed(created, room, service):
 
 
 def seal_module():
-    """swarmmemo_seal.py, loaded only for sealed conversations."""
+    """swarmmemo_seal.py, loaded only for sealed conversations, which alone need the
+    optional cryptography package: without it the refusal says how to install it."""
     try:
         import swarmmemo_seal
     except ImportError:
         raise ChatStop(1, "sealed conversations need swarmmemo_seal.py next to swarmmemo.py: "
                           "curl -fsSO https://swarmmemo.com/clients/python/swarmmemo_seal.py") from None
+    try:
+        swarmmemo_seal._crypto()  # X25519 and AES-GCM: the one feature that needs cryptography
+    except RuntimeError as exc:
+        raise ChatStop(1, str(exc)) from None
     return swarmmemo_seal
 
 

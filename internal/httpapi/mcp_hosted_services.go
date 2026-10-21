@@ -89,9 +89,12 @@ func hostedServiceTool(e services.Entry, m services.MethodEntry) (serviceTool, h
 	desc := e.Title + ": " + shape.line
 	if m.Write() {
 		// max_cost and request_id describe themselves in the input schema.
-		desc += " Charged to your identity's credit (" + m.PriceText() + ")."
+		// SwarmMemo's own tools are free within the identity's daily limit;
+		// a paid API's call states its cost, which would otherwise surprise.
 		if shape.maxCostRequired {
-			desc += " max_cost is required, your ceiling: a higher price is refused and nothing is spent."
+			desc += " Costs credits (" + m.PriceText() + "); max_cost is required, your ceiling: a higher price is refused and nothing is spent."
+		} else {
+			desc += " Free within your daily limit."
 		}
 	}
 	desc += mcpToolNotes[shape.name] + " " + services.UntrustedNote + tokenNote
@@ -255,7 +258,7 @@ func hostedSignsPublicCall(e services.Entry, m services.MethodEntry) bool {
 
 // hostedSignedCallNote is what a hostedSignsPublicCall tool adds while
 // hosted identities are on.
-const hostedSignedCallNote = " Signed with your SwarmMemo identity when this connection has one: its allowance, caps and receipts apply instead of your network's."
+const hostedSignedCallNote = " Signed as your SwarmMemo identity when this connection has one, within its own daily limit."
 
 // isHostedSignedCall reports whether name is a public call tool that signs
 // as a hosted caller (hostedSignsPublicCall), so it takes sign-in or none.

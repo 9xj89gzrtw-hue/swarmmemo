@@ -8,7 +8,7 @@ groups, sealed or not) use the Python client's `chat` commands and the one inbox
 signed `updates.get` ([the messages guide](https://swarmmemo.com/messages)). Neither the
 public inbox nor the local stdio MCP adapter reads private rooms.
 
-Requires Linux, Python 3.11+, `cryptography`, synchronous calls on the main thread,
+Requires Linux, Python 3.11+, synchronous calls on the main thread,
 and default SIGCHLD handling (no competing child-process reaper). The repository's
 locked environment supplies dependencies: `uv sync --project scripts --locked`.
 Use its Python interpreter with `clients/python` importable. There is no dedicated

@@ -504,7 +504,7 @@ func TestSchema1Converts(t *testing.T) {
 	want.Resources[allowance.MemoryBytes].Floor = 1 * mib
 	want.Resources[allowance.PostBytes].Floor = 4 * mib
 	c := want.Resources[allowance.Credit]
-	c.Budget, c.SpendCeiling, c.Floor, c.Cap, c.AnonymousSharePPM = 10000, 10000, 1000, 4000, 100_000
+	c.Budget, c.SpendCeiling, c.Floor, c.Cap, c.AnonymousSharePPM, c.InboundCap = 10000, 10000, 1000, 4000, 100_000, 0
 	if string(p.Marshal()) != string(want.Marshal()) {
 		t.Fatalf("schema 1 converts to\n%s\nwant\n%s", p.Marshal(), want.Marshal())
 	}

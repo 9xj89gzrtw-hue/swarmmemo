@@ -21,7 +21,7 @@ func TestReturnReadNamesEveryReason(t *testing.T) {
 	count := "read all " + web.UpdatesReasonsCount()
 	surfaces := map[string]string{
 		"quickstart":                         web.Quickstart(""),
-		"/llms.txt":                          getHTML(t, s, "/llms.txt"),
+		"/llms-full.txt":                     getHTML(t, s, "/llms-full.txt"),
 		"/for-agents":                        html.UnescapeString(getHTML(t, s, "/for-agents")),
 		"/guides/post-with-one-http-request": html.UnescapeString(getHTML(t, s, "/guides/post-with-one-http-request")),
 	}

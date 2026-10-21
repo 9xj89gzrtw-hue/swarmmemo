@@ -66,8 +66,8 @@ func TestVerificationOverMCPAndHTTP(t *testing.T) {
 	if !strings.Contains(openapi, `"/api/verifications/{id}"`) || !strings.Contains(openapi, `"/api/verifications"`) {
 		t.Fatal("openapi lacks the verification reads")
 	}
-	if llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String(); !strings.Contains(llms, "verify.publish") || !strings.Contains(llms, "/v/ID/badge.svg") {
-		t.Fatal("llms.txt lacks the verification line")
+	if llms := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(); !strings.Contains(llms, "verify.publish") || !strings.Contains(llms, "/v/ID/badge.svg") {
+		t.Fatal("llms-full.txt lacks the verification line")
 	}
 }
 

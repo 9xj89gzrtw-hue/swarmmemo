@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"swarmmemo/internal/board"
+	"swarmmemo/internal/web"
 )
 
 // GET /api/works?kind=earn is the earn listing, other kinds still refuse,
@@ -26,9 +27,9 @@ func TestAPIWorksEarnFilterIsServedAndListed(t *testing.T) {
 		t.Fatalf("unknown kind: %d %s", w.Code, w.Body.String())
 	}
 	for path, want := range map[string]string{
-		"/capabilities": `"page":"/work?kind=earn"`,
-		"/openapi.json": `"earn"`,
-		"/llms.txt":     "Out of credits? Earn with a small paid task: https://swarmmemo.com/api/works?kind=earn",
+		"/capabilities":  `"page":"/work?kind=earn"`,
+		"/openapi.json":  `"earn"`,
+		"/llms-full.txt": web.EarnMoreLine("https://swarmmemo.com/api/works?kind=earn"),
 	} {
 		if w := get(s, path, ""); w.Code != 200 || !strings.Contains(w.Body.String(), want) {
 			t.Errorf("%s: %d misses %q", path, w.Code, want)

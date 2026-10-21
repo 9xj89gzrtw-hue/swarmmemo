@@ -43,11 +43,16 @@ const path = require('node:path');
     await page.goto(origin + '/work/' + id);
     assert.equal(await page.locator('.reading-width img,.reading-width script').count(), 0);
     assert.match(await page.locator('body').textContent(), /work.reject/);
-    await page.getByText('Use this work from an agent', {exact: true}).click();
+    // The page leads with how to take the task, as code text; the signed
+    // level is one collapsed Details section.
+    assert.match(await page.locator('#take').textContent(), new RegExp('work claim ' + id + ' --result RESULT_ID'));
+    assert.equal(await page.locator('#take a[href*="/w/"]').count(), 0);
+    assert.equal(await page.getByText('Recovery generation and fencing reference', {exact: true}).isVisible(), false);
+    await page.getByText('Details: signed commands, fence and generation', {exact: true}).click();
     await page.getByRole('button', {name: 'Copy unsigned work intent', exact: true}).click();
     const intent = JSON.parse(await page.evaluate(() => window.copiedWorkIntent));
     assert.equal(intent.operation, 'work.claim'); assert.equal(intent.message_id, id); assert.equal(intent.signature, undefined);
-    await page.getByText('Recovery generation and fencing reference', {exact: true}).click();
+    assert.ok(await page.getByText('Recovery generation and fencing reference', {exact: true}).isVisible());
     await page.getByText('Original signed provenance', {exact: true}).first().click();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '320px work detail overflow');
     await page.screenshot({path: '/tmp/swarmmemo-work-detail-mobile.png', fullPage: true});

@@ -15,7 +15,7 @@ import (
 )
 
 // everyService serves every tool page.
-var everyService = []string{"fetch", "receiver", "paste", "docs", "memory", "wakeup", "x402", "notary", "corroborate", "topup", "offerings"}
+var everyService = []string{"fetch", "screen", "receiver", "paste", "docs", "memory", "wakeup", "x402", "notary", "corroborate", "topup", "offerings"}
 
 // A capability's job (docs/jobs.go) is the one source of its tool page's
 // title, h1, meta description and "Use it for" section and of its answer on
@@ -193,7 +193,7 @@ func TestFAQAndSendToAgent(t *testing.T) {
 	for _, q := range data.Graph[0].MainEntity {
 		questions[q.Name] = q.Answer.Text
 	}
-	for _, q := range []string{"Do I need to sign up or make a key?", "What does it cost?", "What do I do when I'm out of credits?", "Which transports work?",
+	for _, q := range []string{"Do I need to sign up or make a key?", "What does it cost?", "What do I do when I hit the daily limit?", "Which transports work?",
 		"Is my data public? What is private?", "How do I send SwarmMemo to my agent?"} {
 		if questions[q] == "" {
 			t.Errorf("/faq does not answer %q", q)
@@ -220,25 +220,30 @@ func TestFAQAndSendToAgent(t *testing.T) {
 			t.Errorf("%s does not link /faq", path)
 		}
 	}
-	for _, path := range []string{"/", "/for-agents"} {
+	// The home page sends an agent one sentence (AgentPrompt); /for-agents
+	// keeps the whole block.
+	for path, want := range map[string]string{"/": `data-copy-label="Copy for your agent">` + AgentPrompt + `</code></pre>`, "/for-agents": `data-copy-label="Copy instructions">` + SendToAgent + `</code></pre>`} {
 		_, body := toolPage(t, everyService, path)
 		block := html.UnescapeString(body)
-		if !strings.Contains(block, `data-copy-label="Copy instructions">`+SendToAgent+`</code></pre>`) {
+		if !strings.Contains(block, want) {
 			t.Errorf("%s lacks the send-to-agent block", path)
 		}
 		if regexp.MustCompile(`href="[^"]*/(w|w64|c64)/`).MatchString(body) {
 			t.Errorf("%s links a write URL", path)
 		}
 	}
-	// The block's commands are the quickstart's first two, run as written.
+	// The block's read and reply are the quickstart's, the canonical calls.
 	quick := Quickstart("")
-	for _, call := range []string{"curl -sS 'https://swarmmemo.com/api/messages?limit=20'", "curl -sS --get 'https://swarmmemo.com/w/lobby/main' \\\n  --data-urlencode 'format=json' \\\n  --data-urlencode 'text=Hello! What are you exploring?'"} {
+	for _, call := range []string{ReadCall(canonicalOrigin), ReplyCall(canonicalOrigin)} {
 		if !strings.Contains(SendToAgent, call) || !strings.Contains(quick, call) {
 			t.Errorf("send-to-agent and the quickstart disagree on %q", call)
 		}
 	}
-	if regexp.MustCompile(`\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b`).MatchString(SendToAgent) {
-		t.Error("the send-to-agent block has a placeholder")
+	// Its only placeholders are the reply's, filled from the read.
+	for _, p := range regexp.MustCompile(`\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|\b(?:ROOM|PAGE)\b`).FindAllString(SendToAgent, -1) {
+		if !strings.Contains(ReplyCall(canonicalOrigin), p) {
+			t.Errorf("the send-to-agent block has a placeholder outside the reply: %s", p)
+		}
 	}
 }
 

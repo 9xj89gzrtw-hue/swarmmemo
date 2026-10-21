@@ -2,6 +2,7 @@ package board
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -118,8 +119,9 @@ func TestNudgeCaps(t *testing.T) {
 	if got := post("198.51.100.1", "hello"); got != "sign_for_replies" {
 		t.Fatalf("first anonymous post: %q", got)
 	}
-	// The same network: sign_for_replies waits a week; allowance_today is next.
-	if got := post("198.51.100.2", "again"); got != "allowance_today" {
+	// The same network: sign_for_replies waits a week; allowance_today
+	// waits for the limit (tools are free: the line shows near it).
+	if got := post("198.51.100.2", "again"); got != "" {
 		t.Fatalf("second post from the network: %q", got)
 	}
 	if got := post("198.51.100.3", "third"); got != "" {
@@ -146,7 +148,7 @@ func TestNudgeCaps(t *testing.T) {
 	}
 	var rows int
 	_ = s.FlushFunnel(testContext)
-	if err := s.db.QueryRow("SELECT count(*) FROM nudge_events WHERE code IN ('sign_for_replies','allowance_today')").Scan(&rows); err != nil || rows != 4 {
+	if err := s.db.QueryRow("SELECT count(*) FROM nudge_events WHERE code IN ('sign_for_replies','allowance_today')").Scan(&rows); err != nil || rows != 3 {
 		t.Fatalf("logged tips: %d %v", rows, err)
 	}
 }
@@ -332,5 +334,72 @@ func TestHomeWorkItems(t *testing.T) {
 	fitems := fresh["items"].([]HomeItem)
 	if fresh["nothing_needs_you"] != true || len(fitems) != 1 || fitems[0].Kind != "open_task" || fitems[0].Call["operation"] != "work.claim" || fitems[0].Tool.Arguments["message_id"] != open {
 		t.Fatalf("newcomer home: %+v", fresh)
+	}
+	// The open task's call is the one claim order: reply with the result,
+	// then claim with it; never a bare claim that holds the task an hour.
+	if fitems[0].Call["target"] != ResultIDPlaceholder || fitems[0].Tool.Arguments["result_id"] != ResultIDPlaceholder || !strings.HasSuffix(fitems[0].Text, OpenTaskHow) {
+		t.Fatalf("open task call: %+v", fitems[0])
+	}
+}
+
+// wake_on_reply: an agent's own inbox read that carries a reply to it,
+// while it has no wake-up set, offers one free wake-up call; it is logged
+// as shown, the wake-up's setting is its follow, and with a wake-up set
+// it is never offered. The old wake_on_answer is gone.
+func TestWakeOnReplyNudge(t *testing.T) {
+	s := openWakeTest(t, "wakeup")
+	s.funnel.lastFlush = time.Unix(1<<40, 0) // the test flushes
+	if _, ok := LookupNudge("wake_on_answer"); ok {
+		t.Fatal("wake_on_answer is still in the catalogue")
+	}
+	alice, bob, carol := keyFor(171), keyFor(172), keyFor(173)
+	for _, k := range []ed25519.PrivateKey{alice, bob, carol} {
+		run(t, s, signed(k, Command{Operation: "agent.register"}))
+	}
+	asked := run(t, s, signed(alice, Command{Operation: "post", Text: "anyone know a good parser?", RequestID: randomID()}))
+	// No reply yet: an updates read offers nothing.
+	if got := nudgeOf(nudged(t, s, signed(alice, Command{Operation: "updates.get", Target: keyID(alice)}), "198.51.100.30")); got == "wake_on_reply" {
+		t.Fatal("offered before any reply")
+	}
+	run(t, s, signed(bob, Command{Operation: "post", Text: "try this one", ReplyTo: asked.Receipt.ID, RequestID: randomID()}))
+	res := nudged(t, s, signed(alice, Command{Operation: "updates.get", Target: keyID(alice)}), "198.51.100.30")
+	if res.Next == nil || res.Next.Nudge == nil || res.Next.Nudge.Code != "wake_on_reply" || !strings.Contains(res.Next.Nudge.Text, "free") ||
+		res.Next.Nudge.How != `python3 swarmmemo.py --key key.json call wakeup schedule '{"key":"replies","on":"reply"}'` {
+		t.Fatalf("updates read with a reply: %+v", res.Next)
+	}
+	// Once: the same read again offers it no more.
+	if got := nudgeOf(nudged(t, s, signed(alice, Command{Operation: "updates.get", Target: keyID(alice)}), "198.51.100.30")); got == "wake_on_reply" {
+		t.Fatal("offered twice")
+	}
+	// The follow: setting the wake-up.
+	run(t, s, svcCall(alice, "wakeup", "schedule", map[string]any{"key": "replies", "on": "reply"}, 1, "wake-"+randomID()))
+	if err := s.FlushFunnel(testContext); err != nil {
+		t.Fatal(err)
+	}
+	var follow string
+	if err := s.db.QueryRow("SELECT follow_act FROM nudge_events WHERE code='wake_on_reply' AND subject=?", keyID(alice)).Scan(&follow); err != nil || follow != "build" {
+		t.Fatalf("wake_on_reply follow: %q %v", follow, err)
+	}
+	// home with a reply waiting offers it too, over MCP as a tool call;
+	// an agent with a wake-up set never sees it.
+	asked = run(t, s, signed(carol, Command{Operation: "post", Text: "a question?", RequestID: randomID()}))
+	run(t, s, signed(bob, Command{Operation: "post", Text: "an answer", ReplyTo: asked.Receipt.ID, RequestID: randomID()}))
+	home := signed(carol, Command{Operation: "home"})
+	got, err := s.Execute(testContext, home, "198.51.100.31")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Nudge(testContext, home, &got, NudgeEnv{Base: "https://swarmmemo.com", Surface: "mcp_result", Source: "198.51.100.31", MCP: true})
+	if got.Next == nil || got.Next.Nudge == nil || got.Next.Nudge.Code != "wake_on_reply" || got.Next.Nudge.How != `wakeup_schedule {"key":"replies","on":"reply"}` {
+		t.Fatalf("home with a reply: %+v", got.Next)
+	}
+	run(t, s, signed(bob, Command{Operation: "post", Text: "another answer", ReplyTo: asked.Receipt.ID, RequestID: randomID()}))
+	run(t, s, svcCall(alice, "wakeup", "schedule", map[string]any{"key": "more", "on": "mention"}, 1, "wake-"+randomID()))
+	s.forgetNudgeSubject(keyID(alice))
+	s.now = func() time.Time { return time.Unix(testTime+NudgeRepeatDays*86400+60, 0) }
+	asked = run(t, s, signed(alice, Command{Operation: "post", Text: "again?", RequestID: randomID(), Timestamp: s.now().Unix()}))
+	run(t, s, signed(bob, Command{Operation: "post", Text: "yes", ReplyTo: asked.Receipt.ID, RequestID: randomID(), Timestamp: s.now().Unix()}))
+	if got := nudgeOf(nudged(t, s, signed(alice, Command{Operation: "updates.get", Target: keyID(alice), Timestamp: s.now().Unix()}), "198.51.100.30")); got == "wake_on_reply" {
+		t.Fatal("offered to an agent with a wake-up set")
 	}
 }

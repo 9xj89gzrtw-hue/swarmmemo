@@ -710,6 +710,33 @@ func TestBundlerTxIsLabelledUpstream(t *testing.T) {
 			t.Fatalf("a bundler call has a settlement: %v %v", got, err)
 		}
 	})
+	t.Run("first party", func(t *testing.T) {
+		// The bundler's own tool: its receipt pays the bundler's wallet, so
+		// the transaction it reports goes from that wallet to itself.
+		h, api := newBundlerHarness(t, `,"payer":"`+bundlerPayer+`"`, "")
+		api.receiptExtra = `,"amount":"0.002","currency":"USDC","network":"base","tx_hash":"` + upstreamTx + `","pay_to":"0xe62923133a417cEe4241677865Ed5a63F44F4B54"`
+		if _, err := h.bundlerRead(testSubject, "tools_search", `{"query":"weather"}`); err != nil {
+			t.Fatal(err)
+		}
+		out, err := h.call(testSubject, `{"resource":"tool:`+toolOK+`","body":{"city":"Paris"}}`, creditsFor(20000))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Results []struct {
+				Receipt map[string]any `json:"receipt"`
+			} `json:"results"`
+		}
+		b, _ := json.Marshal(resultOf(out)["body"])
+		if err := json.Unmarshal(b, &body); err != nil || len(body.Results) != 1 {
+			t.Fatalf("body %s: %v", b, err)
+		}
+		rc := body.Results[0].Receipt
+		up, _ := rc["upstream"].(map[string]any)
+		if rc["first_party"] != true || up["note"] != BundlerFirstPartyNote || up["transaction"] != upstreamTx {
+			t.Fatalf("first-party receipt %v", rc)
+		}
+	})
 	t.Run("relay", func(t *testing.T) {
 		h := newX402Harness(t, &fakeX402{price: 1500, version: 2}, `{}`)
 		out, err := h.call(testSubject, `{"resource":"price","query":{"ids":"bitcoin","vs":"usd"}}`, creditsFor(10000))

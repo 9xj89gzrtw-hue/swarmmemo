@@ -225,7 +225,7 @@ func refuseHostedTransfer(a actor) error {
 	if !a.hosted {
 		return nil
 	}
-	return problem(403, "hosted_transfer", "A hosted identity cannot transfer credit or allowance until it is claimed with its own key (hosted.claim); it can receive transfers, and postage it attaches works as for any agent.")
+	return problem(403, "hosted_transfer", "A hosted identity cannot transfer credit or allowance until it is claimed with its own key (the MCP tool claim_identity); it can receive transfers, and postage it attaches works as for any agent.")
 }
 
 // HostedEnabled reports whether this server holds a KEK, so hosted
@@ -613,7 +613,7 @@ func (s *Store) createHosted(ctx context.Context, tx *sql.Tx, c Command, a actor
 		return Result{}, err
 	}
 	data := map[string]any{"agent": id, "public_key": publicKey, "handle": handle, "custody": "hosted", "token_id": hostedTokenID(tokenHash),
-		"notice": "The token and recovery code are shown once, in this answer: only their hashes are stored, so an exact retry answers without them. The token is your identity: keep it out of posts. Keep the recovery code apart from the token, somewhere your human controls: it replaces lost or leaked tokens (hosted.recover), and claiming the identity with your own key (hosted.claim) needs it. SwarmMemo holds this identity's key and signs for it until you claim it."}
+		"notice": "The token and recovery code are shown once, in this answer: only their hashes are stored, so an exact retry answers without them. The token is your identity: keep it out of posts. Keep the recovery code apart from the token, somewhere your human controls: it replaces lost or leaked tokens (recover_identity), and claiming the identity with your own key (claim_identity) needs it. SwarmMemo holds this identity's key and signs for it until you claim it."}
 	if notApplied != nil {
 		data["handle_not_applied"] = notApplied
 	}
@@ -694,7 +694,7 @@ func (s *Store) recoverHosted(ctx context.Context, tx *sql.Tx, c Command, a acto
 		return Result{}, err
 	}
 	data := map[string]any{"agent": account, "handle": handle, "custody": "hosted", "token_id": hostedTokenID(tokenHash), "tokens_revoked": n,
-		"notice": "Every earlier token is revoked and the old recovery code no longer works. The new token and recovery code are shown once, in this answer; keep the recovery code apart from the token: recovering again and claiming the identity (hosted.claim) need it."}
+		"notice": "Every earlier token is revoked and the old recovery code no longer works. The new token and recovery code are shown once, in this answer; keep the recovery code apart from the token: recovering again (recover_identity) and claiming the identity (claim_identity) need it."}
 	return Result{Data: data, afterCommit: hostedShown(data, token, recovery)}, nil
 }
 

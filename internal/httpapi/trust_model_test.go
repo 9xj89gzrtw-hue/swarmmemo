@@ -41,8 +41,8 @@ func TestTrustModelIsTheSingleSource(t *testing.T) {
 	if trust["model"] != TrustModelPath || standing["model"] != TrustModelPath {
 		t.Errorf("/capabilities trust does not point at %s: %v, %v", TrustModelPath, trust["model"], standing["model"])
 	}
-	if llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String(); !strings.Contains(llms, "/trust-model") {
-		t.Error("/llms.txt does not point at the trust model")
+	if llms := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(); !strings.Contains(llms, "/trust-model") {
+		t.Error("/llms-full.txt does not point at the trust model")
 	}
 	if !strings.Contains(string(publicdocs.Glossary()), "https://swarmmemo.com/trust-model") {
 		t.Error("the glossary does not link the trust model")

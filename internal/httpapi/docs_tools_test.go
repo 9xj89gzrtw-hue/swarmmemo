@@ -34,7 +34,7 @@ func TestDocumentedMCPToolsExist(t *testing.T) {
 	// use other verbs.
 	toolish := regexp.MustCompile("`((?:create|recover|claim|manage|send|join|accept|set|update|read|list|find|post|screen|notary|memory|wakeup|receiver|fetch|journal|x402|log|agent|whoami)(?:_[a-z]+)+|whoami)`")
 	checked := 0
-	for _, file := range []string{"docs/MESSAGES.md", "docs/TOOLS.md", "docs/TOOLS_FETCH.md", "docs/TOOLS_RECEIVE.md", "docs/TOOLS_MEMORY.md", "docs/TOOLS_WAKEUP.md", "docs/TOOLS_JOURNAL.md", "docs/TOOLS_PAID_APIS.md", "docs/TOOLS_NOTARY.md", "docs/TOOLS_VERIFY.md", "docs/TOOLS_IDENTITY.md", "docs/TOOLS_WORK.md", "clients/mcp/README.md", "plugins/swarmmemo/README.md"} {
+	for _, file := range []string{"docs/MESSAGES.md", "docs/TOOLS.md", "docs/TOOLS_FETCH.md", "docs/TOOLS_SCREEN.md", "docs/TOOLS_RECEIVE.md", "docs/TOOLS_MEMORY.md", "docs/TOOLS_WAKEUP.md", "docs/TOOLS_JOURNAL.md", "docs/TOOLS_PAID_APIS.md", "docs/TOOLS_NOTARY.md", "docs/TOOLS_VERIFY.md", "docs/TOOLS_IDENTITY.md", "docs/TOOLS_WORK.md", "clients/mcp/README.md", "plugins/swarmmemo/README.md"} {
 		raw, err := os.ReadFile("../../" + file)
 		if err != nil {
 			t.Fatal(err)
@@ -120,6 +120,7 @@ func TestJobSearchesFindTheirTools(t *testing.T) {
 		"/tools/docs":    {"swarmmemo:docs.create", "swarmmemo:docs.write"},
 		// Job pages (docs/jobs.go) under those tools.
 		"/tools/receive/trigger-an-ai-agent-from-a-webhook": {"swarmmemo:receiver."},
+		"/tools/receive/email-address-for-ai-agent":         {"swarmmemo:receiver."},
 		"/tools/wakeup/wake-an-ai-agent-on-reply":           {"swarmmemo:wakeup."},
 		"/tools/memory/memory-mcp-server":                   {"swarmmemo:memory."},
 	}

@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"swarmmemo/internal/board"
 	"swarmmemo/internal/web"
 )
 
-const funnelUsage = "usage: swarmmemo funnel [--days N] [--split X] [--organic] [--json|--html FILE] | funnel kpi [--days N] [--json] | funnel backfill [--since YYYY-MM-DD] | funnel recompute | funnel exclude add|rm FINGERPRINT | funnel exclude list | feedback list [--limit N]"
+const funnelUsage = "usage: swarmmemo funnel [--days N] [--split X] [--organic] [--json|--html FILE] | funnel kpi [--days N] [--json] | funnel mcp-tools [--json] | funnel backfill [--since YYYY-MM-DD] | funnel recompute | funnel exclude add|rm FINGERPRINT | funnel exclude list | feedback list [--limit N]"
 
 // operatorFunnel is the operator's funnel (board/funnel.go, C293a): the
 // same board functions GET /admin/funnel serves. Every view leaves the
@@ -50,6 +52,8 @@ func operatorFunnel(ctx context.Context, store *board.Store, args []string, out 
 			return funnelExclude(ctx, store, args[1:], out)
 		case "kpi":
 			return funnelKPI(ctx, store, args[1:], out)
+		case "mcp-tools":
+			return funnelMCPTools(ctx, store, args[1:], out)
 		}
 	}
 	days, split, organic, asJSON, htmlFile := board.FunnelBackfillDays, "", false, false, ""
@@ -134,7 +138,71 @@ func operatorFunnel(ctx context.Context, store *board.Store, args []string, out 
 	for _, n := range l.Nudges {
 		fmt.Fprintf(out, "  %s: shown %d, reviewed %s; holdout %d, reviewed %s\n", n.Code, n.Shown, rateLine(n.Followed), n.HoldoutRows, rateLine(n.HoldoutFol))
 	}
+	printMCPTools(out, rep.MCPTools)
 	return nil
+}
+
+// funnelMCPTools prints the hosted MCP tool calls of the last 7 and 30
+// days (board/mcptoolstats.go): operator-only, never on /stats.
+func funnelMCPTools(ctx context.Context, store *board.Store, args []string, out io.Writer) error {
+	asJSON := len(args) == 1 && args[0] == "--json"
+	if len(args) > 1 || len(args) == 1 && !asJSON {
+		return errors.New(funnelUsage)
+	}
+	windows, err := store.MCPToolReport(ctx, time.Now())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", " ")
+		return enc.Encode(windows)
+	}
+	printMCPTools(out, windows)
+	return nil
+}
+
+// printMCPTools is the "MCP tools" tables: each window's profiles, then
+// its tools by calls. Callers are distinct per day (salted daily, never
+// linked across days), summed over the window: caller-days.
+func printMCPTools(out io.Writer, windows []board.MCPToolWindow) {
+	for _, w := range windows {
+		fmt.Fprintf(out, "MCP tools, last %d days (%s to %s; callers = distinct per day, summed)\n", w.Days, w.From, w.To)
+		if w.Skipped > 0 {
+			fmt.Fprintf(out, "  %d entries skipped for an invalid key (a counting bug: see board/mcptoolstats.go)\n", w.Skipped)
+		}
+		if len(w.Tools) == 0 {
+			fmt.Fprintln(out, "  no tool calls recorded")
+			continue
+		}
+		fmt.Fprintf(out, "  %-10s %-28s %8s %8s %7s  %s\n", "profile", "tool", "calls", "callers", "errors", "top families")
+		for _, r := range append(append([]board.MCPToolRow(nil), w.Profiles...), w.Tools...) {
+			tool := r.Tool
+			if tool == board.MCPToolAny {
+				tool = "(any tool)"
+			}
+			fmt.Fprintf(out, "  %-10s %-28s %8d %8d %7d  %s\n", r.Profile, tool, r.Calls, r.CallerDays, r.Errors, topFamilies(r.Families, 3))
+		}
+	}
+}
+
+// topFamilies is the n families with the most calls, "claude 12, openai 3".
+func topFamilies(m map[string]int64, n int) string {
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		return m[names[i]] > m[names[j]] || m[names[i]] == m[names[j]] && names[i] < names[j]
+	})
+	if len(names) > n {
+		names = names[:n]
+	}
+	parts := make([]string, len(names))
+	for i, k := range names {
+		parts[i] = fmt.Sprintf("%s %d", k, m[k])
+	}
+	return strings.Join(parts, ", ")
 }
 
 // rateLine is a rate as k/n and its percent, "(low n)" below the minimum.

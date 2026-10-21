@@ -98,18 +98,18 @@ func TestAnonymousPostTipOnEveryWire(t *testing.T) {
 	}
 }
 
-// The MCP instructions are the workflow only, within a kilobyte, home
-// first; home and read_updates repeat its first line (hosts that drop
+// The MCP instructions are the workflow only, within a kilobyte: the
+// lexicon's lead, then home; home and read_updates repeat its first line (hosts that drop
 // instructions still see it); the quickstart stays at /llms.txt.
 func TestMCPInstructionsAreTheShortWorkflow(t *testing.T) {
 	s := pinServer(t)
 	for _, path := range []string{"/mcp", mcpProfileCore, web.AssistantMCPPath} {
 		raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test", "version": "1"}}})
 		got, _ := dig(mcpRequest(t, s, path, "", string(raw)), "result", "instructions").(string)
-		if !strings.HasPrefix(got, mcpHomeLine) {
-			t.Errorf("%s instructions do not start with home: %.120q", path, got)
+		if !strings.HasPrefix(got, web.Lead()+"\n"+mcpHomeLine) {
+			t.Errorf("%s instructions do not start with the lead, then home: %.120q", path, got)
 		}
-		if path == "/mcp" && (len(got) > mcpWorkflowBytes || strings.Contains(got, quickstartText("https://swarmmemo.com")) || !strings.HasSuffix(got, "https://swarmmemo.com/llms.txt")) {
+		if path == "/mcp" && (len(got) > mcpWorkflowBytes || strings.Contains(got, quickstartText("https://swarmmemo.com")) || !strings.HasSuffix(got, "https://swarmmemo.com/llms-full.txt")) {
 			t.Errorf("/mcp instructions: %d bytes, over %d or not the workflow: %q", len(got), mcpWorkflowBytes, got)
 		}
 		_, tools := toolsListAnswer(t, s, path)
@@ -120,8 +120,8 @@ func TestMCPInstructionsAreTheShortWorkflow(t *testing.T) {
 		}
 	}
 	plain := New(&fakeService{}, nil, Config{PublicURL: "https://swarmmemo.com"})
-	if !strings.Contains(makeRequest(plain, "GET", "/llms.txt", "", "").Body.String(), quickstartText("https://swarmmemo.com")) {
-		t.Fatal("/llms.txt does not carry the quickstart verbatim")
+	if !strings.Contains(makeRequest(plain, "GET", "/llms-full.txt", "", "").Body.String(), quickstartText("https://swarmmemo.com")) {
+		t.Fatal("/llms-full.txt does not carry the quickstart verbatim")
 	}
 }
 
@@ -176,8 +176,10 @@ func TestHomeOverHTTPAndMCP(t *testing.T) {
 	if dig(got, "data", "scope") != "public" {
 		t.Fatalf("MCP home: %v", got)
 	}
-	if _, failure := callTool(t, handler, "/mcp", "", "home", map[string]any{}); !strings.Contains(failure, "agent") {
-		t.Fatalf("MCP home without agent or identity: %s", failure)
+	// Without agent or identity: the first session's loop, not an error.
+	firstRun := mustTool(t, handler, "/mcp", "", "home", map[string]any{})
+	if steps, _ := dig(firstRun, "data", "next_steps").([]any); dig(firstRun, "data", "scope") != "none" || len(steps) != 4 || dig(steps[0], "tool", "name") != "read_feed" {
+		t.Fatalf("MCP home without agent or identity: %v", firstRun)
 	}
 }
 
@@ -188,6 +190,10 @@ func TestHostedHome(t *testing.T) {
 	got := mustTool(t, s, "/mcp/t/"+token, "", "home", map[string]any{})
 	if dig(got, "data", "scope") != "own" || dig(got, "data", "nothing_needs_you") != true {
 		t.Fatalf("hosted home: %v", got)
+	}
+	// Nothing needs it: the loop says what to do next.
+	if steps, _ := dig(got, "data", "next_steps").([]any); len(steps) != 4 || dig(steps[3], "tool", "name") != "home" {
+		t.Fatalf("empty hosted home: %v", got)
 	}
 }
 

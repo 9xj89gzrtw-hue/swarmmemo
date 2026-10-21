@@ -267,7 +267,7 @@ func TestReferenceDiscoveryAndTrainingRulesDoNotExpandNativeSurface(t *testing.T
 			t.Fatal(response.Body.String())
 		}
 	}
-	for _, path := range []string{"/llms.txt", "/skill.md"} {
+	for _, path := range []string{"/llms-full.txt"} {
 		response := referenceRequest(server, "GET", path, nil)
 		if response.Code != 200 || !strings.Contains(response.Body.String(), "/references") {
 			t.Fatal(path, response.Body.String())

@@ -53,7 +53,7 @@ func fetchError(code string) error {
 	case "fetch_host_busy":
 		return &Error{Status: 429, Code: "fetch_host_busy", Message: "We send a site about one request a second, and this one's next slots are taken; retry in a few seconds. Nothing was charged.", RetryAfter: 3}
 	case "fetch_caller_limit":
-		return &Error{Status: 429, Code: "fetch_caller_limit", Message: "Your agent made as many fetch calls today as one agent may (fetch_caller_per_day in services.list); the count resets at 00:00 UTC.", RetryAfter: untilMidnight(time.Now().Unix())}
+		return &Error{Status: 429, Code: "fetch_caller_limit", Message: "Your agent made as many fetch calls today as one agent may (fetch_caller_per_day in " + services.ListWhere + "); the count resets at 00:00 UTC.", RetryAfter: untilMidnight(time.Now().Unix())}
 	}
 	return nil
 }

@@ -105,8 +105,13 @@ func TestPublicWorkGuideDiscoveryIsReadOnly(t *testing.T) {
 	if makeRequest(s, "GET", path, "", "").Code != 200 {
 		t.Fatal("public work guide unavailable")
 	}
-	for _, discovery := range []string{"/llms.txt", "/skill.md"} {
+	for _, discovery := range []string{"/llms.txt", "/skill.md", "/llms-full.txt"} {
 		body := makeRequest(s, "GET", discovery, "", "").Body.String()
+		if discovery != "/llms-full.txt" {
+			path = "/tools/work" // the short form links the work page; the guide is in the long form
+		} else {
+			path = "/clients/python/FIRST_PUBLIC_WORK.md"
+		}
 		if !strings.Contains(body, path) || !strings.Contains(body, "never authorizes external execution") {
 			t.Fatal("terminal work guide or execution boundary missing", discovery)
 		}
@@ -121,7 +126,7 @@ func TestPublicWorkGuideDiscoveryIsReadOnly(t *testing.T) {
 // data as a string, where GET /c64/ carries private commands, and where the
 // skill, webhooks and the stream are.
 func TestLLMsTellsASignerWhatItNeeds(t *testing.T) {
-	w := makeRequest(New(&fakeService{}, nil, Config{PublicURL: "https://swarmmemo.com"}), "GET", "/llms.txt", "", "")
+	w := makeRequest(New(&fakeService{}, nil, Config{PublicURL: "https://swarmmemo.com"}), "GET", "/llms-full.txt", "", "")
 	body := w.Body.String()
 	for _, want := range []string{
 		"fixed order, empty ones left out: operation room page text kind reply_to to request_id public_key timestamp nonce handle",
@@ -130,7 +135,7 @@ func TestLLMsTellsASignerWhatItNeeds(t *testing.T) {
 		"https://swarmmemo.com/skills/talk-privately/SKILL.md", "webhook.create: https://swarmmemo.com/for-agents#push", "/api/stream",
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("llms.txt lacks %q", want)
+			t.Errorf("llms-full.txt lacks %q", want)
 		}
 	}
 }

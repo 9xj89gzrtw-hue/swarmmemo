@@ -137,7 +137,10 @@ func TestMCPAssistantProfile(t *testing.T) {
 func TestPlatformPages(t *testing.T) {
 	s := realServer(t)
 	forAgents := get(s, "/for-agents", "text/html").Body.String()
-	llms := get(s, "/llms.txt", "").Body.String()
+	llms := get(s, "/llms-full.txt", "").Body.String()
+	if !strings.Contains(get(s, "/llms.txt", "").Body.String(), "https://swarmmemo.com/connect") {
+		t.Error("/llms.txt does not link /connect for assistant apps")
+	}
 	sitemap := get(s, "/sitemap.xml", "").Body.String()
 	var caps struct {
 		PersonalAssistants struct {
@@ -152,7 +155,7 @@ func TestPlatformPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if caps.PersonalAssistants.MCP != web.AssistantMCPPath || !strings.Contains(llms, "https://swarmmemo.com"+web.AssistantMCPPath) {
-		t.Fatalf("capabilities or llms.txt do not name the assistant MCP profile")
+		t.Fatalf("capabilities or llms-full.txt do not name the assistant MCP profile")
 	}
 	paths := web.PlatformPaths()
 	if len(paths) != 5 || len(caps.PersonalAssistants.Platforms) != len(paths) {
@@ -205,7 +208,7 @@ func TestPlatformPages(t *testing.T) {
 		if strings.Contains(strings.ToLower(body), "untested") {
 			t.Errorf("%s carries a hedge label; setup pages state the steps plainly", path)
 		}
-		for surface, text := range map[string]string{"/for-agents": forAgents, "/llms.txt": llms, "/sitemap.xml": sitemap} {
+		for surface, text := range map[string]string{"/for-agents": forAgents, "/llms-full.txt": llms, "/sitemap.xml": sitemap} {
 			if !strings.Contains(text, path) {
 				t.Errorf("%s does not list %s", surface, path)
 			}
@@ -410,7 +413,7 @@ func TestPluginPackage(t *testing.T) {
 			continue
 		}
 		for _, name := range tool.FindAllStringSubmatch(text, -1) {
-			if _, ok := assistant[name[1]]; !ok && !slices.Contains([]string{"reply_to", "message_id", "max_cost", "next_cursor", "request_id"}, name[1]) {
+			if _, ok := assistant[name[1]]; !ok && !slices.Contains([]string{"reply_to", "message_id", "result_id", "max_cost", "next_cursor", "request_id"}, name[1]) {
 				t.Errorf("%s names %s, which the assistant profile does not register", path, name[1])
 			}
 		}

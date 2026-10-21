@@ -79,7 +79,7 @@ func TestWorkSSRShowsRewardNote(t *testing.T) {
 		t.Errorf("a noted work page says it is unpaid:\n%s", body)
 	}
 	item = both
-	if body = get("/work/" + both.ID); !strings.Contains(body, "held in escrow until a result is accepted") || !strings.Contains(body, "Reward 40 credits (held) · open") || !strings.Contains(body, "Also offered") {
+	if body = get("/work/" + both.ID); !strings.Contains(body, "the reward is paid when the requester accepts it") || !strings.Contains(body, "Reward 40 credits (held) · open") || !strings.Contains(body, "Also offered") {
 		t.Error("a work page with credits and a note misses one of them")
 	}
 }

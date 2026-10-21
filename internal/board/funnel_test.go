@@ -166,7 +166,7 @@ func TestClientNames(t *testing.T) {
 // Every nudge field of Next and every hint code httpapi emits has a row,
 // and every row names a real field or hint: no orphans.
 func TestNudgeCodesRegistered(t *testing.T) {
-	notNudges := map[string]bool{"nudge": true, "waiting": true, "allowance": true, "retry": true, "hints": true}
+	notNudges := map[string]bool{"nudge": true, "waiting": true, "allowance": true, "retry": true, "hints": true, "about": true}
 	fields := map[string]bool{}
 	nt := reflect.TypeOf(Next{})
 	for i := 0; i < nt.NumField(); i++ {

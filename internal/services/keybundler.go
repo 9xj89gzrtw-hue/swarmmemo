@@ -225,7 +225,7 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 				charged = 0 // the bundler reports it delivered and billed nothing
 			}
 			delete(out, "billing") // our account's balance is not the agent's business
-			bundlerLabelUpstreamReceipts(out)
+			bundlerLabelUpstreamReceipts(out, f.payer)
 			if b := canonicalJSON(out); b != nil {
 				// The rows name the tool by its public name, never the
 				// upstream's id.
@@ -284,6 +284,11 @@ func bundlerZero(raw json.RawMessage) bool {
 // per-call receipts: they are its own, not a payment by or to SwarmMemo.
 const BundlerUpstreamNote = "reported by the upstream bundler; not a payment by or to SwarmMemo"
 
+// BundlerFirstPartyNote is that note on a first-party tool's receipt (C496):
+// the bundler sells the tool itself, so the transaction it reports pays its
+// own wallet, from and to the same address (a reader asked, seq 5685).
+const BundlerFirstPartyNote = "reported by the upstream bundler: a tool it sells itself, so this transaction moves its USDC to its own wallet (from and to are the same address); not a payment by or to SwarmMemo. What you paid is the credit charge."
+
 // bundlerUpstreamKeys are the receipt fields a bundler may report its own
 // chain facts under, and the name each gets under receipt.upstream.
 var bundlerUpstreamKeys = []struct{ from, to string }{
@@ -294,8 +299,9 @@ var bundlerUpstreamKeys = []struct{ from, to string }{
 // results[].receipt under receipt.upstream, with BundlerUpstreamNote: the
 // bundler pays from its prepaid account, so a transaction it reports is its
 // own, never the settlement of the agent's call (which has none: see
-// X402Settlements).
-func bundlerLabelUpstreamReceipts(out map[string]json.RawMessage) {
+// X402Settlements). A receipt whose pay_to is payer, the bundler's own
+// wallet, is a first-party tool's: first_party, and BundlerFirstPartyNote.
+func bundlerLabelUpstreamReceipts(out map[string]json.RawMessage, payer EVMAddress) {
 	var results []json.RawMessage
 	if json.Unmarshal(out["results"], &results) != nil {
 		return
@@ -310,6 +316,14 @@ func bundlerLabelUpstreamReceipts(out map[string]json.RawMessage) {
 		if json.Unmarshal(row["receipt"], &receipt) != nil || receipt == nil {
 			continue
 		}
+		var payTo string
+		firstParty := false
+		if json.Unmarshal(receipt["pay_to"], &payTo) == nil && payer != (EVMAddress{}) {
+			if a, ok := ParseEVMAddress(payTo); ok && a == payer {
+				firstParty = true
+				receipt["first_party"] = []byte("true")
+			}
+		}
 		upstream, moved := map[string]json.RawMessage{}, false
 		for _, k := range bundlerUpstreamKeys {
 			v, ok := receipt[k.from]
@@ -322,10 +336,13 @@ func bundlerLabelUpstreamReceipts(out map[string]json.RawMessage) {
 				upstream[k.to] = v
 			}
 		}
-		if !moved {
+		if !moved && !firstParty {
 			continue
 		}
 		upstream["note"] = canonicalJSON(BundlerUpstreamNote)
+		if firstParty {
+			upstream["note"] = canonicalJSON(BundlerFirstPartyNote)
+		}
 		receipt["upstream"] = canonicalJSON(upstream)
 		row["receipt"] = canonicalJSON(receipt)
 		results[i] = canonicalJSON(row)

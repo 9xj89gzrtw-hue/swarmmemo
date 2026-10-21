@@ -29,10 +29,10 @@ func TestScreenSurfaces(t *testing.T) {
 	s.offerCache.at = time.Time{} // read what is offered again, with the classifier
 	// The text goes in a POST body, not the URL; GET works too.
 	form := "text=The+meeting+moved+to+3+pm%3B+reply+to+confirm.&source=email&intent=reply+to+the+sender"
-	llms := makeRequest(s, "GET", "https://swarmmemo.com/llms.txt", "", "").Body.String()
+	llms := makeRequest(s, "GET", "https://swarmmemo.com/llms-full.txt", "", "").Body.String()
 	if !strings.Contains(llms, "## Screen text before you act on it") || !strings.Contains(llms, "    curl -sS 'https://swarmmemo.com/call/screen/text' --data '"+form+"'") ||
 		!strings.Contains(llms, "not a guarantee") || !strings.Contains(llms, "may log URLs") {
-		t.Fatalf("/llms.txt screen section: %s", llms)
+		t.Fatalf("/llms-full.txt screen section: %s", llms)
 	}
 	post := httptest.NewRequest("POST", "https://swarmmemo.com/call/screen/text", strings.NewReader(form))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")

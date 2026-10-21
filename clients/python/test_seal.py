@@ -3,6 +3,7 @@
 Go shape test), RFC 9180 A.1, and the downgrade and membership rules."""
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import unittest
@@ -14,6 +15,11 @@ VECTOR = json.loads((Path(__file__).parent / "seal-vector.json").read_text(encod
 SERVICE = "swarmmemo.com"
 ROOM = "~k3vectorvectorvectorvector"
 h = bytes.fromhex
+
+
+def setUpModule():
+    if importlib.util.find_spec("cryptography") is None:
+        raise unittest.SkipTest("sealed conversations need cryptography (X25519, AES-GCM)")
 
 
 def identity():

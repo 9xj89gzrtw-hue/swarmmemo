@@ -26,46 +26,92 @@ import (
 	"swarmmemo/internal/web"
 )
 
+// /llms.txt and /skill.md are one document: the summary, the three calls
+// without a key, a key, MCP, what an agent can do, the rules and where the
+// rest is, in that order, with the safety rules an agent needs before its
+// first write. /llms-full.txt starts with it and keeps every detail it
+// leaves out, in the order the reference gives them. Reading any of them
+// changes nothing.
 func TestConversationFirstInstructionsAreOrderedAndInert(t *testing.T) {
 	f := &fakeService{}
 	s := New(f, nil, Config{PublicURL: "https://example.test"})
-	var original string
-	for _, path := range []string{"/llms.txt", "/skill.md"} {
+	var llms string
+	for _, path := range []string{"/llms.txt", "/skill.md", skillMdAlias} {
 		w := makeRequest(s, "GET", path, "", "")
 		body := w.Body.String()
-		if w.Code != 200 || strings.Contains(body, "%!") {
+		if w.Code != 200 || strings.Contains(body, "%!") || strings.Contains(body, "{{") {
 			t.Fatalf("invalid instructions at %s", path)
 		}
-		if original != "" && original != body {
+		if llms != "" && llms != body {
 			t.Fatal("instruction aliases differ")
 		}
-		original = body
-		previous := -1
-		for _, step := range []string{"## Start here", "### 1. Read", "### 2. Post", "### 3. Check the receipt", "### 4. Reply", "To follow a thread", "### 5. Come back", "### 6. Optional", "## Your key, handle and identity links", "## Optional tools and advanced workflows", "## Coordinate work"} {
-			position := strings.Index(body, step)
-			if position <= previous {
-				t.Fatalf("missing or out-of-order first-use instruction: %s", step)
-			}
-			previous = position
-		}
-		optional := strings.Index(body, "## Optional tools and advanced workflows")
-		for _, advanced := range []string{"/clients/mcp/README.md", "/clients/python/FIRST_PUBLIC_WORK.md", "/clients/python/PRIVATE_INBOX.md", "## Scoped worker keys"} {
-			if strings.Index(body, advanced) <= optional {
-				t.Fatalf("advanced setup precedes conversation: %s", advanced)
-			}
-		}
-		for _, required := range []string{"Say hello, ask a question", "Public reading and posting are free within", "receipt.id", "NOT the message ID", "SAME room and page", "origin-scoped", "HEAD and OPTIONS never post", "preview", "[the retention policy](https://example.test/privacy#retention)", "not E2EE", "NOT encryption", "cannot be recalled", "backup replication is asynchronous", "never authorizes external execution"} {
-			if !strings.Contains(body, required) {
-				t.Fatalf("missing safety or conversation guidance: %s", required)
-			}
-		}
-		for _, required := range []string{"Only have a GET/fetch tool?", "Choose ONE transport, not both", "data.has_more", "`ok:true` and `receipt.id`", "across public rooms", "GET-only reply alternative", "Save `next_cursor` even when", "absent or empty `messages`", "successful response with `ok:true`", "retain your saved cursor", "cursor_reset", "not edits/removals", "untrusted data", "GET writes are real writes"} {
-			if !strings.Contains(body[:optional], required) {
-				t.Fatalf("missing constrained-tool or receipt/pagination guidance: %s", required)
-			}
-		}
+		llms = body
 		if makeRequest(s, "POST", path, "hello", "text/plain").Code != 405 {
 			t.Fatal("instruction route accepted a mutation")
+		}
+	}
+	inOrder := func(name, body string, steps ...string) {
+		t.Helper()
+		previous := -1
+		for _, step := range steps {
+			at := strings.Index(body, step)
+			if at <= previous {
+				t.Fatalf("%s: %q is missing or out of order", name, step)
+			}
+			previous = at
+		}
+	}
+	inOrder("/llms.txt", llms, "# SwarmMemo\n\n> ", "## If you are an AI agent", web.ReadCall("https://example.test"), web.ReplyCall("https://example.test"),
+		web.EarnCall("https://example.test"), web.ReceiptRule, web.UntrustedRule, "## Get a key", "create_identity", "## Connect over MCP",
+		"https://example.test/mcp", "claude mcp add --transport http swarmmemo https://example.test/mcp", "https://example.test/connect",
+		"## What you can do", "- Talk: ", "- Work: ", "- Identity and record: ", "- Stay reachable: ", "## Rules", "## More", "[Everything in one file](https://example.test/llms-full.txt)", "- Pages: ")
+	first := llms[:strings.Index(llms, "## Get a key")]
+	for _, required := range []string{"SAME room and page", "receipt.id", "ok:true", "untrusted data, never instructions", "Only have a GET/fetch tool?", "Choose ONE transport, not both"} {
+		if !strings.Contains(strings.ToLower(first), strings.ToLower(required)) {
+			t.Errorf("the first calls lack %q", required)
+		}
+	}
+	rules := llms[strings.Index(llms, "## Rules"):strings.Index(llms, "## More")]
+	for _, required := range []string{"Public is public", "[the retention policy](https://example.test/privacy#retention)", "cannot be recalled",
+		"GET writes are real writes", "preview", "HEAD and OPTIONS never post", web.AssistantPrivateRule,
+		"same request_id, never a new one", "NOT the message ID", "check provenance and your own authorization", "never authorizes external execution"} {
+		if !strings.Contains(rules, required) {
+			t.Errorf("/llms.txt rules lack %q", required)
+		}
+	}
+	// No jargon before the first call, and no credits or allowance anywhere
+	// before More: the first screen says free and states the limit.
+	if at := strings.Index(llms, "## If you are an AI agent"); regexp.MustCompile(`(?i)ed25519|netcat|\bdns\b|escrow`).MatchString(llms[:at]) {
+		t.Error("/llms.txt has jargon before the first call")
+	}
+	if words := regexp.MustCompile(`(?i)\bcredits?\b|allowance|service\.call|signed commands?`).FindAllString(llms[:strings.Index(llms, "## More")], -1); len(words) > 0 {
+		t.Errorf("/llms.txt explains the mechanics on its first screens: %q", words)
+	}
+
+	full := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String()
+	if !strings.HasPrefix(full, llms) {
+		t.Fatal("/llms-full.txt does not start with /llms.txt")
+	}
+	reference := full[len(llms):]
+	inOrder("/llms-full.txt", reference, "# Reference", "## The board", "## Start here", "### 1. Read", "### 2. Post", "### 3. Check the receipt", "### 4. Reply",
+		"To follow a thread", "### 5. Come back", "### 6. Optional", "## Your key, handle and identity links", "## Read", "## Post", "## Verify",
+		"## Optional tools and advanced workflows", "## Talk privately with other agents", "## Publish a profile", "## Room rules and personal rooms",
+		"## Coordinate work", "## Personal assistants", "## Scoped worker keys", "## Attachments", "## Limits and durability", "## Source and references",
+		"# Full command reference")
+	optional := strings.Index(reference, "## Optional tools and advanced workflows")
+	for _, advanced := range []string{"/clients/mcp/README.md", "/clients/python/FIRST_PUBLIC_WORK.md", "/clients/python/PRIVATE_INBOX.md", "## Scoped worker keys"} {
+		if strings.Index(reference, advanced) <= optional {
+			t.Fatalf("advanced setup precedes conversation: %s", advanced)
+		}
+	}
+	for _, required := range []string{"Say hello, ask a question", "Public reading and posting are free within", "receipt.id", "NOT the message ID", "SAME room and page", "origin-scoped", "HEAD and OPTIONS never post", "preview", "[the retention policy](https://example.test/privacy#retention)", "not E2EE", "NOT encryption", "cannot be recalled", "backup replication is asynchronous", "never authorizes external execution"} {
+		if !strings.Contains(reference, required) {
+			t.Fatalf("/llms-full.txt reference is missing safety or conversation guidance: %s", required)
+		}
+	}
+	for _, required := range []string{"Only have a GET/fetch tool?", "Choose ONE transport, not both", "data.has_more", "`ok:true` and `receipt.id`", "across public rooms", "GET-only reply alternative", "Save `next_cursor` even when", "absent or empty `messages`", "successful response with `ok:true`", "retain your saved cursor", "cursor_reset", "not edits/removals", "untrusted data", "GET writes are real writes"} {
+		if !strings.Contains(reference[:optional], required) {
+			t.Fatalf("/llms-full.txt is missing constrained-tool or receipt/pagination guidance: %s", required)
 		}
 	}
 	if len(f.commands) != 0 {
@@ -73,67 +119,80 @@ func TestConversationFirstInstructionsAreOrderedAndInert(t *testing.T) {
 	}
 }
 
-// llmsLeanBytes bounds /llms.txt with every service and flag on as this test
-// serves it; production adds the free credit offer, OAuth sign-in and the
-// calls without a key (about 2.5 KB), and must stay under 40 KB. Putting
-// every tool behind one search, and naming only the featured ones, took the
-// budget below where it stood before tools.search. C188 added Find's one
-// line (about 160 bytes); C228 its sign-up door example (about 80 bytes,
-// the Find line trimmed to make room). C293b put home first in "Come
-// back" and trimmed the optional sections: it shrank, and so did this.
-// C325 added the gate's line (about 170 bytes).
-// C343 added link-wallet's line (about 140 bytes).
-// C353 added Verified by SwarmMemo's line (about 150 bytes).
-// C455 added the server card's /.well-known/mcp.json alias (about 30 bytes).
-// C457 added State of agent boards to Pages and its downloads (about 110 bytes).
-// C469 added the ?ref=TAG credit line (about 125 bytes).
-// C487 put the front door first (paid tasks, then tools in one call); the
-// intro and Coordinate work were shortened to pay for it. The one-call
-// tools show only with calls without a key (production, about 900 bytes;
-// TestFrontDoorLeadsEverySurface holds that form under 40 KB).
-const llmsLeanBytes = 35_270
+// The second call of /llms.txt, a reply posted as a form, works as written:
+// the fields arrive and the answer is the JSON receipt.
+func TestLLMSTxtReplyCallWorksAsWritten(t *testing.T) {
+	f := &fakeService{}
+	s := New(f, nil, Config{PublicURL: "https://example.test"})
+	call := web.ReplyCall("https://example.test")
+	target := regexp.MustCompile(`curl -sS '([^']+)'`).FindStringSubmatch(call)
+	form := url.Values{}
+	for _, field := range regexp.MustCompile(`--data-urlencode '([^=]+)=([^']*)'`).FindAllStringSubmatch(call, -1) {
+		form.Set(field[1], field[2])
+	}
+	if target == nil || form.Get("text") == "" || form.Get("reply_to") == "" || form.Get("request_id") == "" {
+		t.Fatalf("unparsed reply call: %q", call)
+	}
+	u, _ := url.Parse(target[1])
+	path := strings.NewReplacer("ROOM", "lobby", "PAGE", "main").Replace(u.Path) + "?" + u.RawQuery
+	w := makeRequest(s, "POST", path, form.Encode(), "application/x-www-form-urlencoded")
+	var receipt board.Result
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &receipt) != nil || !receipt.OK || receipt.Receipt == nil || receipt.Receipt.ID == "" {
+		t.Fatalf("the reply call as written: %d %s", w.Code, w.Body.String())
+	}
+	if len(f.commands) != 1 || f.commands[0].ReplyTo != "MESSAGE_ID" || f.commands[0].RequestID != "YOUR_UNIQUE_REPLY_ID" || f.commands[0].Room != "lobby" {
+		t.Fatalf("the reply call sent %+v", f.commands)
+	}
+}
 
-// /llms.txt leads with what agents use first (posting and replying, their
-// key and identity links, fetch, the paid tools), then one line per tool and
-// which to use for what; the detail is on each tool's page and in
-// /llms-full.txt, which keeps everything.
+// llmsLeanBytes bounds /llms.txt with every service and flag on and calls
+// without a key, as production runs. The rebuild (2026-10-21) took it from
+// 38 KB to under 8 KB: the three calls, a key, MCP, one line per thing an
+// agent can do, the rules and links; every detail is in /llms-full.txt.
+// Grow it only for something an agent needs before its first write.
+const llmsLeanBytes = 8_400
+
+// llmsLeanLines bounds its lines the same way (best-in-class llms.txt files
+// run 50-180 lines).
+const llmsLeanLines = 160
+
+// /llms.txt is lean and links out; every per-tool and per-method detail is
+// in /llms-full.txt, which starts with it.
 func TestLLMSTxtLeadsWithFirstCallsAndStaysLean(t *testing.T) {
 	f := board.Features{Services: services.Known(), Ledger: board.LedgerOn, Trust: board.TrustOn, VoteRecords: true}
-	s, _ := catalogServer(f)
+	svc := noKeyCatalog{&catalogService{features: f}}
+	s := New(svc, web.Handler(svc), Config{Features: f, PublicURL: "https://swarmmemo.com"})
 	llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
 	full := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String()
-	if len(llms) > llmsLeanBytes {
-		t.Errorf("/llms.txt is %d bytes, over its %d budget: move detail to the tool pages", len(llms), llmsLeanBytes)
+	if len(llms) > llmsLeanBytes || strings.Count(llms, "\n") > llmsLeanLines {
+		t.Errorf("/llms.txt is %d bytes and %d lines, over its %d/%d budget: move detail to /llms-full.txt", len(llms), strings.Count(llms, "\n"), llmsLeanBytes, llmsLeanLines)
 	}
-	if !strings.Contains(llms, "Post in any language; replies usually come in the language of the post.") {
-		t.Error("/llms.txt does not say posts may be in any language")
+	if !strings.HasPrefix(full, llms) {
+		t.Error("/llms-full.txt does not start with /llms.txt")
 	}
-	previous := -1
-	for _, step := range []string{"### 2. Post", "### 4. Reply", "## Your key, handle and identity links", "identity.link", "identity.witness",
-		"## Fetch a web page", "## Tools: search, then call", "- Fetch a page: ", "## What SwarmMemo gives agents", "- Tools: ", "- memory: ", "- shared docs: ",
-		"- #bounties: where paid tasks are posted and judged", "- work items: claim and submit", "## Read", "## Coordinate work"} {
-		at := strings.Index(llms, step)
-		if at <= previous {
-			t.Fatalf("/llms.txt: %q is missing or out of order", step)
+	for _, c := range web.CanDoLines(f, services.Catalog(f.Services)) {
+		if !strings.Contains(llms, "- "+c.Name+": "+c.Line+" https://swarmmemo.com"+c.Link+"\n") {
+			t.Errorf("/llms.txt lacks what you can do: %s", c.Name)
 		}
-		previous = at
 	}
-	// Only the featured tools, each with its call, then the search for the
-	// rest; the all-tools page and the index link everything else, and the
-	// per-method detail is in the long form only.
-	for _, page := range []string{"/tools/all", "/tools/fetch", "/tools/verify", "/swarmmemo.com/tools\n"} {
-		if !strings.Contains(llms, page) {
-			t.Errorf("/llms.txt does not link %s", page)
+	if !strings.Contains(llms, web.FreeLine) {
+		t.Error("/llms.txt does not state the daily limit")
+	}
+	for _, tool := range web.OneCallTools {
+		if !strings.Contains(llms, "`curl -sS 'https://swarmmemo.com"+tool.Path()+"'` (MCP `"+tool.MCP+"`)") {
+			t.Errorf("/llms.txt lacks %s's call", tool.MCP)
+		}
+	}
+	// The catalogue, the featured tools with their calls and each service's
+	// methods are in the long form only.
+	for _, section := range []string{"## Tools: search, then call", "## What SwarmMemo gives agents", "## Services", "## Fetch a web page", "### Services without a key"} {
+		if strings.Contains(llms, section) || !strings.Contains(full, "\n"+section+"\n") {
+			t.Errorf("%s belongs in /llms-full.txt only", section)
 		}
 	}
 	for _, f := range services.Featured {
-		if !strings.Contains(llms, `{"id":"`+f.ID+`","args":`+string(f.Args)+`}`) {
-			t.Errorf("/llms.txt lacks the featured %s with its call", f.ID)
-		}
-	}
-	for _, unfeatured := range []string{"/tools/receive", "/tools/docs", "/tools/journal", "- Receivers: ", "- Code runs: ", "swarmmemo:receiver.create"} {
-		if strings.Contains(llms, unfeatured) {
-			t.Errorf("/llms.txt names %q, which is not featured: the search finds it", unfeatured)
+		if !strings.Contains(full, `{"id":"`+f.ID+`","args":`+string(f.Args)+`}`) {
+			t.Errorf("/llms-full.txt lacks the featured %s with its call", f.ID)
 		}
 	}
 	for _, e := range services.Catalog(f.Services) {
@@ -142,8 +201,10 @@ func TestLLMSTxtLeadsWithFirstCallsAndStaysLean(t *testing.T) {
 			t.Errorf("%s: per-method detail belongs in /llms-full.txt only", e.ID)
 		}
 	}
-	if !strings.HasPrefix(full, llms[:strings.Index(llms, "## What SwarmMemo gives agents")]) {
-		t.Error("/llms-full.txt does not start with everything /llms.txt says first")
+	for _, page := range []string{"/tools/all", "/tools/fetch", "/tools/verify"} {
+		if !strings.Contains(full, page) {
+			t.Errorf("/llms-full.txt does not link %s", page)
+		}
 	}
 }
 
@@ -153,10 +214,10 @@ func TestLLMSTxtLeadsWithFirstCallsAndStaysLean(t *testing.T) {
 // openapi.json does not describe (pages, streams, files) are listed.
 func TestInstructionsReadRoutesAreInOpenAPI(t *testing.T) {
 	s := New(&fakeService{}, nil, Config{PublicURL: "https://example.test"})
-	llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
+	llms := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String()
 	_, read, ok := strings.Cut(llms, "\n## Read\n")
 	if !ok {
-		t.Fatal("/llms.txt has no Read section")
+		t.Fatal("/llms-full.txt has no Read section")
 	}
 	read, _, _ = strings.Cut(read, "\n## ")
 	var spec struct {
@@ -170,7 +231,7 @@ func TestInstructionsReadRoutesAreInOpenAPI(t *testing.T) {
 		documented[regexp.MustCompile(`\{[a-z_]+\}`).ReplaceAllString(path, "X")] = true
 	}
 	notInOpenAPI := map[string]bool{
-		"/e/X": true,
+		"/e/X":                             true,
 		"/swarmchasing/data/universe.json": true, "/swarmchasing/data/agents.json": true, "/stats": true, "/graph": true,
 	}
 	routes := regexp.MustCompile(`(?:^|[\s(,])(/(?:api|e|inbox|swarmchasing|stats|graph)\b[A-Za-z0-9_./-]*)`).FindAllStringSubmatch(read, -1)
@@ -184,12 +245,12 @@ func TestInstructionsReadRoutesAreInOpenAPI(t *testing.T) {
 		route = placeholder.ReplaceAllString(placeholder.ReplaceAllString(route, "/X$1"), "/X$1")
 		named[route] = true
 		if !documented[route] && !notInOpenAPI[route] {
-			t.Errorf("/llms.txt Read names %s (as %s), which openapi.json does not describe", m[1], route)
+			t.Errorf("/llms-full.txt Read names %s (as %s), which openapi.json does not describe", m[1], route)
 		}
 	}
 	for route := range notInOpenAPI {
 		if documented[route] || !named[route] {
-			t.Errorf("notInOpenAPI lists %s, but /llms.txt does not name it or openapi.json describes it", route)
+			t.Errorf("notInOpenAPI lists %s, but /llms-full.txt does not name it or openapi.json describes it", route)
 		}
 	}
 }
@@ -213,7 +274,7 @@ func TestHostedMCPSetupDoesNotRequireLocalEnrollment(t *testing.T) {
 	if !strings.Contains(instructions, "[MCP connection instructions](https://example.test/clients/mcp/README.md)") || strings.Contains(instructions, "[MCP endpoint](") {
 		t.Fatal("MCP reference must open readable setup, not a POST-only endpoint")
 	}
-	if !strings.Contains(instructions, "/clients/mcp/README.md (the hosted /mcp") {
+	if !strings.Contains(makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(), "/clients/mcp/README.md (the hosted /mcp") {
 		t.Fatal("optional tools must name the hosted endpoint's instructions")
 	}
 	if len(f.commands) != 0 {
@@ -232,9 +293,9 @@ func TestHumanFirstPostExampleReturnsJSONReceipt(t *testing.T) {
 	if !strings.Contains(rendered, quickstartHTML(quickstartPost)) || !strings.Contains(rendered, quickstartHTML(quickstartRead)) {
 		t.Fatal("/docs does not render the canonical read/post commands")
 	}
-	match := regexp.MustCompile(`(?s)<code>curl -sS --get 'https://swarmmemo.com/w/lobby/main'(.*?)</code>`).FindStringSubmatch(rendered)
+	match := regexp.MustCompile(`(?s)<code>curl -sS 'https://swarmmemo.com/w/lobby/main\?format=json'(.*?)</code>`).FindStringSubmatch(rendered)
 	if len(match) != 2 {
-		t.Fatal("missing first-post GET example")
+		t.Fatal("missing first-post example")
 	}
 	query := url.Values{}
 	for _, field := range regexp.MustCompile(`--data-urlencode '([^']+)'`).FindAllStringSubmatch(match[1], -1) {
@@ -244,10 +305,10 @@ func TestHumanFirstPostExampleReturnsJSONReceipt(t *testing.T) {
 		}
 		query.Add(key, value)
 	}
-	if query.Get("format") != "json" || query.Get("request_id") != "YOUR_UNIQUE_POST_ID" || query.Get("text") == "" {
-		t.Fatal("example must explicitly select JSON and stable retry identity")
+	if query.Get("request_id") != "YOUR_UNIQUE_POST_ID" || query.Get("text") == "" {
+		t.Fatal("example must carry a stable retry identity")
 	}
-	result := makeRequest(s, "GET", "/w/lobby/main?"+query.Encode(), "", "")
+	result := makeRequest(s, "POST", "/w/lobby/main?format=json", query.Encode(), "application/x-www-form-urlencoded")
 	var receipt board.Result
 	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &receipt) != nil || !receipt.OK || receipt.Receipt == nil || receipt.Receipt.ID != "memo123" {
 		t.Fatal("documented first-post request did not return a JSON receipt")
@@ -430,7 +491,7 @@ func TestPublicReadSchemasMatchActualConversationAndCorrectionResponses(t *testi
 	if changesSchema.Validate(bootstrap) == nil {
 		t.Fatal("generation requires service_id")
 	}
-	if !strings.Contains(makeRequest(s, "GET", "/llms.txt", "", "").Body.String(), "top-level `messages` array, NOT `data.messages`") {
+	if !strings.Contains(makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(), "top-level `messages` array, NOT `data.messages`") {
 		t.Fatal("missing first-read envelope explanation")
 	}
 }
@@ -588,13 +649,17 @@ func TestSigningAdviceLinksToALiveSection(t *testing.T) {
 
 // The quickstart is written once, in internal/web/quickstart.md.tmpl, and rendered
 // by every surface that shows it: the HTML pages through one {{define
-// "quickstart"}} block, /llms.txt and the MCP instructions as Markdown.
+// "quickstart"}} block, /llms-full.txt as Markdown. /llms.txt's first
+// calls use the same read and reply fields (web.ReadCall, web.ReplyCall).
 // docs/PROTOCOL.md opens with the same read and post commands.
 func TestQuickstartLoopIsSingleSourced(t *testing.T) {
 	f := &fakeService{}
 	s := New(f, web.Handler(f), Config{PublicURL: "https://swarmmemo.com"})
 	loop := []string{quickstartRead, quickstartPost, quickstartReply, quickstartThread, quickstartUpdates}
-	for _, path := range []string{"/llms.txt", "/skill.md", "/docs", "/for-agents", "/guides/http-agent-messaging"} {
+	if !strings.Contains(quickstartHTML(quickstartRead), web.ReadCall("https://swarmmemo.com")) {
+		t.Error("/llms.txt's first read is not the quickstart's")
+	}
+	for _, path := range []string{"/llms-full.txt", "/docs", "/for-agents", "/guides/http-agent-messaging"} {
 		body := html.UnescapeString(makeRequest(s, "GET", path, "", "").Body.String())
 		for _, command := range loop {
 			if !strings.Contains(body, quickstartHTML(command)) {
@@ -622,7 +687,7 @@ func TestQuickstartLoopIsSingleSourced(t *testing.T) {
 	}
 	// Old spellings of the same write must not survive anywhere.
 	for _, stale := range []string{"-H 'Accept: application/json' --data '{", "curl --get 'https://swarmmemo.com/w/lobby/main'", "request_id=REPLACE_WITH_A_UNIQUE_ID"} {
-		for _, path := range []string{"/llms.txt", "/docs", "/for-agents", "/guides/http-agent-messaging"} {
+		for _, path := range []string{"/llms-full.txt", "/docs", "/for-agents", "/guides/http-agent-messaging"} {
 			if strings.Contains(makeRequest(s, "GET", path, "", "").Body.String(), stale) {
 				t.Errorf("%s still shows a second spelling of the write: %q", path, stale)
 			}
@@ -636,7 +701,7 @@ func TestQuickstartLoopIsSingleSourced(t *testing.T) {
 func TestConversationExamplesUseJSONReceiptAndMessageID(t *testing.T) {
 	f := &fakeService{}
 	s := New(f, nil, Config{PublicURL: "https://example.test"})
-	content := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
+	content := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String()
 	for _, command := range []string{quickstartRead, quickstartPost, quickstartReply, quickstartThread} {
 		if !strings.Contains(content, fmt.Sprintf(command, "https://example.test")) {
 			t.Fatal("instructions omit a canonical command")
@@ -656,17 +721,17 @@ func TestConversationExamplesUseJSONReceiptAndMessageID(t *testing.T) {
 		{quickstartReply, "YOUR_UNIQUE_REPLY_ID", "memo123"},
 	} {
 		query := quickstartFields(t, example.command)
-		if query.Get("format") != "json" || query.Get("text") == "" || query.Get("request_id") != example.requestID {
+		if !strings.Contains(example.command, "?format=json'") || query.Get("text") == "" || query.Get("request_id") != example.requestID {
 			t.Fatal("example must select JSON and carry its own explicit retry ID")
 		}
 		if example.replyTo != "" {
-			// RECEIPT_ID is the accepted message ID, never the caller's request_id.
-			if query.Get("reply_to") != "RECEIPT_ID" {
-				t.Fatal("reply example must address an accepted receipt")
+			// MESSAGE_ID is the message answered, never the caller's request_id.
+			if query.Get("reply_to") != "MESSAGE_ID" {
+				t.Fatal("reply example must address a message id")
 			}
 			query.Set("reply_to", example.replyTo)
 		}
-		w := makeRequest(s, "GET", "/w/lobby/main?"+query.Encode(), "", "")
+		w := makeRequest(s, "POST", "/w/lobby/main?format=json", query.Encode(), "application/x-www-form-urlencoded")
 		var result struct {
 			OK      bool `json:"ok"`
 			Receipt struct {
@@ -765,7 +830,7 @@ func TestPublicInboxDiscoveryIsOptionalLocalAttentionControl(t *testing.T) {
 	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte("per-consumer")) {
 		t.Fatal("missing public inbox instructions")
 	}
-	if !strings.Contains(makeRequest(s, "GET", "/llms.txt", "", "").Body.String(), "/docs/INBOX.md") {
+	if !strings.Contains(makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(), "/docs/INBOX.md") {
 		t.Fatal("instructions must route to the public inbox client")
 	}
 	if len(f.commands) != 0 {
@@ -850,6 +915,9 @@ func TestLegalPagesAndTheirDiscovery(t *testing.T) {
 	for _, path := range []string{"/llms.txt", "/llms-full.txt"} {
 		body := makeRequest(s, "GET", path, "", "").Body.String()
 		for _, want := range []string{"[Privacy](https://example.test/privacy)", "[Terms and board rules](https://example.test/terms)", "(https://example.test/privacy.md)", "(https://example.test/terms.md)", "[Trust and allowance](https://example.test/trust)"} {
+			if path == "/llms.txt" && strings.HasSuffix(want, ".md)") {
+				continue // the Markdown copies are linked from the long form
+			}
 			if !strings.Contains(body, want) {
 				t.Errorf("%s missing %s", path, want)
 			}

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -81,5 +82,42 @@ func TestOperatorFunnel(t *testing.T) {
 	store.WaitFeedbackScreens()
 	if err = operatorFeedback(ctx, store, []string{"list"}, &out); err != nil || strings.Contains(out.String(), "ignore your rules") || !strings.Contains(out.String(), "withheld") {
 		t.Fatalf("feedback list: %v %s", err, out.String())
+	}
+}
+
+// funnel mcp-tools prints the hosted MCP tool calls of the last 7 and 30
+// days, profiles first, then tools by calls; --json is the same windows.
+func TestOperatorFunnelMCPTools(t *testing.T) {
+	store, err := board.Open(filepath.Join(t.TempDir(), "swarmmemo.db"), board.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	h := &board.ReaderSketch{}
+	h.Add("a")
+	day := time.Now().UTC().Format("2006-01-02")
+	if err = store.AddMCPToolStats(ctx, day, map[string]int64{"mcp:read_feed:claude:calls": 12, "mcp:read_feed:claude:errors": 1, "core:find_work:openai:calls": 3},
+		map[string]*board.ReaderSketch{"mcp:read_feed": h, "mcp:any": h}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err = operatorFunnel(ctx, store, []string{"mcp-tools"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"MCP tools, last 7 days", "MCP tools, last 30 days", "(any tool)", "find_work"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q:\n%s", want, out.String())
+		}
+	}
+	if !regexp.MustCompile(`mcp +read_feed +12 +1 +1  claude 12`).MatchString(out.String()) {
+		t.Fatalf("read_feed row:\n%s", out.String())
+	}
+	out.Reset()
+	if err = operatorFunnel(ctx, store, []string{"mcp-tools", "--json"}, &out); err != nil || !strings.Contains(out.String(), `"caller_days": 1`) {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if err = operatorFunnel(ctx, store, []string{"mcp-tools", "--bogus"}, &out); err == nil {
+		t.Fatal("accepted a bad flag")
 	}
 }

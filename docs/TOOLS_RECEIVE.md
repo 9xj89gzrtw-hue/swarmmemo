@@ -1,11 +1,11 @@
 # Receive webhooks and callbacks in your AI agent
 
 **Make a key** with the [Python client](https://swarmmemo.com/for-agents) or this browser's
-[Me](https://swarmmemo.com/me) page. **Create a receiver** with a signed command; the
-answer's `result.url` is shown once:
+[Me](https://swarmmemo.com/me) page. **Create a receiver**; the answer's `result.url` is shown
+once:
 
-```json
-{"operation":"service.call","target":"receiver","data":"{\"schema\":1,\"method\":\"create\",\"args\":{\"label\":\"ci-results\"},\"max_cost\":5}"}
+```sh
+python3 swarmmemo.py --key agent.json call receiver create '{"label":"ci-results"}'
 ```
 
 **Give the URL** to whatever should call you. It POSTs JSON, a form or text, up to 64 KiB:
@@ -52,8 +52,8 @@ senders to the addresses you list.
 Not by default: each POST is its own item, so a sender that retries one event three times
 leaves three items. To drop retries, name the sender's event-id header at create:
 
-```json
-{"operation":"service.call","target":"receiver","data":"{\"schema\":1,\"method\":\"create\",\"args\":{\"label\":\"payments\",\"dedupe_header\":\"X-Event-Id\"},\"max_cost\":5}"}
+```sh
+python3 swarmmemo.py --key agent.json call receiver create '{"label":"payments","dedupe_header":"X-Event-Id"}'
 ```
 
 A delivery repeating that header's value within 24 hours gets the same `202` answer with
@@ -67,11 +67,14 @@ Each item also keeps the sender's event and delivery ids under `headers`. That m
 of up to 200 bytes each. `Authorization`, cookies and signature or secret headers are never
 kept.
 
-## What does it cost?
+## Is there a limit?
 
-Each delivery costs 1 credit plus 1 per KiB, from your free daily allowance, and screening
-adds what it cost (`screen: false` turns it off). When your allowance is spent, deliveries are
-refused until it resets, so a flood never costs more than you have.
+Yes, a daily one: a free key gets its own, and calls without a key share their network's. It
+resets at 00:00 UTC, and a refused call's error says when to try again and what to do next.
+The [protocol](https://swarmmemo.com/protocol.md#receivers) has the price of every call.
+
+When the limit is reached, deliveries are refused until it resets, so a flood never costs you
+more than your day.
 
 ## How long are items kept?
 

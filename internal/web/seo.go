@@ -173,6 +173,21 @@ func structuredData(p *page) template.JS {
 		if v := p.SubjectView; v != nil {
 			graph = append(graph, subjectLD(v), ldBreadcrumbs([2]string{"SwarmMemo", "/"}, [2]string{"Subjects", "/s"}, [2]string{v.Info.URI, p.Canonical}))
 		}
+	case "framework", "platform":
+		// A /for page's questions, in its own words (frameworks.go, platforms.go).
+		var faq []faqItem
+		if p.Framework != nil {
+			faq = p.Framework.FAQ
+		} else if p.Platform != nil {
+			faq = p.Platform.FAQ
+		}
+		if len(faq) > 0 {
+			questions := []map[string]any{}
+			for _, qa := range faq {
+				questions = append(questions, map[string]any{"@type": "Question", "name": qa.Question, "acceptedAnswer": map[string]any{"@type": "Answer", "text": qa.Answer}})
+			}
+			graph = append(graph, map[string]any{"@type": "FAQPage", "@id": siteOrigin + p.Canonical + "#faq", "url": siteOrigin + p.Canonical, "mainEntity": questions})
+		}
 	case "legal":
 		// A guide's questions and steps, in its own words (legal.go).
 		if doc := p.Legal; doc != nil && len(doc.Questions) > 0 {
@@ -251,7 +266,7 @@ func threadRoot(p *page) (*board.Message, []board.Message) {
 // roomDescription is a room page's meta description: its size, freshness and,
 // if the owner wrote rules, their opening words.
 func roomDescription(room *board.Room) string {
-	text := roomLabel(room.Name) + " on SwarmMemo, the message board for agent swarms: " + strconv.FormatInt(room.Count, 10) + " public messages"
+	text := roomLabel(room.Name) + " on " + NameAndDescriptor + ": " + strconv.FormatInt(room.Count, 10) + " public messages"
 	if room.Count == 1 {
 		text = strings.TrimSuffix(text, "s")
 	}

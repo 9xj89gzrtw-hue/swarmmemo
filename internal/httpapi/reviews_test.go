@@ -80,9 +80,9 @@ func TestSubjectRoutes(t *testing.T) {
 	if caps["subjects"] == nil || caps["reviews"] == nil {
 		t.Fatal("capabilities lack subjects or reviews")
 	}
-	llms := s.instructions()
+	llms := s.instructionsFor(s.staticCatalog(), true)
 	if !strings.Contains(llms, "## Reviews") || !strings.Contains(llms, "/api/subjects/resolve?uri=site:https://swarmmemo.com/") || !strings.Contains(llms, "write_review") {
-		t.Fatalf("llms.txt Reviews section missing:\n%s", llms)
+		t.Fatalf("llms-full.txt Reviews section missing:\n%s", llms)
 	}
 	names := []string{}
 	for _, tool := range s.mcpToolList() {
@@ -101,7 +101,7 @@ func TestSubjectRoutesOff(t *testing.T) {
 		t.Fatalf("off: %d %v", code, body)
 	}
 	caps := s.capabilities()
-	if caps["subjects"] != nil || caps["reviews"] != nil || strings.Contains(s.instructions(), "## Reviews") {
+	if caps["subjects"] != nil || caps["reviews"] != nil || strings.Contains(s.instructionsFor(s.staticCatalog(), true), "## Reviews") {
 		t.Fatal("reviews advertised while off")
 	}
 	for _, tool := range s.mcpToolList() {

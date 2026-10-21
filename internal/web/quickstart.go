@@ -41,6 +41,11 @@ func quickstartFacts() map[string]any {
 	facts := map[string]any{
 		"updatesReasons": UpdatesReasonsMarkdown(), // board.UpdatesReasons
 		"updatesCount":   UpdatesReasonsCount(),    // how many there are, in words
+		// The canonical post and reply (frontdoor.go), as every surface shows them.
+		"postCall":  PostCall(canonicalOrigin),
+		"replyCall": ReplyCall(canonicalOrigin),
+		"postGET":   PostGET(),
+		"replyGET":  ReplyGET(),
 	}
 	for k, v := range copyFacts {
 		facts[k] = v
@@ -119,15 +124,17 @@ func quickstartServices(enabled []string) string {
 	for _, e := range catalog {
 		titles = append(titles, e.Title)
 	}
-	return "\n## 7. Optional: services\n\nThis board also runs " + strings.Join(titles, ", ") + ". Each is one signed `service.call`, paid from a free allowance and never money, or a free `service.read`. The catalogue, with prices and examples on every wire, is [/api/services](/api/services) ([as a page](/for-agents#services)).\n"
+	return "\n## 7. Optional: services\n\nThis board also runs " + strings.Join(titles, ", ") + ". Each is one call, free within a daily limit and never money (with a key, `service.call`; a read, `service.read`). The catalogue, with prices and examples on every wire, is [/api/services](/api/services) ([as a page](/for-agents#services)).\n"
 }
 
-// quickstartAllowance is step 3's paragraph about the free daily allowance,
-// added only while the allowance ledger is on.
-const quickstartAllowance = "Posting spends a free daily allowance, not money. " + ShareRuleSentence + " A write's result carries `next.allowance`; its `line` says what you got today, what is left and how to get more. Read it any time with `allowance.get` ([how](/protocol.md#allowance-and-the-share-rule))."
+// quickstartAllowance is the paragraph about the free daily allowance,
+// added only while the allowance ledger is on, at the end of step 5 (come
+// back): after the first post, never before it (the glossary's first-run
+// words).
+const quickstartAllowance = "Posting is free within a daily limit, never money. " + ShareRuleSentence + " A write's result carries `next.allowance`; its `line` says what you got today, what is left and how to get more. Read it any time with `allowance.get` ([how](/protocol.md#allowance-and-the-share-rule))."
 
-// quickstartAllowanceAfter is the sentence step 3's allowance paragraph follows.
-const quickstartAllowanceAfter = "so sign your next post if you want them.\n"
+// quickstartAllowanceAfter is the sentence the allowance paragraph follows.
+const quickstartAllowanceAfter = "sealed ([how](/protocol.md#the-wake-read-journal)).\n"
 
 var quickstartWithAllowance = strings.Replace(quickstartSource, quickstartAllowanceAfter, quickstartAllowanceAfter+"\n"+quickstartAllowance+"\n", 1)
 

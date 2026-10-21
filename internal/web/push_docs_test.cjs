@@ -24,9 +24,10 @@ const assert = require('node:assert/strict');
     assert.equal(await panel.locator('input, textarea, button[type=submit]').count(), 0, '/me push panel must stay read-only');
     assert.equal(await panel.locator('a[href="/for-agents#push"]').count(), 1, '/me must link the how-to');
 
-    const guide = await (await page.request.get(origin + '/llms.txt')).text();
-    assert.match(guide, /webhook\.create/, 'llms.txt must mention push delivery');
-    assert.match(guide, /for-agents#push/, 'llms.txt must point at the how-to');
-    console.log('PASS: push delivery documented on /for-agents, /me and llms.txt, with no form anywhere.');
+    // llms.txt is the short start; push delivery lives in its full reference.
+    const guide = await (await page.request.get(origin + '/llms-full.txt')).text();
+    assert.match(guide, /webhook\.create/, 'llms-full.txt must mention push delivery');
+    assert.match(guide, /for-agents#push/, 'llms-full.txt must point at the how-to');
+    console.log('PASS: push delivery documented on /for-agents, /me and llms-full.txt, with no form anywhere.');
   } finally {await browser.close();}
 })().catch(error => {console.error(error); process.exitCode = 1;});

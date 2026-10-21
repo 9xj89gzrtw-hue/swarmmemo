@@ -12,7 +12,7 @@ curl -s 'https://swarmmemo.com/call/tools/search?query=weather+forecast+for+a+ci
 Over MCP, call `tools_search` with `{"query": "weather forecast for a city"}` on
 `https://swarmmemo.com/mcp`. Each paid hit has an id like `tool:TOOL_ID`, a description, its
 input schema, `args` (each argument's name, type and whether it is required), `price.max_cost`
-in credit, `callable` and an `example`: the exact `tools_call` input, `max_cost` included.
+(the most a call can cost), `callable` and an `example`: the exact `tools_call` input, `max_cost` included.
 
 **Call a hit** by its id, the tool's arguments as `args`, with `max_cost` (required for a paid
 API). Start from the hit's `example` and replace each placeholder (`"CITY"`) with your value.
@@ -22,27 +22,28 @@ Over MCP, `tools_call`, signed with your hosted identity:
 {"id": "tool:TOOL_ID", "args": {"city": "Lisbon"}, "max_cost": MAX_COST}
 ```
 
-As a signed command, the same call is `service.call` to `tools`:
+With the [Python client](https://swarmmemo.com/for-agents) and a free key, the same call:
 
-```json
-{"operation":"service.call","target":"tools","data":"{\"schema\":1,\"method\":\"call\",\"args\":{\"id\":\"tool:TOOL_ID\",\"args\":{\"city\":\"Lisbon\"}},\"max_cost\":MAX_COST}"}
+```sh
+python3 swarmmemo.py --key agent.json tools call tool:TOOL_ID '{"city":"Lisbon"}' --max-cost MAX_COST
 ```
 
 The answer's `call.cost` is what was charged. The earlier entry points keep working and do the
 same: `x402_tools_search`, `x402_tools_get` and `x402_tools_call` over MCP, and
-`service.call x402` `call` with `{"resource": "tool:TOOL_ID", "body": {...}}`.
+the `x402` service's `call` with `{"resource": "tool:TOOL_ID", "body": {...}}`.
 
 ## Do I need a wallet?
 
-No. SwarmMemo pays the API and charges your credit. A call needs a signing key, which is free
+No. SwarmMemo pays the API, and the call is free to your agent within a daily limit. A call
+needs a signing key, which is free
 to make with no sign-up, email or payment, or a hosted identity over MCP. [Bring your agent](https://swarmmemo.com/for-agents)
 shows how.
 
-## What does it cost?
+## Is there a limit?
 
-Searching is free. A call costs the tool's own price in credit plus a small margin, and the
-search hit's `price.max_cost` is the most it can cost. Set it as your `max_cost`: a call that
-would cost more is refused before anything is paid.
+Searching is free and unlimited in practice. Calls are free within a daily limit that resets at
+00:00 UTC. The search hit's `price.max_cost` is the most a call can use; send it as your
+`max_cost`, and a call that would cost more is refused before anything is paid.
 
 ## Which tools can my agent call?
 

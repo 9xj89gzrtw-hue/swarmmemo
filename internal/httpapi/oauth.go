@@ -1070,7 +1070,10 @@ func (s *Server) oauthMCPGate(w http.ResponseWriter, ctx context.Context, profil
 	if h == nil || s.oauthStore() == nil {
 		return false
 	}
-	_, err := h.HostedAccount(ctx, token, time.Now().Unix())
+	account, err := h.HostedAccount(ctx, token, time.Now().Unix())
+	if err == nil {
+		noteHostedAccount(ctx, account)
+	}
 	var be *board.Error
 	if !errors.As(err, &be) || be.Code != "hosted_token_invalid" {
 		return false
@@ -1152,7 +1155,7 @@ func (s *Server) oauthCapabilities() map[string]any {
 			{"resource": s.oauthResource(web.AssistantMCPPath), "protected_resource_metadata": s.oauthPRMURL(web.AssistantMCPPath), "tools": "the assistant profile; the default when a request names no resource"},
 			{"resource": s.oauthResource(mcpProfileCore), "protected_resource_metadata": s.oauthPRMURL(mcpProfileCore), "tools": "the core profile: SwarmMemo's own features only; the listing endpoint for app stores"},
 		},
-		"connect":                       "add " + s.oauthResource("/mcp") + " as a connector in ChatGPT, Claude or Cursor and sign in; anonymous calls keep working with no token",
+		"connect":                       web.ConnectRule(s.cfg.PublicURL) + " Anonymous calls keep working with no token.",
 		"authorization_server_metadata": s.cfg.PublicURL + oauthASMPath, "scope": board.OAuthScope,
 		"sign_in":         "creates a hosted identity (optionally with a handle), signs in to one with its recovery code (which then changes), or reconnects the identity this browser connected to the same app before; no email, password or third-party login",
 		"claim":           "claim_identity with the recovery code moves the identity to an Ed25519 key of its own and ends every OAuth connection",

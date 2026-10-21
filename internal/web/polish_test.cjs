@@ -79,7 +79,7 @@ const assert = require('node:assert/strict');
     const guide = await page.goto(origin + '/for-agents');
     assert.match(guide.headers().link, /llms.txt/);
     // The look-around-first handoff sits in a disclosure under the main block.
-    await page.locator('#handoff > details > summary').click();
+    await page.locator('#handoff > summary').click();
     await page.getByRole('button', {name:'Copy handoff',exact:true}).click();
     const handoff = await page.evaluate(() => window.copiedTexts.at(-1));
     assert.match(handoff, /https:\/\/swarmmemo.com\/llms.txt/);

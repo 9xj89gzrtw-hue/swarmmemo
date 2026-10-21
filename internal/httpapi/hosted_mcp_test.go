@@ -121,7 +121,7 @@ func TestHostedMCPIdentityFlow(t *testing.T) {
 		t.Fatalf("create_identity: %v", data)
 	}
 	// The answer says to keep the recovery code: claiming needs it.
-	if notice := fmt.Sprint(data["notice"]); !strings.Contains(notice, "Keep the recovery code") || !strings.Contains(notice, "hosted.claim) needs it") {
+	if notice := fmt.Sprint(data["notice"]); !strings.Contains(notice, "Keep the recovery code") || !strings.Contains(notice, "claim_identity) needs it") {
 		t.Fatalf("create_identity notice: %s", notice)
 	}
 	agent := data["agent"].(string)
@@ -600,5 +600,23 @@ func TestHostedMCPJournal(t *testing.T) {
 	}
 	if _, failure := callTool(t, s, "/mcp", "", "journal", map[string]any{}); failure == "" {
 		t.Fatal("journal without a hosted identity must be refused")
+	}
+}
+
+// A hosted identity's answers say why its allowance band reads anonymous
+// (RFC0013 §2.4): the cold-start evaluation read band "anonymous" on every
+// answer of a signed-in identity as a bug. A call without an identity
+// carries no such reason.
+func TestHostedAllowanceBandSaysWhy(t *testing.T) {
+	_, s := hostedServerWith(t, board.Features{Ledger: board.LedgerOn})
+	token := newIdentity(t, s, "band-reader")["token"].(string)
+	posted := mustTool(t, s, "/mcp/t/"+token, "", "post_message", map[string]any{"text": "hello from a hosted identity"})
+	note, _ := dig(posted, "next", "allowance").(map[string]any)
+	if note == nil || note["band"] != "anonymous" || note["reason"] != board.HostedBandReason {
+		t.Fatalf("hosted allowance note: %v", posted)
+	}
+	anon := mustTool(t, s, "/mcp", "", "post_message", map[string]any{"text": "anonymous"})
+	if note, _ := dig(anon, "next", "allowance").(map[string]any); note == nil || note["reason"] != nil {
+		t.Fatalf("anonymous allowance note: %v", anon)
 	}
 }

@@ -763,8 +763,8 @@ func TestOAuthFullMCPEndToEnd(t *testing.T) {
 		fmt.Sprint(prm["bearer_methods_supported"]) != "[header]" || prm["resource_name"] != "SwarmMemo" {
 		t.Fatalf("/mcp resource metadata: %d %s", w.Code, w.Body.String())
 	}
-	if llms := oauthDo(s, "GET", "/llms.txt", "", "", nil).Body.String(); !strings.Contains(llms, "Connect from ChatGPT/Claude: add https://swarmmemo.com/mcp as a connector, sign in, done") {
-		t.Fatal("llms.txt lacks the one-line connector setup")
+	if llms := oauthDo(s, "GET", "/llms.txt", "", "", nil).Body.String(); !strings.Contains(llms, web.ConnectRuleSignIn+" How: https://swarmmemo.com/protocol.md#signing-in-with-oauth") {
+		t.Fatal("llms.txt lacks the sign-in line of the connect rule")
 	}
 	var card map[string]any
 	_ = json.Unmarshal(oauthDo(s, "GET", "/.well-known/mcp/server-card.json", "", "", nil).Body.Bytes(), &card)

@@ -96,7 +96,7 @@ func TestLedgerOnEndToEnd(t *testing.T) {
 	register(t, s, alice)
 	register(t, s, bob)
 	post := run(t, s, signed(alice, Command{Operation: "post", Text: "first of the day"}))
-	if post.Allowance == nil || post.Allowance.Band != "signed" || post.Allowance.Entitlement != floor || post.Allowance.Line == "" {
+	if post.Allowance == nil || post.Allowance.Band != "signed" || post.Allowance.Entitlement != floor || post.Allowance.Line != "" {
 		t.Fatalf("allowance note %+v", post.Allowance)
 	}
 	if strings.Contains(post.Allowance.Line, ServicesCatalogueURL) || post.Allowance.Services != "" {

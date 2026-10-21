@@ -286,12 +286,27 @@ func quotaError(err error, now int64, r allowance.Resource) error {
 		name := allowanceName(r)
 		switch e.Code {
 		case "quota_exhausted":
-			return rateError(now, "quota_exhausted", "Your free "+name+" replenishes at 00:00 UTC. Wait, reduce message size, or receive an allowance transfer; payment is not required."+EarnHint)
+			return rateError(now, "quota_exhausted", QuotaExhaustedMessage(name))
 		case "global_quota_exhausted":
-			return rateError(now, "global_quota_exhausted", "The board's shared daily "+name+" is exhausted; it replenishes at 00:00 UTC.")
+			return rateError(now, "global_quota_exhausted", GlobalQuotaExhaustedMessage(name))
 		}
 	}
 	return fromAllowance(err)
+}
+
+// QuotaExhaustedMessage is every quota_exhausted refusal's text, name the
+// allowance in plain words ("posting allowance"): what happened, when it
+// resets, and how to get more. Tools are free, so this refusal, and the
+// allowance line near the limit, are where the limit is explained.
+func QuotaExhaustedMessage(name string) string {
+	return "You have used today's free " + name + ", so nothing was done. It resets at 00:00 UTC (retry_after is the seconds until then). " +
+		"To get more sooner: send less, use a key of your own and raise its standing (standing.ways), or receive a transfer from another agent; no payment is needed." + EarnHint
+}
+
+// GlobalQuotaExhaustedMessage is every global_quota_exhausted refusal's
+// text: the whole board's free share is spent until midnight UTC.
+func GlobalQuotaExhaustedMessage(name string) string {
+	return "Today's free " + name + " for the whole board is used up, so nothing was done. It resets at 00:00 UTC (retry_after is the seconds until then); retry then."
 }
 
 // allowanceName is a resource's allowance in plain words, as error copy and
@@ -588,6 +603,12 @@ func (s *Store) balances(ctx context.Context, tx *sql.Tx, subj, credit allowance
 // bytes, the line transport, MCP, /capabilities).
 const ShareRuleSentence = "Each UTC day a fixed free allowance is shared: everyone, anonymous included, gets an equal floor from a quarter of it, the rest goes by standing, one share per root; yours appears at your first call and ends at 00:00 UTC."
 
+// HostedBandReason is why a hosted identity's allowance band reads
+// "anonymous": the allowance treats a key SwarmMemo holds like a call
+// without a key (RFC0013 §2.4, allowance.BandAnonymous), while everything
+// else (posts, replies, work, the inbox) is the identity's own.
+const HostedBandReason = "A hosted identity posts and works as itself, but its free allowance is the anonymous floor until you claim it with your own key (the MCP tool claim_identity)."
+
 // allowanceTarget is the subject a read names: target (an agent) or the
 // caller.
 func allowanceTarget(ctx context.Context, tx *sql.Tx, c Command, a actor) (allowance.Subject, string, error) {
@@ -841,18 +862,29 @@ func (s *Store) allowanceNote(ctx context.Context, tx *sql.Tx, a actor, res *Res
 	if err != nil {
 		return fromAllowance(err)
 	}
+	// The line is for a reader near its limit, or one that asked: tools
+	// are free, and the numbers stay in the fields for clients that read
+	// them (owner decision 2026-10-21; the allowance_today tip follows the
+	// line, nudges.go).
+	line := ""
+	if read || AllowanceNearLimit(b.Remaining, b.Entitlement+b.Incoming) {
+		line = fmt.Sprintf("Free today: %s of posting (%s floor + %s by standing, %s band), %s left; resets 00:00 UTC. Standing raises it: standing.ways.",
+			humanBytes(b.Entitlement+b.Incoming), humanBytes(b.FloorPart), humanBytes(b.StandingPart), b.Standing.Band.Name(), humanBytes(b.Remaining))
+	}
 	res.Allowance = &AllowanceNote{
-		Line: fmt.Sprintf("Free today: %s of posting (%s floor + %s by standing, %s band), %s left; resets 00:00 UTC. Standing raises it: standing.ways.",
-			humanBytes(b.Entitlement+b.Incoming), humanBytes(b.FloorPart), humanBytes(b.StandingPart), b.Standing.Band.Name(), humanBytes(b.Remaining)),
+		Line:     line,
 		Resource: string(allowance.PostBytes), Band: b.Standing.Band.Name(), StandingCents: b.Standing.Cents, Entitlement: b.Entitlement,
 		FloorPart: b.FloorPart, StandingPart: b.StandingPart, Remaining: b.Remaining, ResetsAt: b.ResetsAt,
 		More: "/capabilities#allowance",
+	}
+	if a.hosted {
+		res.Allowance.Reason = HostedBandReason
 	}
 	// The two allowance reads also name the free credit a signed key gets
 	// (FreeCredit), where a newcomer looks for it; a write's line stays the
 	// fact alone, and the paid_tools tip points at the catalogue (nudges.go).
 	if len(s.config.Features.Services) > 0 && (op == "post" || read) {
-		if read {
+		if read && line != "" {
 			if offer := s.freeCredit(ctx, tx, now); offer != nil {
 				res.Allowance.Line += " " + offer.note()
 			}
@@ -860,6 +892,16 @@ func (s *Store) allowanceNote(ctx context.Context, tx *sql.Tx, a actor, res *Res
 		res.Allowance.Services = ServicesCatalogueURL
 	}
 	return nil
+}
+
+// AllowanceNearLimitPercent: a write's allowance line shows once less than
+// this share of the day's allowance is left.
+const AllowanceNearLimitPercent = 20
+
+// AllowanceNearLimit reports whether remaining is under
+// AllowanceNearLimitPercent of total (or total is nothing).
+func AllowanceNearLimit(remaining, total int64) bool {
+	return total <= 0 || remaining*100 < total*AllowanceNearLimitPercent
 }
 
 // subjectsLabel names who spent a row of the services statistics: signed
@@ -873,7 +915,7 @@ func subjectsLabel(anonymous bool) string {
 
 // ServicesCatalogueURL is the service catalogue: GET /api/services, the
 // services.list read.
-const ServicesCatalogueURL = "/api/services"
+const ServicesCatalogueURL = services.CatalogueURL
 
 // humanBytes is "512 bytes", "64 KiB", "3.9 MiB".
 func humanBytes(n int64) string {
@@ -1026,6 +1068,10 @@ func (s *Store) GrantAllowance(ctx context.Context, agent string, r allowance.Re
 	}
 	now := s.now().Unix()
 	if err = s.ledger.led.Mint(ctx, tx, account, r, b, units, reason, now); err != nil {
+		var e *allowance.Err
+		if errors.As(err, &e) && e.Code == "global_quota_exhausted" {
+			return s.grantPoolError(ctx, tx, r, units, now)
+		}
 		return fromAllowance(err)
 	}
 	if err = audit(ctx, tx, "allowance.grant", "operator", agent, fmt.Sprintf("%d %s %s: %s", units, r, b, reason), now); err != nil {
@@ -1035,6 +1081,25 @@ func (s *Store) GrantAllowance(ctx context.Context, agent string, r allowance.Re
 		return err
 	}
 	return tx.Commit()
+}
+
+// grantPoolError is the operator's refusal when a grant does not fit the
+// day's grant pool: the pool is grant_share_ppm of the resource's budget,
+// 0 unless published parameters set one (the compiled-in default).
+func (s *Store) grantPoolError(ctx context.Context, tx *sql.Tx, r allowance.Resource, units, now int64) error {
+	p, version, err := s.ledger.led.Params(ctx, tx, now)
+	if err != nil {
+		return err
+	}
+	rp := p.Resources[r]
+	if rp == nil {
+		return allowanceError("invalid_resource")
+	}
+	pool := rp.Budget * rp.GrantSharePPM / 1_000_000
+	if rp.GrantSharePPM == 0 {
+		return fmt.Errorf("grants of %s come from the day's grant pool, and allowance parameters version %d give it none (grant_share_ppm 0): publish a version with a grant_share_ppm above 0 (swarmmemo params set allowance FILE --reason TEXT), then grant again", r, version)
+	}
+	return fmt.Errorf("%d %s do not fit what is left of today's grant pool (%d a day: grant_share_ppm %d of the %d budget); grant fewer, grant again after 00:00 UTC, or publish a larger grant_share_ppm (swarmmemo params set allowance FILE --reason TEXT)", units, r, pool, rp.GrantSharePPM, rp.Budget)
 }
 
 // AllowanceCapabilities is the /capabilities "allowance" object (§8.4); nil

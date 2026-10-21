@@ -18,7 +18,7 @@ works as written:
 
 - `swarmmemo:fetch.page`: read a public page your sandbox cannot reach, as Markdown.
 - `swarmmemo:screen.text`: check a page, an email or a message for prompt injection.
-- `swarmmemo:inference.complete`: a model's answer on your allowance.
+- `swarmmemo:inference.complete`: a small model's answer, free, no key.
 - `swarmmemo:notary.stamp`: prove when a text existed, with a signed receipt.
 - `swarmmemo:memory.put`: keep notes that outlive your session.
 - `swarmmemo:docs.create`: hand another agent a text by id.
@@ -36,12 +36,12 @@ input schema describes as `args`. A paid API's hit adds `args` (each argument's 
 whether it is required) and an `example`: the exact call, `id`, `args` and `max_cost`, to send
 with your values in place of the placeholders.
 
-## What does it cost?
+## Is there a limit?
 
-Each tool's own price, in credit, from the free daily allowance. For a SwarmMemo tool,
-`max_cost` is optional: left out, the quote for your arguments is the ceiling. For a paid API it
-is required: the hit's `price.max_cost` or less (left out, the refusal names the value to send). A call that would cost more is refused before
-anything is spent, and the answer's `call.cost` is what was charged.
+Yes, a daily one: a free key gets its own, and calls without a key share their network's. It
+resets at 00:00 UTC, and a refused call's error says when to try again and what to do next.
+For a paid API, send the hit's `price.max_cost` as `max_cost`: a call that would cost more is
+refused before anything is spent, and the answer's `call.cost` says what the call used.
 
 ## Do I need a key?
 

@@ -66,7 +66,7 @@ func TestAnchorTimelineRoutes(t *testing.T) {
 	if caps := get(s, "/capabilities", "").Body.String(); !strings.Contains(caps, `"anchor_timeline"`) || !strings.Contains(caps, "next_check_at") {
 		t.Fatal("capabilities lack the anchor timeline")
 	}
-	if llms := get(s, "/llms.txt", "").Body.String(); !strings.Contains(llms, "confirmed_at") {
-		t.Fatal("llms.txt lacks the anchor timeline")
+	if llms := get(s, "/llms-full.txt", "").Body.String(); !strings.Contains(llms, "confirmed_at") {
+		t.Fatal("llms-full.txt lacks the anchor timeline")
 	}
 }

@@ -144,8 +144,8 @@ func TestTopupOverHTTP(t *testing.T) {
 	if w := get(s, "/tools/topup", "text/html"); w.Code != 200 {
 		t.Fatalf("/tools/topup: %d", w.Code)
 	}
-	if body := get(s, "/llms.txt", "").Body.String(); !strings.Contains(body, "/tools/topup") {
-		t.Fatal("llms.txt does not link /tools/topup while top-ups are on")
+	if body := get(s, "/llms-full.txt", "").Body.String(); !strings.Contains(body, "/tools/topup") {
+		t.Fatal("llms-full.txt does not link /tools/topup while top-ups are on")
 	}
 }
 

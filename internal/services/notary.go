@@ -84,7 +84,7 @@ func (*notary) Describe() Descriptor {
 		Mode: Local,
 		Methods: []Method{
 			{Name: "stamp", Write: true, Signed: true, Resource: allowance.Credit, ArgsMax: notaryArgsMax, Price: Price{Base: 1},
-				Line:      "Get a signed receipt for a hash or a text; the first receipt for a hash stands, and a repeat returns it for 1 credit.",
+				Line:      "Get a signed receipt for a hash or a text; the first receipt for a hash stands, and a repeat returns that receipt.",
 				Args:      []Arg{{"hash", "string", false, "a lowercase SHA-256 hex digest"}, {"text", "string", false, "or up to " + SizeText(NotaryTextBytes) + " of text, hashed and never stored"}},
 				Example:   json.RawMessage(`{"text":"Plan for 2026-09-29: ship the catalogue."}`),
 				Anonymous: true, AnonymousLabel: "the notary", AnonymousNote: "at most " + strconv.Itoa(NotaryPerAnonymousDay) + " new receipts a day per network",

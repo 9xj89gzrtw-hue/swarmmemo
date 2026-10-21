@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 import unittest
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import swarmmemo as memo
 import swarmmemo_inbox as inbox
@@ -141,7 +140,7 @@ class MessageContract(unittest.TestCase):
             memo.check_work({"type": "message", "reply_to": work_id, "work": {**result, "reward_state": "held"}})
 
     def test_private_read_metadata_and_markdown_are_accepted(self):
-        key = Ed25519PrivateKey.generate()
+        key = memo.crypto()[0].generate()
         text = "**private** markdown"
         command = memo.sign({"operation": "post", "room": "secret-a", "text": text, "data": '{"format":"markdown","schema":1}'}, key)
         event = {**fixtures.event(key, text=text), "signed_payload": memo.canonical(command).decode(), "signature": command["signature"],

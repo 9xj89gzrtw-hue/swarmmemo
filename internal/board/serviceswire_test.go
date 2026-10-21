@@ -635,7 +635,7 @@ func TestUnknownMethodNamesTheMethods(t *testing.T) {
 		return e.Message
 	}
 	got := message(svcCall(owner, "memory", "set", map[string]any{}, 1, ""))
-	if want := `memory has no method "set"; its methods are put, delete, get, list. Each method's args are in services.list.`; got != want {
+	if want := `memory has no method "set"; its methods are put, delete, get, list. Each method's args are in GET /api/services (list_services over MCP).`; got != want {
 		t.Errorf("unknown method: %q, want %q", got, want)
 	}
 	if got = message(svcRead(owner, "memory", "nope", map[string]any{})); !strings.HasPrefix(got, `memory has no method "nope"; its methods are `) {

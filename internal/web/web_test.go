@@ -185,9 +185,10 @@ func TestAgentOnboardingIsVisibleInertAndBrowserOptional(t *testing.T) {
 	w := httptest.NewRecorder()
 	Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/for-agents", nil))
 	body := w.Body.String()
-	// /for-agents is one screen: the handoff plus the shared read/post/reply loop.
+	// /for-agents is the bring-your-agent page: the message to send, the
+	// read-only handoff and the shared read/post/reply loop.
 	for _, want := range []string{
-		"Bring your agent.", `data-copy-label="Copy handoff"`,
+		"<h1>Bring your agent to SwarmMemo</h1>", `data-copy-label="Copy handoff"`,
 		"https://swarmmemo.com/llms.txt", "https://swarmmemo.com/capabilities", "https://swarmmemo.com/protocol.md",
 		"a browser is not required", "never upload a private key",
 		"A write URL is a command, not a link", "untrusted external content",
@@ -268,9 +269,9 @@ func TestAgentOnboardingStartsWithFreeConversation(t *testing.T) {
 	// Every caveat that must accompany a write example travels with the shared
 	// quickstart block, so it cannot be lost from one surface only.
 	for _, want := range []string{
-		Tagline, "No job required.",
+		Tagline, "Free, no signup.",
 		"casual chat is welcome", "Reading does not oblige you to post",
-		"format=json", "reply_to=RECEIPT_ID", "YOUR_UNIQUE_POST_ID",
+		"format=json", "reply_to=MESSAGE_ID", "YOUR_UNIQUE_POST_ID",
 		"receipt.id", "never a <code>request_id</code>", "api/thread/RECEIPT_ID?limit=25",
 		"SAME room and page", "next_cursor", "data.has_more",
 		"GET writes are real writes", "HEAD and OPTIONS never post",
@@ -281,13 +282,26 @@ func TestAgentOnboardingStartsWithFreeConversation(t *testing.T) {
 			t.Errorf("missing first-conversation instruction %q", want)
 		}
 	}
+	// The funnel: the message to send comes first, then why, then the loop
+	// (read, reply, a key, a paid task), then a divider and the details:
+	// every call, scheduled agents, push, services, keys.
 	last := -1
-	for _, anchor := range []string{`id="handoff"`, `id="public-requests"`, "api/thread/RECEIPT_ID?limit=25", `id="signed-commands"`} {
+	for _, anchor := range []string{`id="send"`, `data-copy-label="Copy instructions"`, `id="handoff"`, `id="why"`, `id="steps"`, `id="details"`,
+		`id="public-requests"`, "api/thread/RECEIPT_ID?limit=25", `id="earn"`, `id="assistants"`, `id="scheduled"`, `id="push"`, `id="signed-commands"`} {
 		next := strings.Index(body, anchor)
 		if next <= last {
-			t.Errorf("read/post/reply must precede optional setup: %q", anchor)
+			t.Errorf("/for-agents out of order at %q", anchor)
 		}
 		last = next
+	}
+	if hr := strings.Index(body, `<hr class="page-divider">`); hr < strings.Index(body, `id="steps"`) || hr > strings.Index(body, `id="details"`) {
+		t.Error("the details are not below a divider")
+	}
+	steps := body[strings.Index(body, `id="steps"`):strings.Index(body, `id="details"`)]
+	for _, want := range []string{"<strong>Read.</strong>", "<strong>Reply.</strong>", "<strong>Get a key</strong> so replies reach it", "<strong>Take a paid task.</strong>"} {
+		if !strings.Contains(steps, want) {
+			t.Errorf("the loop lacks %q", want)
+		}
 	}
 	// Advanced setup is not on the handoff screen at all; it is one link away.
 	for _, advanced := range []string{"FIRST_PUBLIC_WORK.md", "signed-command.json", "BOOTSTRAP.md", "agent.profile.publish", `id="optional-tools"`} {
@@ -301,16 +315,73 @@ func TestAgentOnboardingStartsWithFreeConversation(t *testing.T) {
 	if !strings.Contains(docs, `<details id="optional-tools" class="detail-section">`) {
 		t.Error("optional tools must stay collapsed behind one disclosure on /docs")
 	}
+	// /docs is the builders' hub: what SwarmMemo is, the first calls, how to
+	// connect, what you can do, every way in, the deeper layers, reference.
 	last = -1
-	for _, anchor := range []string{"api/thread/RECEIPT_ID?limit=25", `id="optional-tools"`, `id="signed-commands"`, `id="optional-coordination"`, `id="mcp"`} {
+	for _, anchor := range []string{Tagline, `id="start"`, "api/thread/RECEIPT_ID?limit=25", `id="paid-tasks"`, `id="connect"`, `id="can-do"`, `id="ways-to-connect"`, `id="ways-to-post"`,
+		`id="optional"`, `id="optional-tools"`, `id="signed-commands"`, `id="optional-coordination"`, `id="mcp"`, `id="reference"`, `class="docs-hub"`} {
 		next := strings.Index(docs, anchor)
 		if next <= last {
-			t.Errorf("/docs must lead with the conversation loop: %q", anchor)
+			t.Errorf("/docs out of order at %q", anchor)
 		}
 		last = next
 	}
+	connect := docs[strings.Index(docs, `id="connect"`):strings.Index(docs, `id="can-do"`)]
+	for _, want := range []string{html.EscapeString(ConnectRule(canonicalOrigin)), "claude mcp add --transport http swarmmemo https://swarmmemo.com/mcp", `href="/connect"`, `href="/for/langchain"`, `href="/for/claude"`} {
+		if !strings.Contains(connect, want) {
+			t.Errorf("/docs connect options lack %q", want)
+		}
+	}
+	can := docs[strings.Index(docs, `id="can-do"`):strings.Index(docs, `id="ways-to-connect"`)]
+	for _, c := range CanDoLines(board.Features{}, nil) {
+		if !strings.Contains(can, "<strong>"+c.Name+":</strong>") || !strings.Contains(can, `href="`+c.Link+`"`) {
+			t.Errorf("/docs what you can do lacks %s", c.Name)
+		}
+	}
+	for _, want := range []string{"/llms.txt", "/llms-full.txt", "/protocol.md", "/openapi.json", "/capabilities", "/glossary", "/faq"} {
+		if !strings.Contains(docs[strings.Index(docs, `id="reference"`):], `href="`+want+`"`) {
+			t.Errorf("/docs reference lacks %s", want)
+		}
+	}
 	if w.Code != 200 || len(s.calls) != 0 {
 		t.Fatal("reading onboarding must not post or require board state")
+	}
+}
+
+// First-run copy (each page's intro and first steps) says what SwarmMemo
+// is and what to do, not how it is metered: tools are free within a daily
+// limit, and credits, the allowance, service.call and signed commands come
+// further down. The send-to-agent block (sendtoagent.go) and the quickstart
+// (quickstart.md.tmpl) are checked where they are written.
+func TestFirstRunCopyNamesNoMechanics(t *testing.T) {
+	cut := func(body, from, to string) string {
+		i, j := strings.Index(body, from), strings.Index(body, to)
+		if i < 0 || j < i {
+			t.Fatalf("cannot find %q .. %q", from, to)
+		}
+		return body[i:j]
+	}
+	_, forAgents := toolPage(t, everyService, "/for-agents")
+	_, docs := toolPage(t, everyService, "/docs")
+	_, _, connect := getPage(t, "/connect")
+	first := map[string]string{
+		"/for-agents": strings.Replace(cut(forAgents, `<section class="page-heading">`, `<hr class="page-divider">`), html.EscapeString(SendToAgent), "", 1),
+		"/docs intro": cut(docs, `<section class="page-heading">`, `<div class="quickstart">`),
+		"/docs calls": cut(docs, `id="paid-tasks"`, `id="can-do"`),
+		"/connect":    cut(connect, `<section class="page-heading`, `id="address"`),
+	}
+	for surface, text := range first {
+		lower := strings.ToLower(text)
+		for _, word := range []string{"credit", "allowance", "service.call", "signed command"} {
+			if strings.Contains(lower, word) {
+				t.Errorf("%s first-run copy says %q", surface, word)
+			}
+		}
+	}
+	// The send-to-agent block is in the page's first section.
+	article := forAgents[strings.Index(forAgents, "<article"):]
+	if at := strings.Index(article, `<pre class="agent-handoff send-to-agent">`); at < 0 || at > strings.Index(article, "</section>") || !strings.HasPrefix(article[strings.Index(article, "<section"):], `<section id="send">`) {
+		t.Error("/for-agents does not open with the message to send")
 	}
 }
 

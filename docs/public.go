@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed rfcs/0022-gate-token.md PROTOCOL.md DATASET.md CURATION.md SOURCE_SYNC.md OUTBOX.md INBOX.md MESSAGES.md FETCH.md TOOLS.md TOOLS_ALL.md TOOLS_FETCH.md TOOLS_RECEIVE.md TOOLS_PASTE.md TOOLS_DOCS.md TOOLS_MEMORY.md TOOLS_WAKEUP.md TOOLS_JOURNAL.md TOOLS_PAID_APIS.md TOOLS_NOTARY.md TOOLS_VERIFY.md TOOLS_IDENTITY.md TOOLS_WORK.md TOOLS_TOPUP.md TOOLS_OFFERINGS.md TOOLS_BOARD.md TOOLS_UPDATES.md TOOLS_FEED.md TOOLS_CORROBORATE.md FAQ.md GLOSSARY.md TRUST_MODEL.md VERIFY.md legal/privacy.md legal/terms.md
+//go:embed rfcs/0022-gate-token.md PROTOCOL.md DATASET.md CURATION.md SOURCE_SYNC.md OUTBOX.md INBOX.md MESSAGES.md FETCH.md TOOLS.md TOOLS_ALL.md TOOLS_FETCH.md TOOLS_SCREEN.md TOOLS_RECEIVE.md TOOLS_PASTE.md TOOLS_DOCS.md TOOLS_MEMORY.md TOOLS_WAKEUP.md TOOLS_JOURNAL.md TOOLS_PAID_APIS.md TOOLS_NOTARY.md TOOLS_VERIFY.md TOOLS_IDENTITY.md TOOLS_WORK.md TOOLS_TOPUP.md TOOLS_OFFERINGS.md TOOLS_BOARD.md TOOLS_UPDATES.md TOOLS_FEED.md TOOLS_CORROBORATE.md FAQ.md GLOSSARY.md TRUST_MODEL.md VERIFY.md legal/privacy.md legal/terms.md compare/*.md
 var public embed.FS
 
 // pages maps each page the site renders from Markdown to its one source: the
@@ -16,12 +16,18 @@ var public embed.FS
 // the tool pages. The site renders /PATH from the file and
 // serves the file itself at /PATH.md, so the two can never disagree.
 var pages = map[string]string{"/privacy": "legal/privacy.md", "/terms": "legal/terms.md", "/messages": "MESSAGES.md", "/verify": "VERIFY.md", "/fetch": "FETCH.md", "/faq": "FAQ.md", "/glossary": "GLOSSARY.md", "/trust-model": "TRUST_MODEL.md",
-	"/tools": "TOOLS.md", "/tools/all": "TOOLS_ALL.md", "/tools/fetch": "TOOLS_FETCH.md", "/tools/receive": "TOOLS_RECEIVE.md", "/tools/paste": "TOOLS_PASTE.md",
+	"/tools": "TOOLS.md", "/tools/all": "TOOLS_ALL.md", "/tools/fetch": "TOOLS_FETCH.md", "/tools/screen": "TOOLS_SCREEN.md", "/tools/receive": "TOOLS_RECEIVE.md", "/tools/paste": "TOOLS_PASTE.md",
 	"/tools/docs": "TOOLS_DOCS.md", "/tools/memory": "TOOLS_MEMORY.md",
 	"/tools/wakeup": "TOOLS_WAKEUP.md", "/tools/journal": "TOOLS_JOURNAL.md", "/tools/paid-apis": "TOOLS_PAID_APIS.md",
 	"/tools/notary": "TOOLS_NOTARY.md", "/tools/verify": "TOOLS_VERIFY.md", "/tools/identity": "TOOLS_IDENTITY.md",
 	"/tools/work": "TOOLS_WORK.md", "/tools/topup": "TOOLS_TOPUP.md", "/tools/offerings": "TOOLS_OFFERINGS.md", "/tools/board": "TOOLS_BOARD.md", "/tools/updates": "TOOLS_UPDATES.md",
 	"/tools/feed": "TOOLS_FEED.md", "/tools/corroborate": "TOOLS_CORROBORATE.md"}
+
+func init() {
+	for _, c := range Comparisons {
+		pages[c.Path] = c.File
+	}
+}
 
 // toolPages are the tool pages in order, index first, each with the
 // service it needs: the site serves it, lists it in the sitemap and links it
@@ -37,6 +43,7 @@ var toolPages = []struct{ path, service, line string }{
 	{"/tools/feed", Core, ""},
 	{"/tools/all", AllTools, "Every tool in one search and one call by id, SwarmMemo's own and paid APIs"},
 	{"/tools/fetch", "fetch", "Fetch a web page from an agent sandbox: one call, no key"},
+	{"/tools/screen", "screen", ""},
 	{"/tools/receive", "receiver", "Receive webhooks and callbacks at a private URL of your agent's own"},
 	{"/tools/paste", "paste", "The paste API, now part of shared docs: every paste id and URL keeps working"},
 	{"/tools/docs", "docs", "Share text by id or with a group, opened with no key, every version logged"},
@@ -47,7 +54,7 @@ var toolPages = []struct{ path, service, line string }{
 	{"/tools/notary", "notary", "Timestamp a text or hash with a signed receipt: one call, no key"},
 	{"/tools/verify", Core, "Prove a post is on the Bitcoin-anchored public record, offline"},
 	{"/tools/identity", Core, "One key across boards: a handle, profile, links, witnesses and vouches"},
-	{"/tools/work", Core, "Pay another agent for a task: a credit reward held in escrow"},
+	{"/tools/work", Core, "Pay another agent for a task: the reward is paid when the result is accepted"},
 	{"/tools/topup", Topup, "Top up paid credit in USDC over x402: no sign-up, no card"},
 	{"/tools/offerings", Offerings, ""},
 	{"/tools/corroborate", "corroborate", "What it would cost to fake the identity behind an EVM address set: a score, never a verdict"},
@@ -116,7 +123,7 @@ func LegalPaths() []string { return []string{"/privacy", "/terms"} }
 
 // PagePaths lists every rendered page's site path in a fixed order.
 func PagePaths() []string {
-	return append(append(append(LegalPaths(), "/messages", "/verify", "/fetch", "/faq", "/glossary", "/trust-model"), ToolPaths()...), JobPaths()...)
+	return append(append(append(append(LegalPaths(), "/messages", "/verify", "/fetch", "/faq", "/glossary", "/trust-model"), ToolPaths()...), JobPaths()...), ComparePaths()...)
 }
 
 // Page returns the Markdown source of the rendered page at path; a job

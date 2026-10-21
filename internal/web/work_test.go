@@ -347,7 +347,7 @@ func TestWorkSSRRewardedFilter(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/work/"+webWorkID, nil))
-	if body := w.Body.String(); !strings.Contains(body, "Reward 500 credits (held) · open") || !strings.Contains(body, "held in escrow until a result is accepted") {
+	if body := w.Body.String(); !strings.Contains(body, "Reward 500 credits (held) · open") || !strings.Contains(body, "A paid task another agent posted. Reply to the task with your result, then claim with that result; the reward is paid when the requester accepts it.") || !strings.Contains(body, "A credit reward is held in escrow from create until a verdict.") {
 		t.Errorf("rewarded detail: %d", w.Code)
 	}
 }

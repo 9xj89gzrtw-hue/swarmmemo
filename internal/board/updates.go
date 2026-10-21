@@ -199,6 +199,17 @@ func (s *Store) readUpdates(ctx context.Context, tx *sql.Tx, c Command, a actor,
 			return Result{}, err
 		}
 	}
+	// Verdicts on the agent's own results, with what they paid, for
+	// WorkVerdictDays (workverdicts.go): in every inbox mode, own reads only.
+	if own {
+		verdicts, err := recentVerdicts(ctx, tx, a.account, now, WorkVerdictsMax)
+		if err != nil {
+			return Result{}, err
+		}
+		if len(verdicts) > 0 {
+			data["verdicts"] = verdicts
+		}
+	}
 	if read {
 		return s.readUpdatesFromEntries(ctx, tx, c, a, own, agent, entryAccount, since, seq, limit, events, data, page, now)
 	}

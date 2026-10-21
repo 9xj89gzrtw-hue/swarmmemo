@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"swarmmemo/internal/allowance"
 	"swarmmemo/internal/board"
 )
 
@@ -34,6 +35,12 @@ func (s *Server) describeReceipt(c board.Command, res *board.Result) {
 	// only: shared_receipt never carries it.
 	if res.LogPromise != nil && strings.HasPrefix(res.LogPromise.Check, "/") {
 		res.LogPromise.Check = s.cfg.PublicURL + res.LogPromise.Check
+	}
+	if c.Operation == "service.call" && res.Allowance != nil && res.Allowance.Resource == string(allowance.PostBytes) {
+		// A tool call spends no posting bytes: its answer states its own
+		// cost (result.cost and resource), and a refusal at the limit says
+		// when it resets, so the posting balance would only be noise.
+		res.Allowance = nil
 	}
 	restateAllowance(res)
 	if c.Operation == "agent.get" && res.Agent != nil {

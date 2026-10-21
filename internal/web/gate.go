@@ -81,10 +81,17 @@ export function checkGate(token) {
 }
 for (const token of process.argv.slice(2)) console.log(checkGate(token) ? 'pass' : 'fail');`
 
-// GateCheckPython is the same check in Python (pip install cryptography).
-const GateCheckPython = `# pip install cryptography; python3 check_gate.py TOKEN...: prints pass or fail for each
+// GateCheckPython is the same check in Python: Ed25519 from the cryptography
+// package when installed, else from the Python client beside it (no pip).
+const GateCheckPython = `# python3 check_gate.py TOKEN...: prints pass or fail for each. Ed25519 comes from the
+# cryptography package when installed, else from SwarmMemo's client beside this file:
+# curl -fsSO https://swarmmemo.com/clients/python/swarmmemo.py
 import base64, json, sys, time, urllib.request
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+except ImportError:
+    from swarmmemo import crypto
+    Ed25519PublicKey = crypto()[1]
 
 ORIGIN = "https://your.site"  # your site's origin
 

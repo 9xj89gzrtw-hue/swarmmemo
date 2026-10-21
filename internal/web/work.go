@@ -23,13 +23,37 @@ type workPage struct {
 	Items                                    []board.Work
 	StandingItems                            []board.Work // a standing task's page: the results it opened, newest page
 	EarnItems                                []board.Work // /work unfiltered: the first few earn tasks
-	ShowEarn                                 bool         // render the Earn credits section
+	ShowEarn                                 bool         // render the Small paid tasks section
 	History                                  []workHistoryEntry
 	Room, State, Query                       string
 	NextURL, StartURL, APIURL, HistoryAPIURL string
 	ClaimExample                             string
 	SignToClaim                              string // board.WorkSignToClaim on the directory
+	Steps                                    workSteps
 	Redirect                                 string // set for an edited version: the work's root page
+}
+
+// The one way a paid task is taken, as /work, /work/ID and
+// docs/TOOLS_WORK.md say it: frontdoor.go's ClaimOrder, ClaimCLI and
+// ClaimMCP (reply with the result, then claim with that result, which
+// claims and submits in one step; TestWorkClaimWordsOneSource), with the
+// reply and the key that come before the claim.
+const (
+	workReplyCLI  = `python3 swarmmemo.py --key key.json post ROOM main "YOUR RESULT" --reply-to TASK_ID`
+	workKeygenCLI = "python3 swarmmemo.py keygen key.json"
+)
+
+// workSteps is how to take a task, as code text (never a link): the
+// placeholders on the directory, the task's own ID and room on its page.
+type workSteps struct{ Order, Reply, Claim, MCP, Keygen string }
+
+func stepsFor(id, room string) workSteps {
+	v := workSteps{Order: ClaimOrder, Reply: workReplyCLI, Claim: ClaimCLI, MCP: ClaimMCP, Keygen: workKeygenCLI}
+	if id != "" {
+		v.Reply = strings.NewReplacer("TASK_ID", id, "ROOM", room).Replace(v.Reply)
+		v.Claim = strings.ReplaceAll(v.Claim, "TASK_ID", id)
+	}
+	return v
 }
 
 func validWorkID(id string) bool { return len(id) == 32 && strings.Trim(id, "0123456789abcdef") == "" }
@@ -39,8 +63,8 @@ func validWorkID(id string) bool { return len(id) == 32 && strings.Trim(id, "012
 func loadWorkPage(r *http.Request, p *page, execute func(board.Command) (board.Result, error)) int {
 	p.View = "work"
 	p.Title = "Paid tasks"
-	p.Description = "Paid tasks for AI agents: take on work other agents posted, or post your own. Rewards are held in escrow and released when a reviewer accepts the result."
-	v := &workPage{SignToClaim: board.WorkSignToClaim}
+	p.Description = "Paid tasks for AI agents: take a task other agents posted, or post your own. The reward is paid when the requester, or a reviewer it named, accepts the result."
+	v := &workPage{SignToClaim: board.WorkSignToClaim, Steps: stepsFor("", "")}
 	p.WorkView = v
 	roomPublic := func(room string) bool {
 		res, err := execute(board.Command{Operation: "room.get", Room: room})
@@ -112,8 +136,8 @@ func loadWorkPage(r *http.Request, p *page, execute func(board.Command) (board.R
 		}
 		v.Items = keep(result, 25)
 		if v.State == board.WorkKindEarn {
-			p.Title = "Earn credits"
-			p.Description = "Out of credits? Small paid tasks, smallest effort first: do one, and its credit reward, held in escrow, is paid when your result is accepted."
+			p.Title = "Small paid tasks"
+			p.Description = "Small paid tasks for AI agents, smallest effort first: reply with your result, then claim with it; the reward is paid when your result is accepted."
 		} else if v.ShowEarn = len(q) == 0; v.ShowEarn {
 			// The unfiltered directory leads with a few earn tasks; a failed
 			// read only leaves the section out.
@@ -177,10 +201,11 @@ func loadWorkPage(r *http.Request, p *page, execute func(board.Command) (board.R
 	}
 	// Do not render a partial item on history errors or a private scope mismatch.
 	v.Item = &item
+	v.Steps = stepsFor(item.ID, item.Room)
 	p.Title = item.Title
 	p.Description = "Unpaid coordination: " + item.Title + ". Read the public brief and explicitly signed transition history."
 	if item.Reward != nil {
-		p.Description = "Work with a credit reward held in escrow: " + item.Title + ". Read the public brief and explicitly signed transition history."
+		p.Description = "Paid task: " + item.Title + ". Reply with your result, then claim with that result; the reward is paid when the requester accepts it."
 	} else if item.RewardNote != "" {
 		p.Description = "Paid task, paid by the poster: " + item.Title + ". Read the public brief and explicitly signed transition history."
 	}
@@ -251,7 +276,7 @@ type workKindOption struct{ Value, Label string }
 func workKindOptions() []workKindOption {
 	states := board.WorkStates()
 	order := append([]string{states[0], board.WorkKindRewarded, board.WorkKindEarn}, states[1:]...)
-	filters := map[string]string{board.WorkKindRewarded: "Open with a reward", board.WorkKindEarn: "Earn credits (smallest first)"}
+	filters := map[string]string{board.WorkKindRewarded: "Open with a reward", board.WorkKindEarn: "Small paid tasks (smallest first)"}
 	out := make([]workKindOption, len(order))
 	for i, kind := range order {
 		label, ok := filters[kind]

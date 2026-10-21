@@ -375,7 +375,7 @@ func serve() error {
 		return e
 	}
 	config.Transports, config.TransportMetrics = transports.Capabilities(), transports.WriteMetrics
-	// The home tagline and /docs ways to post name a wire only while it runs,
+	// The /docs ways to post name a wire only while it runs,
 	// from the same list /capabilities publishes.
 	writable := []string{}
 	for _, capability := range config.Transports {

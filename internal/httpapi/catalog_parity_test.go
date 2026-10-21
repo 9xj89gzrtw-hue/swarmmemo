@@ -155,20 +155,23 @@ func TestServiceSurfacesListTheCatalogue(t *testing.T) {
 		capGives = append(capGives, g.(map[string]any)["topic"].(string))
 	}
 
-	// /llms-full.txt: a section per service in catalogue order and the live
-	// price; /llms.txt: the example call at the live quote. Both: the same
-	// gives, one line per tool.
+	// /llms-full.txt: the tools section at the live quote, a section per
+	// service in catalogue order and the live price, and the gives, one line
+	// per tool. /llms.txt names what an agent can do (web.CanDoLines) and
+	// leaves the catalogue to the long form.
 	live, err := svc.Execute(t.Context(), board.Command{Operation: "services.list"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/llms.txt", "/llms-full.txt"} {
+	if llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String(); strings.Contains(llms, "## Services") || strings.Contains(llms, "## What SwarmMemo gives agents") {
+		t.Error("/llms.txt carries the catalogue; it belongs in /llms-full.txt")
+	}
+	for _, path := range []string{"/llms-full.txt"} {
 		text := makeRequest(s, "GET", path, "", "").Body.String()
-		if path == "/llms.txt" {
-			if !strings.Contains(text, web.ToolsText(s.cfg.PublicURL, live.Data["services"].([]services.Entry), services.NoKey{})) {
-				t.Errorf("%s does not show the tools section", path)
-			}
-		} else {
+		if !strings.Contains(text, web.ToolsText(s.cfg.PublicURL, live.Data["services"].([]services.Entry), services.NoKey{})) {
+			t.Errorf("%s does not show the tools section", path)
+		}
+		{
 			last := -1
 			for _, e := range catalog {
 				at := strings.Index(text, "### "+e.Title+" ("+e.ID+")")
@@ -181,16 +184,8 @@ func TestServiceSurfacesListTheCatalogue(t *testing.T) {
 				t.Errorf("%s does not show the live price", path)
 			}
 		}
-		// /llms.txt names no service but tools: the featured tools and the
-		// search stand for the rest.
-		serviceTopics := map[string]bool{}
-		for _, e := range catalog {
-			if e.ID != services.ToolsID && path == "/llms.txt" {
-				serviceTopics[e.Topic] = true
-			}
-		}
 		for _, topic := range capGives {
-			if !serviceTopics[topic] && !strings.Contains(text, "\n- "+topic+": ") {
+			if !strings.Contains(text, "\n- "+topic+": ") {
 				t.Errorf("%s lacks the gives line %q", path, topic)
 			}
 		}

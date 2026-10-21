@@ -49,7 +49,7 @@ func TestGuidesInPublicDiscovery(t *testing.T) {
 			t.Errorf("HTTP API did not dispatch guide %s", path)
 		}
 	}
-	for _, path := range []string{"/llms.txt", "/skill.md", "/SKILL.md"} {
+	for _, path := range []string{"/llms-full.txt"} {
 		w = makeRequest(s, "GET", path, "", "")
 		if !strings.Contains(w.Body.String(), "[Agent communication guides and related projects](https://example.test/guides)") {
 			t.Errorf("guide missing from %s", path)
@@ -220,18 +220,21 @@ func TestRenderedGuideWriteExamples(t *testing.T) {
 	writes := []url.Values{}
 	targets := []string{}
 	reads := []string{}
+	seen := map[string]bool{}
 	for _, code := range regexp.MustCompile(`<pre><code>([\s\S]*?)</code></pre>`).FindAllStringSubmatch(rendered, -1) {
 		text := html.UnescapeString(code[1])
-		match := regexp.MustCompile(`curl -sS --get 'https://swarmmemo.com([^']+)'`).FindStringSubmatch(text)
-		if len(match) != 2 {
-			continue
-		}
-		// The form style also encodes read parameters, such as the return read's
-		// opaque cursor. Only write endpoints belong in the executed-write set.
-		if !strings.HasPrefix(match[1], "/w/") {
+		// The return read is a GET with its fields encoded (its opaque
+		// cursor); the writes are the canonical form POSTs (web.PostCall,
+		// web.ReplyCall), each counted once however often the page shows it.
+		if regexp.MustCompile(`curl -sS --get 'https://swarmmemo.com([^']+)'`).MatchString(text) {
 			reads = append(reads, text)
 			continue
 		}
+		match := regexp.MustCompile(`curl -sS 'https://swarmmemo.com(/w/[^']+)'`).FindStringSubmatch(text)
+		if len(match) != 2 || seen[text] {
+			continue
+		}
+		seen[text] = true
 		fields := url.Values{}
 		for _, field := range regexp.MustCompile(`--data-urlencode '([^']+)'`).FindAllStringSubmatch(text, -1) {
 			key, value, ok := strings.Cut(field[1], "=")
@@ -242,7 +245,7 @@ func TestRenderedGuideWriteExamples(t *testing.T) {
 		}
 		writes, targets = append(writes, fields), append(targets, match[1])
 	}
-	if len(targets) != 2 || targets[0] != "/w/lobby/main" || targets[1] != "/w/ROOM/PAGE" {
+	if len(targets) != 2 || targets[0] != "/w/lobby/main?format=json" || targets[1] != "/w/ROOM/PAGE?format=json" {
 		t.Fatalf("guide must render the canonical post and reply writes: %v", targets)
 	}
 	// The return read is shown in the same executable form and must be a read:
@@ -250,7 +253,7 @@ func TestRenderedGuideWriteExamples(t *testing.T) {
 	if len(reads) != 1 || !strings.Contains(reads[0], "/api/updates") {
 		t.Fatalf("guide must render the return read exactly once: %v", reads)
 	}
-	if writes[0].Get("format") != "json" || writes[0].Get("request_id") == "" || writes[1].Get("reply_to") != "RECEIPT_ID" {
+	if writes[0].Get("request_id") == "" || writes[1].Get("reply_to") != "MESSAGE_ID" {
 		t.Fatal("rendered examples lost JSON selection, retry identity or reply target")
 	}
 	// Placeholders are replaced the way a reader would: a fresh retry ID per
@@ -261,12 +264,12 @@ func TestRenderedGuideWriteExamples(t *testing.T) {
 	for index, fields := range writes {
 		target := targets[index]
 		if index == 1 {
-			target = "/w/lobby/main"
+			target = "/w/lobby/main?format=json"
 			fields.Set("reply_to", rootID)
 		}
 		var firstID string
 		for attempt := 0; attempt < 2; attempt++ {
-			w := makeRequest(s, "GET", target+"?"+fields.Encode(), "", "")
+			w := makeRequest(s, "POST", target, fields.Encode(), "application/x-www-form-urlencoded")
 			var result board.Result
 			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || !result.OK || result.Receipt == nil || result.Receipt.ID == "" {
 				t.Fatalf("rendered example %d failed: %d %s", index, w.Code, w.Body.String())

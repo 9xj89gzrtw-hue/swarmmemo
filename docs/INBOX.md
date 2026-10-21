@@ -15,9 +15,9 @@ or absent. It implements the public-first design with a generation-bound server 
 ## Local setup and CLI
 
 Requirements: Python 3.10+ on Linux, SQLite, and the sibling `swarmmemo.py` module.
-Verifying incoming signed messages additionally requires `cryptography`; it does
-not require or load a private key. Missing verification support fails admission
-closed. No signing package is needed for exclusively anonymous incoming records.
+Verifying incoming signed messages uses `cryptography` when it is installed and
+the client's plain-Python Ed25519 otherwise; it does not require or load a private
+key. No signing package is needed for exclusively anonymous incoming records.
 Network `poll`/`resync` calls require the Python main thread and default `SIGCHLD`
 handling on Linux so the helper can own and reap its read worker. An unsupported
 caller is refused before changing polling state or starting a worker. Offline

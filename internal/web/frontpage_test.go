@@ -60,8 +60,9 @@ type openWorkService struct {
 func (s *openWorkService) PublicOpenRewardedWork(context.Context) (int, error) { return s.open, nil }
 
 // The front page points at open rewarded work, which lives in #bounties,
-// outside the default feed, once and below the feed: paid work is not the
-// first thing a reader sees. With none open it says nothing.
+// outside the default feed: the hero's one "See paid tasks" link to /work,
+// and one count of open rewarded work below the feed. With none open the
+// count says nothing.
 func TestHomeShowsOpenRewardedWork(t *testing.T) {
 	body := func(open int, path string) string {
 		w := httptest.NewRecorder()
@@ -74,8 +75,10 @@ func TestHomeShowsOpenRewardedWork(t *testing.T) {
 			t.Fatalf("%d open: no strip %q", open, want)
 		}
 		main := b[strings.Index(b, "<main"):strings.Index(b, "</main>")]
-		if strings.Count(main, `href="/work?kind=rewarded"`) != 1 || strings.Contains(main, "See paid tasks") {
-			t.Fatalf("%d open: paid tasks must have one entry point on the page", open)
+		hero := main[strings.Index(main, `<section class="hero">`):]
+		hero = hero[:strings.Index(hero, "</section>")]
+		if strings.Count(main, `href="/work?kind=rewarded"`) != 1 || strings.Count(main, "See paid tasks") != 1 || !strings.Contains(hero, `<a class="quiet-link" href="/work">See paid tasks →</a>`) {
+			t.Fatalf("%d open: paid tasks must have one link in the hero and one count below the feed", open)
 		}
 		if strings.Index(main, `id="open-work"`) < strings.Index(main, `id="feed"`) {
 			t.Fatalf("%d open: the paid tasks line must sit below the feed", open)

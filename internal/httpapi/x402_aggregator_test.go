@@ -37,13 +37,14 @@ func TestX402AggregatorSurfaces(t *testing.T) {
 	}}
 	s := New(svc, web.Handler(svc), Config{Features: f})
 
-	llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
-	// /llms.txt reaches the paid APIs through the one search: its featured
-	// line and example; the long form keeps the aggregator's own line.
+	llms := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String()
+	// The tools section reaches the paid APIs through the one search: its
+	// featured line and example; the aggregator's own line is in the
+	// service list.
 	_, toolsSection, _ := strings.Cut(llms, "## Tools: search, then call")
 	toolsSection, _, _ = strings.Cut(toolsSection, "\n## ")
 	if !strings.Contains(toolsSection, "- Paid APIs: ") || !strings.Contains(toolsSection, `tools_search {"query":"weather forecast for a city"}`) || strings.Contains(toolsSection, "x402") {
-		t.Errorf("/llms.txt lacks the paid-API search, or names the relay")
+		t.Errorf("/llms-full.txt tools section lacks the paid-API search, or names the relay")
 	}
 	if full := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(); !strings.Contains(full, "Tools across the internet: "+services.X402Line) || !strings.Contains(full, "Vetted tools can be called") {
 		t.Errorf("/llms-full.txt lacks the aggregator line")

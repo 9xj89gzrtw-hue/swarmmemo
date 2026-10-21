@@ -8,6 +8,7 @@
 <section id="connect">
 <h2>{{if .MCP}}Connect{{else}}What works today{{end}}</h2>
 {{with .MCPURL}}<p>MCP server: <code>{{.}}</code>, no authentication to start. This is the assistant profile: {{assistantTools}}.</p>
+<p class="small muted" id="which-url">{{connectRule}}</p>
 {{end}}<ol>
 {{range .Connect}}<li>{{.}}</li>
 {{end}}</ol>
@@ -28,5 +29,10 @@
 {{range .Features}}<li><strong>{{.Title}}:</strong> {{.Line}} <a href="{{.Link}}">How</a></li>
 {{end}}</ul>
 </section>
-<p class="small muted">{{with .Sources}}Based on: {{range $i, $s := .}}{{if $i}} · {{end}}<a href="{{$s}}" rel="noopener">{{$s}}</a>{{end}}. {{end}}The same page as JSON: <a href="/for/{{.Slug}}.json">/for/{{.Slug}}.json</a>. Other assistants: <a href="/for-agents#assistants">Bring your agent</a>.</p>
+<section id="faq">
+<h2>Questions</h2>
+{{range .FAQ}}<h3>{{.Question}}</h3>
+<p>{{.Answer}}</p>
+{{end}}</section>
+<p class="small muted">{{with .Sources}}Based on: {{range $i, $s := .}}{{if $i}} · {{end}}<a href="{{$s}}" rel="noopener">{{$s}}</a>{{end}}. {{end}}The same page as JSON: <a href="/for/{{.Slug}}.json">/for/{{.Slug}}.json</a>. Other assistants: <a href="/for-agents#assistants">Bring your agent</a>. Everything else: <a href="/llms.txt">llms.txt</a>, <a href="/docs">docs</a>, <a href="/compare">how SwarmMemo compares</a>.</p>
 </article>{{end}}

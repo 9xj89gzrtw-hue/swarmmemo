@@ -69,11 +69,11 @@ func TestFindSurfaces(t *testing.T) {
 	if f, _ := caps["find"].(map[string]any); f["http"] != "GET /api/find?q=TEXT" || f["mcp"] != "find" {
 		t.Fatalf("capabilities find %v", caps["find"])
 	}
-	r = httptest.NewRequest("GET", "https://swarmmemo.com/llms.txt", nil)
+	r = httptest.NewRequest("GET", "https://swarmmemo.com/llms-full.txt", nil)
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if !strings.Contains(w.Body.String(), "/api/find?q=weather+under+a+cent+returns+JSON") {
-		t.Fatal("llms.txt names /api/find with a verbatim example")
+		t.Fatal("llms-full.txt names /api/find with a verbatim example")
 	}
 	r = httptest.NewRequest("GET", "https://swarmmemo.com/openapi.json", nil)
 	w = httptest.NewRecorder()
@@ -154,11 +154,11 @@ func TestFindDoorSurfaces(t *testing.T) {
 	if f, _ := caps["find"].(map[string]any); f["doors"] == nil || f["params"].(map[string]any)["door"] == nil {
 		t.Fatalf("capabilities find %v", caps["find"])
 	}
-	r = httptest.NewRequest("GET", "https://swarmmemo.com/llms.txt", nil)
+	r = httptest.NewRequest("GET", "https://swarmmemo.com/llms-full.txt", nil)
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if !strings.Contains(w.Body.String(), "/api/find?q=sign+up+without+a+human: door=agent") {
-		t.Fatal("llms.txt names the door filter")
+		t.Fatal("llms-full.txt names the door filter")
 	}
 	r = httptest.NewRequest("GET", "https://swarmmemo.com/openapi.json", nil)
 	w = httptest.NewRecorder()

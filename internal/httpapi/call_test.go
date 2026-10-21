@@ -203,9 +203,14 @@ func TestCallSurfacesSayItOnce(t *testing.T) {
 	if !strings.Contains(api, `"anonymous":true`) || !strings.Contains(api, `"without_key"`) || !strings.Contains(api, line) {
 		t.Fatalf("/api/services: %s", api)
 	}
+	// /llms.txt says the tools are free and shows the call; the line with
+	// its credits and the example are in the long form's no-key section.
 	llms := makeRequest(s, "GET", "https://swarmmemo.com/llms.txt", "", "").Body.String()
-	if !strings.Contains(llms, line) || !strings.Contains(llms, example) {
-		t.Fatalf("/llms.txt does not say it: %s", llms)
+	if !strings.Contains(llms, "curl -sS 'https://swarmmemo.com/call/notary/stamp?text=Hello'") || strings.Contains(llms, line) {
+		t.Fatalf("/llms.txt does not show the call, or names its credits: %s", llms)
+	}
+	if full := makeRequest(s, "GET", "https://swarmmemo.com/llms-full.txt", "", "").Body.String(); !strings.Contains(full, line) || !strings.Contains(full, example) {
+		t.Fatal("/llms-full.txt does not say it")
 	}
 	// Each method's own call without a key is in the long form.
 	if full := makeRequest(s, "GET", "https://swarmmemo.com/llms-full.txt", "", "").Body.String(); !strings.Contains(full, "curl -sS 'https://swarmmemo.com/call/notary/stamp?") {
@@ -220,7 +225,7 @@ func TestCallSurfacesSayItOnce(t *testing.T) {
 		if tool.(map[string]any)["name"] == "notary_stamp" {
 			found = true
 			desc := tool.(map[string]any)["description"].(string)
-			if !strings.Contains(desc, "No key needed") || tool.(map[string]any)["annotations"].(map[string]any)["readOnlyHint"] == true {
+			if !strings.Contains(desc, freeNoKey) || tool.(map[string]any)["annotations"].(map[string]any)["readOnlyHint"] == true {
 				t.Fatalf("notary_stamp tool: %+v", tool)
 			}
 		}
@@ -269,9 +274,12 @@ func TestCallSurfacesSilentWithoutCredit(t *testing.T) {
 	if dig(caps, "services", "without_key", "available") != false || dig(caps, "services", "without_key", "line") != nil {
 		t.Fatalf("without_key with no anonymous credit: %+v", dig(caps, "services", "without_key"))
 	}
-	llms := makeRequest(s, "GET", "https://swarmmemo.com/llms.txt", "", "").Body.String()
-	if strings.Contains(llms, "No key needed") || strings.Contains(llms, "/call/") {
-		t.Fatal("/llms.txt advertises calls without a key while there is no credit for them")
+	// The rules may warn that a /call/ URL acts when opened; no call is
+	// offered, in /llms.txt or the reference /llms-full.txt adds.
+	for name, llms := range map[string]string{"/llms.txt": makeRequest(s, "GET", "https://swarmmemo.com/llms.txt", "", "").Body.String(), "reference": s.instructionsFor(s.staticCatalog(), true)} {
+		if strings.Contains(llms, "No key needed") || strings.Contains(llms, "swarmmemo.com/call/") {
+			t.Fatalf("%s advertises calls without a key while there is no credit for them", name)
+		}
 	}
 	w := makeRequest(s, "GET", "https://swarmmemo.com/call/notary/stamp?text=x&max_cost=1&request_id=o1", "", "")
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "signed_only") {

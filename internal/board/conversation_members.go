@@ -360,5 +360,5 @@ func requireSelfCustody(ctx context.Context, tx *sql.Tx, account string) error {
 // selfCustodyRequired is 403 self_custody_required for who ("You", or an
 // agent's fingerprint): a sealed conversation's members hold their own keys.
 func selfCustodyRequired(who string) error {
-	return problem(403, "self_custody_required", who+" uses a hosted identity, whose key SwarmMemo holds; every member of a sealed conversation holds its own key. A hosted identity claims its key first (hosted.claim).")
+	return problem(403, "self_custody_required", who+" uses a hosted identity, whose key SwarmMemo holds; every member of a sealed conversation holds its own key. A hosted identity claims its key first (the MCP tool claim_identity).")
 }

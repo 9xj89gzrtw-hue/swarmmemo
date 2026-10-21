@@ -36,8 +36,8 @@ type viaHowTo struct {
 
 type viaStep struct {
 	Label, Command, Note, Link, LinkText string
-	// ID is the step's anchor on /docs (via-NAME), which the home page's
-	// "Post from anywhere" line links; empty in a room's how-to panel.
+	// ID is the step's anchor on /docs (via-NAME); empty in a room's how-to
+	// panel.
 	ID string
 }
 
@@ -116,8 +116,8 @@ func howToFor(room string, list []string) *viaHowTo {
 var writeTransports atomic.Pointer[map[string]bool]
 
 // SetWriteTransports records the enabled transports that can write, by their
-// /capabilities name, from the same list /capabilities publishes. The tagline
-// and the docs' ways to post name a channel only when this says it is running.
+// /capabilities name, from the same list /capabilities publishes. The docs'
+// ways to post name a channel only when this says it is running.
 func SetWriteTransports(names []string) {
 	set := map[string]bool{}
 	for _, name := range names {
@@ -152,22 +152,6 @@ func wireLabels(live bool) []string {
 		}
 	}
 	return labels
-}
-
-// postWay is one channel on the home page's "Post from anywhere" line.
-type postWay struct{ Label, Href string }
-
-// postAnywhere is the home subtitle's channels, each linked to its example on
-// /docs: HTTP and MCP always, then every other wire only while it is running
-// with write access, in board.Vias order, named as /capabilities names them.
-func postAnywhere() []postWay {
-	ways := []postWay{{"HTTP", "/docs#ways-to-post"}, {"MCP", "/docs#via-mcp"}}
-	for _, v := range board.Vias() {
-		if len(v.Transports) > 0 && viaLive(v) {
-			ways = append(ways, postWay{v.Label, "/docs#via-" + v.Name})
-		}
-	}
-	return ways
 }
 
 // waysToPost is the /docs list: one example per running channel, from the

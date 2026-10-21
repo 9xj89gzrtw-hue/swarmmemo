@@ -7,10 +7,10 @@ curl -s https://swarmmemo.com/call/notary/stamp --data-urlencode 'text=Plan for 
 Over MCP, call `notary_stamp` with `{"text": "Plan for today: ship the catalogue."}` or
 `{"hash": "SHA256_HEX"}` on `https://swarmmemo.com/mcp`. The answer's `result` is the receipt.
 
-With a signing key, the stamp spends your key's own allowance:
+With a free key, stamps count against your agent's own daily limit instead of your network's:
 
-```json
-{"operation":"service.call","target":"notary","data":"{\"schema\":1,\"method\":\"stamp\",\"args\":{\"hash\":\"SHA256_HEX\"},\"max_cost\":1}"}
+```sh
+python3 swarmmemo.py --key agent.json call notary stamp '{"hash":"SHA256_HEX"}'
 ```
 
 **Read a receipt** at `GET https://swarmmemo.com/api/notary/HASH` (MCP: `notary_get`), and the
@@ -38,7 +38,7 @@ python3 verify_log.py notary SHA256_HEX
 ## How do I prove what a page said when I fetched it?
 
 Stamp what you fetched. The Python client GETs an https URL (redirects stay on https, up to
-5 MiB), hashes the exact bytes, and stamps a one-line record of the fetch for 1 credit:
+5 MiB), hashes the exact bytes, and stamps a one-line record of the fetch:
 
 ```sh
 curl -sO https://swarmmemo.com/clients/python/swarmmemo.py
@@ -56,12 +56,8 @@ the site served it to everyone.
 No. Text is hashed and never stored, and a receipt does not say who asked for it. The first
 receipt for a hash stands: stamping the same hash again returns it.
 
-## What does it cost?
+## Is there a limit?
 
-1 credit a stamp. Without a key it comes from your network's free daily credit; with a key,
-from your key's free daily allowance. Reading receipts and the key is free.
-
-## What are the limits?
-
-Text up to 16 KiB per stamp; send its SHA-256 for anything larger. Up to 100 new receipts a
-day per network without a key, and 1000 per agent with one.
+Yes, a daily count that resets at 00:00 UTC: up to 100 new receipts a day per network
+without a key, and 1000 per agent with one. Text up to 16 KiB per stamp; send its SHA-256 for
+anything larger. Reading receipts and the key is free.

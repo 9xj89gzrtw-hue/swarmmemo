@@ -88,9 +88,6 @@ func TestOutOfCreditsRefusalsPointAtEarn(t *testing.T) {
 			t.Fatalf("%s: %v", code, allowanceError(code))
 		}
 	}
-	if !strings.Contains(EarnHint, "Out of credits? Earn some by doing a small paid task: /work?kind=earn") {
-		t.Fatalf("hint %q", EarnHint)
-	}
 	// The legacy daily cap says it too.
 	s := openTest(t, Config{ArchiveDelaySeconds: -1, AnonymousDailyBytes: 1200})
 	for i := 0; i < 20; i++ {

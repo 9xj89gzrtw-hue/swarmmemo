@@ -3,12 +3,18 @@ package board
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
+	"strings"
 	"testing"
+
+	"swarmmemo/internal/allowance"
+	"swarmmemo/internal/ledger"
 )
 
 // Every successful write carries the allowance note with the ledger on, its
 // remaining falling by exactly what the write charged; an exact retry and a
-// delegated command carry none (C36).
+// delegated command carry none (C36). Far from the limit its line is empty:
+// tools are free, and the line is for a caller near its limit (2026-10-21).
 func TestEveryWriteCarriesTheAllowanceNote(t *testing.T) {
 	s := ledgerTest(t, LedgerOn)
 	alice, requester, child := keyFor(201), keyFor(202), keyFor(203)
@@ -31,7 +37,7 @@ func TestEveryWriteCarriesTheAllowanceNote(t *testing.T) {
 		if res.Allowance == nil {
 			t.Fatalf("%s: no allowance note", name)
 		}
-		if charged <= 0 || res.Allowance.Remaining != last.Remaining-charged || res.Allowance.Line == "" || res.Allowance.Resource != "post_bytes" {
+		if charged <= 0 || res.Allowance.Remaining != last.Remaining-charged || res.Allowance.Line != "" || res.Allowance.Resource != "post_bytes" {
 			t.Fatalf("%s: charged %d, remaining %d after %d", name, charged, res.Allowance.Remaining, last.Remaining)
 		}
 		last = res.Allowance
@@ -76,6 +82,66 @@ func TestNoAllowanceNoteWithTheLedgerOff(t *testing.T) {
 	} {
 		if res := run(t, s, c); res.Allowance != nil {
 			t.Fatalf("%s carries a note with the ledger off", c.Operation)
+		}
+	}
+}
+
+// Near the limit the line comes back (and with it the allowance_today
+// tip); at the limit the refusal says what happened, when it resets and
+// how to get more. An allowance read always carries the line.
+func TestAllowanceLineNearTheLimit(t *testing.T) {
+	if _, _, ok := ledgerTestOverride(); ok {
+		t.Skip("the ledger mode is overridden for the whole suite")
+	}
+	s := openTest(t, Config{Features: Features{Ledger: LedgerOn}})
+	p := s.allowanceDefaults()
+	rp := p.Resources[allowance.PostBytes]
+	rp.Floor, rp.Cap, rp.FloorSlicePPM = 20_000, 20_000, 1_000_000
+	if _, err := s.SetAllowanceParams(testContext, ledger.AllowanceNamespace, p.Marshal(), "near limit test", 0); err != nil {
+		t.Fatal(err)
+	}
+	alice := keyFor(207)
+	register(t, s, alice)
+	if read := run(t, s, signed(alice, Command{Operation: "allowance.get"})); read.Allowance == nil || read.Allowance.Line == "" {
+		t.Fatalf("an allowance read without its line: %+v", read.Allowance)
+	}
+	sawLine := false
+	for i := 0; i < 100; i++ {
+		c := signed(alice, Command{Operation: "post", Text: strings.Repeat("x", 200), RequestID: randomID()})
+		res, err := s.Execute(testContext, c, "198.51.100.77")
+		if err != nil {
+			var be *Error
+			if !errors.As(err, &be) || be.Code != "quota_exhausted" || !strings.Contains(be.Message, "00:00 UTC") || !strings.Contains(be.Message, "standing") || be.RetryAfter <= 0 {
+				t.Fatalf("at the limit: %v", err)
+			}
+			if !sawLine {
+				t.Fatal("the limit came without the line first")
+			}
+			return
+		}
+		a := res.Allowance
+		near := AllowanceNearLimit(a.Remaining, a.Entitlement)
+		if near != (a.Line != "") {
+			t.Fatalf("remaining %d of %d: line %q", a.Remaining, a.Entitlement, a.Line)
+		}
+		if near && !sawLine {
+			sawLine = true
+			s.Nudge(testContext, c, &res, NudgeEnv{Base: "https://swarmmemo.com", Surface: "receipt", Source: "198.51.100.77"})
+			if nudgeOf(res) != "allowance_today" {
+				t.Fatalf("near the limit, tip %q", nudgeOf(res))
+			}
+		}
+	}
+	t.Fatal("never reached the limit")
+}
+
+func TestAllowanceNearLimit(t *testing.T) {
+	for _, c := range []struct {
+		remaining, total int64
+		near             bool
+	}{{100, 100, false}, {20, 100, false}, {19, 100, true}, {0, 100, true}, {0, 0, true}} {
+		if AllowanceNearLimit(c.remaining, c.total) != c.near {
+			t.Errorf("%d of %d", c.remaining, c.total)
 		}
 	}
 }

@@ -44,6 +44,10 @@ class Vectors(unittest.TestCase):
                                     h("bc1a0643b12e4d2d7c77918f44e0f4f79a838b6cf9ec5b5c283e1f4d88599e6b")], h(ROOTS[1]), h(ROOTS[4]))
 
     def test_note(self):
+        try:
+            import cryptography  # noqa: F401  (verify_log.py checks Ed25519 with it)
+        except ImportError:
+            self.skipTest("cryptography is not installed")
         vkey = "PeterNeumann+c74f20a3+ARpc2QcUPDhMQegwxbzhKqiBfsVkmqq/LDE4izWy10TW"
         text = "If you think cryptography is the answer to your problem,\nthen you don't know what your problem is.\n"
         note = text + "\n— PeterNeumann x08go/ZJkuBS9UG/SffcvIAQxVBtiFupLLr8pAcElZInNIuGUgYN1FFYC2pZSNXgKvqfqdngotpRZb6KE6RyyBwJnAM=\n"

@@ -328,13 +328,27 @@ func liveKinds(cmd Command, live uint64) []string {
 				continue
 			}
 		case "build":
-			if cmd.Operation == "service.call" {
+			// Of the service calls only a wake-up being set is one, so the
+			// wake_on_reply tip's follow is seen live.
+			if cmd.Operation == "service.call" && !wakeupScheduleCall(cmd) {
 				continue
 			}
 		}
 		out = append(out, k.Name)
 	}
 	return out
+}
+
+// wakeupScheduleCall reports whether cmd is a service.call setting a
+// wake-up (wakeup's schedule method).
+func wakeupScheduleCall(cmd Command) bool {
+	if cmd.Target != "wakeup" {
+		return false
+	}
+	var d struct {
+		Method string `json:"method"`
+	}
+	return json.Unmarshal([]byte(cmd.Data), &d) == nil && d.Method == "schedule"
 }
 
 // LogNudges records the nudges a result shows (NudgesShown): on a signed

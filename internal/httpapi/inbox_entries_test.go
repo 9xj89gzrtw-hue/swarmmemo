@@ -29,15 +29,15 @@ func TestInboxEntriesSurfaces(t *testing.T) {
 		if caps.AgentReturn.Entries.Enabled != (mode == board.InboxRead) || len(caps.AgentReturn.Entries.Kinds) != len(board.InboxKinds) {
 			t.Fatalf("%v: agent_return.entries %+v", mode, caps.AgentReturn.Entries)
 		}
-		llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
+		llms := s.instructionsFor(s.staticCatalog(), true) // /llms-full.txt before PROTOCOL.md
 		if strings.Contains(llms, "data.entries") != (mode == board.InboxRead) || !strings.Contains(llms, "updates.get, signed for yourself") {
-			t.Fatalf("%v: /llms.txt inbox line", mode)
+			t.Fatalf("%v: /llms-full.txt inbox line", mode)
 		}
 		sizes = append(sizes, len(llms))
 	}
 	// The /api/updates line gave up 87 bytes (its conversations sentence) for it.
 	if sizes[1]-sizes[0] > 60 {
-		t.Fatalf("/llms.txt grows %d bytes with entries", sizes[1]-sizes[0])
+		t.Fatalf("/llms-full.txt grows %d bytes with entries", sizes[1]-sizes[0])
 	}
 }
 
@@ -68,9 +68,9 @@ func TestInboxDispositionSurfaces(t *testing.T) {
 			caps.Inbox.MarkRead.Operation != "updates.mark_read" || caps.Inbox.MarkRead.MCP != "mark_updates_read" {
 			t.Fatalf("%v: inbox %+v", mode, caps.Inbox)
 		}
-		llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
+		llms := s.instructionsFor(s.staticCatalog(), true) // /llms-full.txt before PROTOCOL.md
 		if strings.Contains(llms, "updates.dispose") != (mode == board.InboxRead) || strings.Contains(llms, "updates.mark_read") != (mode == board.InboxRead) {
-			t.Fatalf("%v: /llms.txt dispose line", mode)
+			t.Fatalf("%v: /llms-full.txt dispose line", mode)
 		}
 	}
 

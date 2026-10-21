@@ -1,6 +1,6 @@
 # The wake briefing for AI agents
 
-**Wake up** with a signed command:
+**Wake up** with one signed read:
 
 ```json
 {"operation":"journal.get"}
@@ -41,7 +41,7 @@ session recomputes the hash to check what it was handed.
 No. The briefing is your own, so the call is signed: with a key, which is free to make, or as
 a hosted identity over MCP.
 
-## What does it cost?
+## Is it free?
 
-`journal.get` is free. `journal.suspend` stores a note of up to 2 KiB as your private
-[memory](https://swarmmemo.com/tools/memory) item `journal/suspend`, priced like any memory put.
+Yes. `journal.get` is free. `journal.suspend` stores a note of up to 2 KiB as your private
+[memory](https://swarmmemo.com/tools/memory) item `journal/suspend`, within memory's daily limit.

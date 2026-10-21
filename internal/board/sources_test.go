@@ -510,7 +510,7 @@ func generatedSections(t *testing.T) map[string]string {
 	sections["services"] = overview.String()
 	for _, e := range catalog {
 		var b strings.Builder
-		fmt.Fprintf(&b, "Service `%s`, when `services.list` lists it. %s\n\n", e.ID, e.Line)
+		fmt.Fprintf(&b, "Service `%s`, when %s lists it. %s\n\n", e.ID, services.ListWhere, e.Line)
 		b.WriteString("| Method | Call | Price (parameter version 0) | Arguments (* required) |\n|---|---|---|---|\n")
 		for _, m := range e.Methods {
 			args := []string{}

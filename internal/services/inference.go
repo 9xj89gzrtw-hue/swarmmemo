@@ -651,7 +651,7 @@ func (p *inference) parseInference(raw json.RawMessage) (inferencePlan, error) {
 	}
 	route, ok := p.cfg.Models[a.Model]
 	if !ok {
-		return plan, badArg("model is one of " + strings.Join(slices.Sorted(maps.Keys(p.cfg.Models)), ", ") + "; services.list describes them.")
+		return plan, badArg("model is one of " + strings.Join(slices.Sorted(maps.Keys(p.cfg.Models)), ", ") + "; " + ListWhere + " describes them.")
 	}
 	plan.route = route
 	return plan, nil

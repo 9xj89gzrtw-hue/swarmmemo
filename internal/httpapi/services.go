@@ -106,8 +106,9 @@ func (s *Server) servicesRoute(w http.ResponseWriter, r *http.Request) bool {
 // Signed commands use POST /v1/command. The answer is always JSON.
 func (s *Server) callRoute(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	r = withCallAnswer(r)
 	if len(s.cfg.Features.Services) == 0 {
-		writeError(w, &board.Error{Status: 404, Code: "not_found", Message: "No service runs here; /capabilities says what does."})
+		s.writeCallError(w, &board.Error{Status: 404, Code: "not_found", Message: "No service runs here; /capabilities says what does."})
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -132,12 +133,12 @@ func (s *Server) callRoute(w http.ResponseWriter, r *http.Request) {
 	usage := "Call a service without a key as " + services.NoKeyUsage + "; " + board.ServicesCatalogueURL + " lists the methods and their arguments."
 	id, name, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, services.CallPathPrefix), "/")
 	if !ok || id == "" || name == "" || strings.Contains(name, "/") {
-		writeError(w, bad(usage))
+		s.writeCallError(w, bad(usage))
 		return
 	}
 	e, m, found := services.LookupMethod(s.staticCatalog(), id, name)
 	if !found {
-		writeError(w, board.ServiceRefusal(services.UnknownTarget(s.staticCatalog(), id, name)))
+		s.writeCallError(w, board.ServiceRefusal(services.UnknownTarget(s.staticCatalog(), id, name)))
 		return
 	}
 	fields := r.URL.Query()
@@ -145,54 +146,54 @@ func (s *Server) callRoute(w http.ResponseWriter, r *http.Request) {
 		mediaType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
 		switch {
 		case r.Method != http.MethodPost:
-			writeError(w, bad("A GET takes the fields in the query. "+callBodyUsage+"."))
+			s.writeCallError(w, bad("A GET takes the fields in the query. "+callBodyUsage+"."))
 			return
 		case mediaType != "application/x-www-form-urlencoded" && mediaType != "application/json":
-			writeError(w, bad("This body's Content-Type is not one a call takes. "+callBodyUsage+"."))
+			s.writeCallError(w, bad("This body's Content-Type is not one a call takes. "+callBodyUsage+"."))
 			return
 		case len(fields) > 0:
-			writeError(w, bad("The fields came in both the query and the body. "+callBodyUsage+", not both."))
+			s.writeCallError(w, bad("The fields came in both the query and the body. "+callBodyUsage+", not both."))
 			return
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, board.CommandBodyBytes))
 		if err != nil {
-			writeError(w, bodyTooLarge(r, board.CommandBodyBytes))
+			s.writeCallError(w, bodyTooLarge(r, board.CommandBodyBytes))
 			return
 		}
 		if mediaType == "application/json" {
 			var berr *board.Error
 			if fields, berr = callJSONFields(body); berr != nil {
-				writeError(w, berr)
+				s.writeCallError(w, berr)
 				return
 			}
 		} else if fields, err = url.ParseQuery(string(body)); err != nil {
-			writeError(w, bad("The form body is not valid application/x-www-form-urlencoded. "+callBodyUsage+"."))
+			s.writeCallError(w, bad("The form body is not valid application/x-www-form-urlencoded. "+callBodyUsage+"."))
 			return
 		}
 	}
 	for _, key := range []string{"public_key", "signature", "nonce", "timestamp", "delegation"} {
 		if fields.Has(key) {
-			writeError(w, bad("Signed calls are JSON commands to POST /v1/command; "+services.CallPathPrefix+" takes calls without a key."))
+			s.writeCallError(w, bad("Signed calls are JSON commands to POST /v1/command; "+services.CallPathPrefix+" takes calls without a key."))
 			return
 		}
 	}
 	download := false
 	if f := fields["format"]; len(f) > 1 || len(f) == 1 && f[0] != "json" {
 		if len(f) != 1 || f[0] != "text" || e.ID != services.PasteID && e.ID != services.DocsID || m.Name != "open" {
-			writeError(w, bad("The answer is JSON; format may only be json (or text, for docs.open and paste.open: the text as a text/plain download)."))
+			s.writeCallError(w, bad("The answer is JSON; format may only be json (or text, for docs.open and paste.open: the text as a text/plain download)."))
 			return
 		}
 		download = true
 	}
 	data, requestID, err := services.CallData(m, fields, "format")
 	if err != nil {
-		writeError(w, board.ServiceRefusal(services.CallArgsRefusal(err)))
+		s.writeCallError(w, board.ServiceRefusal(services.CallArgsRefusal(err)))
 		return
 	}
 	c := board.Command{Operation: m.Operation, Target: e.ID, Data: data, RequestID: requestID}
 	if !m.Write() {
 		if m.Signed || requestID != "" {
-			writeError(w, bad("This read needs a key, or takes no request_id; use POST /v1/command."))
+			s.writeCallError(w, bad("This read needs a key, or takes no request_id; use POST /v1/command."))
 			return
 		}
 		c.RequestID = ""

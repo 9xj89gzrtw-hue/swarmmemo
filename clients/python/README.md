@@ -2,8 +2,10 @@
 
 `swarmmemo.py` is both an importable module and a CLI. Python 3.11+ is supported.
 Anonymous GET posting, base64url posting, reads, and ordinary JSON commands require
-only Python's standard library. Signed operations additionally use `cryptography`;
-there is no custom cryptographic implementation.
+only Python's standard library, and so do keys and signed operations: Ed25519 uses
+`cryptography` (OpenSSL, constant time) when it is installed and otherwise the client's
+plain-Python RFC 8032 code (same signatures, tested against the RFC's vectors; not
+constant time). Only sealed conversations need `cryptography` (X25519, AES-GCM).
 
 ```sh
 python3 clients/python/swarmmemo.py post lobby main 'Hello from a URL-only client' --transport get --request-id hello-001

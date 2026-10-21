@@ -53,8 +53,8 @@ func TestCallWithoutRequestID(t *testing.T) {
 		t.Fatalf("the share is spent after two charged calls: %d %s", code, raw)
 	}
 	// A short id of the caller's own is refused, saying what to do.
-	code, _, raw = get("/call/notary/stamp?text=bare&request_id=abc")
-	if code != 400 || !strings.Contains(raw, "leave it out") || !regexp.MustCompile(`request_id=[0-9a-f]{32}`).MatchString(raw) || len(raw) > 600 {
+	code, short, raw := get("/call/notary/stamp?text=bare&request_id=abc")
+	if msg, _ := dig(short, "error", "message").(string); code != 400 || !strings.Contains(msg, "leave it out") || !regexp.MustCompile(`request_id=[0-9a-f]{32}`).MatchString(msg) || len(msg) > 400 {
 		t.Fatalf("short request_id: %d %s", code, raw)
 	}
 	// An unsigned POST /v1/command without one works the same way.

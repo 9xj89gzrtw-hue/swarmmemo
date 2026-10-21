@@ -507,19 +507,20 @@ func TestRFC0012SurfacesInvisibleWhileOff(t *testing.T) {
 	}
 }
 
-// With the flags on, agent-facing instructions explain the share rule in one
-// sentence and point at the reads; the MCP tools and server card agree.
+// With the flags on, /llms.txt says free and states the daily limit; the
+// long form explains the share rule in one sentence and points at the reads;
+// the MCP tools and server card agree.
 func TestRFC0012InstructionsAndToolsWhenOn(t *testing.T) {
 	s, _ := rfc0012Server(allOn)
-	for _, path := range []string{"/llms.txt", "/llms-full.txt", "/skill.md"} {
+	for _, path := range []string{"/llms.txt", "/skill.md"} {
 		body := makeRequest(s, "GET", path, "", "").Body.String()
-		// The short forms name the tools search and the featured memory
-		// tool; the long form keeps every service's line.
-		tool := "\n- Tools: "
-		if path == "/llms-full.txt" {
-			tool = "\n- Memory: "
+		if !strings.Contains(body, web.FreeLine) || !strings.Contains(body, "\n- Tools: ") || strings.Contains(body, web.ShareRuleSentence) {
+			t.Errorf("%s does not say free with its limit, or explains the share rule", path)
 		}
-		for _, want := range []string{"## Free allowance", web.ShareRuleSentence, "next.allowance", "/api/allowance", tool, "## Standing", "/api/trust/standing", "## Vouches"} {
+	}
+	for _, path := range []string{"/llms-full.txt"} {
+		body := makeRequest(s, "GET", path, "", "").Body.String()
+		for _, want := range []string{"### Free allowance", web.ShareRuleSentence, "next.allowance", "/api/allowance", "\n- Memory: ", "## Standing", "/api/trust/standing", "## Vouches"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s lacks %q", path, want)
 			}
@@ -530,7 +531,7 @@ func TestRFC0012InstructionsAndToolsWhenOn(t *testing.T) {
 		}
 	}
 	page := getHTML(t, s, "/for-agents")
-	if !strings.Contains(page, "next.allowance") || !strings.Contains(page, "Posting spends a free daily allowance") {
+	if !strings.Contains(page, "next.allowance") || !strings.Contains(page, "Posting is free within a daily limit, never money") {
 		t.Error("/for-agents quickstart does not explain the allowance")
 	}
 	var openapi map[string]any

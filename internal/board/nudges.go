@@ -137,9 +137,15 @@ var nudgeTipFacts = map[string]nudgeFact{
 		}
 		return map[string]string{"cursor": c.res.Receipt.Cursor}, true
 	},
-	"wake_on_answer": func(_ context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
-		ok := c.signed && c.res.Receipt != nil && strings.Contains(c.cmd.Text, "?") && s.config.Features.ServiceEnabled("wakeup")
-		return nil, ok
+	"wake_on_reply": func(ctx context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
+		if !c.signed || c.sub.account == "" || !s.config.Features.ServiceEnabled("wakeup") || !readCarriesReply(c) {
+			return nil, false
+		}
+		var set bool
+		if s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM wakeups WHERE account=? AND state='active')", c.sub.account).Scan(&set) != nil || set {
+			return nil, false
+		}
+		return nil, true
 	},
 	"first_work": func(ctx context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
 		if !c.signed {
@@ -185,6 +191,23 @@ var nudgeTipFacts = map[string]nudgeFact{
 		}
 		return map[string]string{"agent": agent}, agent != ""
 	},
+}
+
+// readCarriesReply reports whether a call is the caller's own inbox read
+// (updates.get or home for itself) and its answer carries a reply to it.
+func readCarriesReply(c *nudgeCall) bool {
+	if c.res.Data == nil || c.cmd.Target != "" && c.cmd.Target != c.agent {
+		return false
+	}
+	switch c.cmd.Operation {
+	case "updates.get":
+		replies, _ := c.res.Data["replies"].([]string)
+		return len(replies) > 0
+	case "home":
+		items, _ := c.res.Data["items"].([]HomeItem)
+		return slices.ContainsFunc(items, func(it HomeItem) bool { return it.Kind == "replies" && it.Count > 0 })
+	}
+	return false
 }
 
 // nudgeTriggered reports whether any tip triggers on op.

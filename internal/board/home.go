@@ -56,6 +56,7 @@ var HomeKinds = []HomeKind{
 	{Kind: "replies", Label: "replies", NeedsYou: true, Operation: "updates.get", Tool: "read_updates"},
 	{Kind: "unread_dms", Label: "unread private messages", Own: true, NeedsYou: true, Operation: "conversations.list", Tool: "list_conversations"},
 	{Kind: "mentions", Label: "mentions", NeedsYou: true, Operation: "updates.get", Tool: "read_updates"},
+	{Kind: "work_verdict", Label: "verdict on your result", Own: true, Operation: "work.get", Tool: "read_work"},
 	{Kind: "open_task", Label: "open task", Operation: "work.claim", Tool: "claim_work"},
 }
 
@@ -92,6 +93,7 @@ type homeCounts struct {
 	first          map[string]homeWork // the most urgent work item of a kind
 	task           openTaskRow
 	generation     string
+	verdicts       []WorkVerdict // own reads: the newest verdicts on the agent's results
 }
 
 type homeWork struct {
@@ -205,6 +207,10 @@ func (s *Store) countHome(ctx context.Context, tx *sql.Tx, agent, account string
 			return h, err
 		}
 		h.counts["unread_dms"] = int(min(u.Total, HomeCountMax))
+		if h.verdicts, err = recentVerdicts(ctx, tx, account, now, HomeCountMax); err != nil {
+			return h, err
+		}
+		h.counts["work_verdict"] = len(h.verdicts)
 	}
 	t, err := openTaskTx(ctx, tx, account, false, now, h.generation)
 	if err != nil {
@@ -307,14 +313,33 @@ func (h homeCounts) item(k HomeKind, n int, now int64) HomeItem {
 			it.Text += fmt.Sprintf(" (%d claims expiring)", n)
 		}
 		workItem(w)
+	case "work_verdict":
+		v := h.verdicts[0]
+		it.Text = v.Text
+		if n > 1 {
+			it.Text += fmt.Sprintf(" (%d verdicts in %d days)", n, WorkVerdictDays)
+		}
+		workItem(homeWork{id: v.WorkID})
 	case "open_task":
-		it.Text = "Open task, " + h.task.reward() + ": “" + clip(h.task.title) + "”"
+		// One claim order everywhere: reply with the result, then claim with
+		// it (claims and submits in one step). A claim with no target holds
+		// the task for an hour; it is never the suggested call.
+		it.Text = "Open task, " + h.task.reward() + ": “" + clip(h.task.title) + "”. " + OpenTaskHow
 		data, _ := json.Marshal(map[string]any{"schema": 1, "generation": h.generation})
-		it.Call["message_id"], it.Call["data"] = h.task.id, string(data)
-		it.Tool.Arguments["message_id"] = h.task.id
+		it.Call["message_id"], it.Call["target"], it.Call["data"] = h.task.id, ResultIDPlaceholder, string(data)
+		it.Tool.Arguments["message_id"], it.Tool.Arguments["result_id"] = h.task.id, ResultIDPlaceholder
 	}
 	return it
 }
+
+// ResultIDPlaceholder stands in an open_task item's call for the id of the
+// reply that carries the agent's result.
+const ResultIDPlaceholder = "RESULT_ID"
+
+// OpenTaskHow is how to take an open task, in the one claim order: post
+// the result as a reply, then claim with it (CLI: work claim ID --result
+// RESULT_ID; MCP: claim_work with result_id).
+const OpenTaskHow = "Reply to it with your result, then claim with that reply as RESULT_ID: claiming and submitting is one step."
 
 // clip shortens a title for one line.
 func clip(s string) string {

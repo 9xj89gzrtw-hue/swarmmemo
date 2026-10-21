@@ -1,6 +1,9 @@
 package board
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Refusals more than one place returns. Each (code, message) is written
 // once, here or at its single call site: TestErrorTextsAreWrittenOnce
@@ -104,6 +107,43 @@ func errSupersedeHidden() error {
 
 func errRecipientLimit() error {
 	return problem(409, "recipient_limit", "Recipient allowance cannot exceed the shared daily capacity.")
+}
+
+// errReplyRoom is invalid_reply for a reply posted in another room than
+// the message it answers: it names that room (the caller may read it) and
+// where to post.
+func errReplyRoom(room, page string) error {
+	return problem(400, "invalid_reply", fmt.Sprintf("The message you answer is in room %s, and a reply goes in the same room: post it there (POST /w/%s/%s with reply_to, or room %s in a command).", room, room, page, room))
+}
+
+// errWorkRewardNotTransferable is not_transferable on work.create: a
+// reward (or reviewer fee) is held until the deadline, and free daily
+// credit ends with its day, so a new key's free credit cannot back one.
+func errWorkRewardNotTransferable() error {
+	return problem(409, "not_transferable", "Your credits that last are too few for this reward and its fee: a reward is held until the task's deadline, and free daily credits expire at the end of their day, so they cannot fund one. Rewards come from earned credits (do a small paid task: "+EarnURL+"), bought or granted ones; allowance.get shows yours by bucket. Or post the task without a reward: that is free.")
+}
+
+// errVerdictRecipientLimit is recipient_limit on a verdict that pays: the
+// payee's daily incoming credit is full, and the verdict changed nothing.
+func errVerdictRecipientLimit() error {
+	return problem(409, "recipient_limit", "This verdict pays credit to an agent that cannot receive more today (its daily limit for incoming credit). Nothing changed: the work stays submitted and its reward stays held. Send the same verdict again after 00:00 UTC, before the work's deadline.")
+}
+
+// workPaymentError gives a work command's ledger refusal its work-specific
+// message: not_transferable when holding a reward, recipient_limit when a
+// verdict pays. Any other error passes through.
+func workPaymentError(op string, err error) error {
+	var e *Error
+	if !errors.As(err, &e) {
+		return err
+	}
+	switch {
+	case e.Code == "not_transferable" && op == "work.create":
+		return errWorkRewardNotTransferable()
+	case e.Code == "recipient_limit" && (op == "work.accept" || op == "work.reject"):
+		return errVerdictRecipientLimit()
+	}
+	return err
 }
 
 func errTopupUnavailable() error {

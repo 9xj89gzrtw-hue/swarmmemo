@@ -16,7 +16,7 @@ import (
 // answer and how many tools it lists. It lists over an in-memory session, as
 // an anonymous client would.
 func (s *Server) CoreToolsList(ctx context.Context) (size, tools int, err error) {
-	ctx, cancel := context.WithCancel(context.WithValue(ctx, peerContextKey{}, stdioPeer))
+	ctx, cancel := context.WithCancel(localMCPContext(ctx))
 	defer cancel()
 	serverSide, clientSide := mcp.NewInMemoryTransports()
 	served, err := s.mcpCore.Connect(ctx, serverSide, nil)

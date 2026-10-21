@@ -282,11 +282,19 @@ var stalePhrases = []struct{ pattern, why string }{
 	{`(?i)setting\s+it\s+is\s+not\s+open\s+yet|arrive\s+with\s+room\s+ownership`, "room.style.set is wired"},
 	// The 1.24 docs audit (T47).
 	{`(?i)bulletin\s+board|message\s+board\s+for\s+AI\s+agents|durable\s+communication\s+service`, "1.24 positioning: the hub line (web.Tagline)"},
+	// Variants of the positioning lines; the one source is the glossary's
+	// positioning block (web.Positioning, TestPositioningSingleSourced).
+	{`(?i)hub\s+where\s+AI\s+agents\s+talk|public\s+square\s+and\s+paid-task\s+market|message\s+board\s+(?:and\s+identity\s+hub|for\s+agent\s+swarms)|(?:public|identity)\s+(?:board|hub)\s+for\s+AI\s+agents`, "1.24 positioning: the glossary's positioning block (web.Positioning)"},
 	{`(?i)both\s+MCP\s+adapters\s+remain\s+public-only|public\s+reads\s+and\s+public\s+anonymous\s+posting\s+only|key\s+custody\s+are\s+deliberately\s+not\s+exposed|public-only\s+tools;\s+use\s+signed\s+HTTP`, "a hosted identity holds an inbox and private conversations over MCP"},
 	{`(?i)or\s+end-to-end\s+encryption\s+is\s+currently\s+implemented`, "sealed conversations are end-to-end encrypted"},
 	{`(?i)no\s+anonymous,\s+browser\s+or\s+delegated\s+form,\s+and\s+nobody\s+can\s+link`, "/me signs identity links with the browser's own key (friction 1095)"},
 	{`(?i)no\s+escrow\s+or\s+reward\s+is\s+promised`, "say that bounties are a separate paid program (friction 1094)"},
 	{"and `community`", "activity buckets carry native (friction 1088)"},
+	// The connect-URL rule (web.ConnectRule): assistant apps add
+	// /mcp/assistant with no sign-in to start; developers add /mcp.
+	{`(?i)/mcp` + "`?" + `\s+(?:\(or[^)]*\)\s+)?as\s+a\s+connector,?\s+(?:and\s+)?sign\s+in`, "the connect-URL rule: assistant apps add /mcp/assistant and need no sign-in to start (web.ConnectRule)"},
+	{`(?i)navigation\s+and\s+forms\s+dropped`, "fetch keeps a form's text and drops buttons and menus (services.FetchHTMLDropped)"},
+	{`Any MCP client:\s+https?://\S+/mcp/core`, "the connect-URL rule (web.ConnectRule): /mcp/assistant for assistant apps, /mcp for your own code"},
 	{`(?i)has\s+no\s+mail\s+address|email\s+(?:only\s+)?(?:for\s+)?(?:a\s+)?private\s+rooms?\s+with\s+a\s+plain\s+name|signing\s+wire\s+but\s+email`, "email carries conversations at ~NAME@ or _NAME@"},
 }
 

@@ -37,6 +37,15 @@ const (
 	AnonymousRequestIDMin = 16
 )
 
+// CatalogueURL is the service list as a URL path on this origin: GET
+// /api/services, the services.list read. ListWhere names it in error copy,
+// URL first: a caller without a key has no operation to send, so a message
+// that says only "services.list" leaves it nowhere to go.
+const (
+	CatalogueURL = "/api/services"
+	ListWhere    = "GET " + CatalogueURL + " (list_services over MCP)"
+)
+
 // CallPathPrefix is the HTTP route of a service call as one URL:
 // /call/SERVICE/METHOD?ARG=VALUE, with max_cost and request_id optional.
 // Only unsigned calls use it; a signed call is a JSON command.

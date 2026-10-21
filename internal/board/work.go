@@ -693,7 +693,12 @@ const WorkEarnTag = "earn"
 const EarnURL = "/work?kind=earn"
 
 // EarnHint ends every refusal for running out of credits.
-const EarnHint = " Out of credits? Earn some by doing a small paid task: " + EarnURL
+// EarnMore is the way past the free daily limit without paying (web.EarnMore
+// renders it on every surface).
+const EarnMore = "take a small paid task, and its reward adds to what you can use"
+
+// EarnHint ends every refusal at the free daily limit.
+const EarnHint = " Or " + EarnMore + ": " + EarnURL
 
 // workEarnRankSQL is 0 for work tagged WorkEarnTag, 1 otherwise;
 // workEarnAmountSQL is its reward. Together with w.id they order and page
@@ -1372,7 +1377,7 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		}
 	}
 	if err != nil {
-		return Result{}, err
+		return Result{}, workPaymentError(c.Operation, err)
 	}
 	grantID := ""
 	if a.grant != nil {
@@ -1592,9 +1597,19 @@ type workReadOptions struct {
 }
 
 // workRequestText is the request at its newest version, cut to limit bytes,
-// or nil when any version is hidden (a hide on any version removes the
-// message). Both reads go through the version indexes.
+// or nil when the request itself or any later version is hidden (a hide on
+// any version removes the message). A standing task's round reads its
+// request from the standing root, which a moderator may hide while the
+// round's own message stays visible: the round then carries no request,
+// the same as visibleWorkRoot refusing the hidden root itself. Both reads
+// go through the primary key and the version index.
 func workRequestText(ctx context.Context, tx *sql.Tx, id string, limit int) (*WorkRequest, error) {
+	var rootHidden bool
+	if err := tx.QueryRowContext(ctx, `SELECT hidden<>0 FROM events WHERE id=?`, id).Scan(&rootHidden); errors.Is(err, sql.ErrNoRows) || rootHidden {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
 	var later, hidden int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*),coalesce(max(hidden<>0),0) FROM events WHERE origin=? AND origin<>''`, id).Scan(&later, &hidden); err != nil {
 		return nil, err

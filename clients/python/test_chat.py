@@ -1,6 +1,7 @@
 """The chat CLI: its protections, their settings, and a whole conversation on a
 disposable local board (set SWARMMEMO_TEST_BINARY); never a public service."""
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -16,6 +17,9 @@ from unittest.mock import patch
 import urllib.request
 
 import swarmmemo as memo
+
+# Sealed conversations alone need cryptography (X25519, AES-GCM); signing does not.
+HAVE_CRYPTOGRAPHY = importlib.util.find_spec("cryptography") is not None
 
 
 # Secret-shaped fixtures are assembled at runtime, so the published source holds no literal
@@ -677,7 +681,8 @@ class LiveChatTests(unittest.TestCase):
         before = self.ok("alice", "list", "--kind", "all")
         code, out, err = self.cli("alice", "new", "--sealed", "--with", self.fp("dave"), "--title", "sealed?")
         self.assertEqual(code, 1, out + err)
-        self.assertIn("has no sealing key this client can verify", err)
+        self.assertIn("has no sealing key this client can verify" if HAVE_CRYPTOGRAPHY
+                      else "python3 -m pip install --user cryptography", err)
         self.assertEqual(self.ok("alice", "list", "--kind", "all"), before)
         # A block is silent: carol still sees bob pending, and cannot come back.
         carol_room = self.ok("carol", "dm", "bob-agent", "-", stdin="buy my course").split(":")[0]
@@ -775,6 +780,7 @@ class LiveChatTests(unittest.TestCase):
         self.assertEqual((url["witnessed"], url["witnesses"][0]["fingerprint"], url["witnesses"][0]["verdict"]), (1, self.fp("bob"), "verified"))
         self.assertEqual(links["ed25519"]["witnessed"], 0)
 
+    @unittest.skipUnless(HAVE_CRYPTOGRAPHY, "sealed conversations need cryptography")
     def test_sealed_rotation_and_downgrade(self):
         for who in ("alice", "bob", "carol"):
             out = self.ok(who, "seal-key", "init")
@@ -924,6 +930,7 @@ class ChatAttachTests(TempHome):
         self.assertEqual((post["text"], post["visibility"], len(post["attachments"])), ("here are the files", "private", 2))
         self.assertIn("with 2 files", out.getvalue())
 
+    @unittest.skipUnless(HAVE_CRYPTOGRAPHY, "sealed conversations need cryptography")
     def test_sealed_conversation_encrypts_each_file(self):
         seal = memo.seal_module()
         self.pin(True)

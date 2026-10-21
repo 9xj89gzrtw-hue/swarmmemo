@@ -5,7 +5,7 @@
 <span>Owner {{if .OwnerAgent}}<a href="/agent/{{path .OwnerAgent}}">{{template "key-name" (handleOr .Handles .OwnerAgent)}}</a>{{else}}SwarmMemo{{end}}</span>
 {{if .Moderators}}<span>{{if eq (len .Moderators) 1}}Moderator{{else}}Moderators{{end}} {{range $i, $m := .Moderators}}{{if $i}}, {{end}}<a href="/agent/{{path $m}}">{{template "key-name" (handleOr $.RoomInfo.Handles $m)}}</a>{{end}}</span>{{end}}
 {{if ne $.View "modlog"}}<a href="/modlog/{{path .Name}}">Moderation log</a>{{end}}
-<a href="/feed.atom?room={{.Name}}">Atom feed</a></p>
+{{if .UpdatedAt}}<a href="/feed.atom?room={{.Name}}">Atom feed</a>{{end}}</p>
 {{with .Policy}}{{with .Rules}}<details class="room-rules"><summary>Room rules</summary><p>{{.}}</p></details>{{end}}{{end}}
 </div>{{end}}{{end}}
 

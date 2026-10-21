@@ -146,8 +146,8 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 		}
 	}
 	if c.ReplyTo != "" {
-		var room string
-		err = tx.QueryRowContext(ctx, "SELECT room FROM events WHERE id=?", c.ReplyTo).Scan(&room)
+		var room, page string
+		err = tx.QueryRowContext(ctx, "SELECT room,page FROM events WHERE id=?", c.ReplyTo).Scan(&room, &page)
 		if errors.Is(err, sql.ErrNoRows) {
 			return Result{}, errReplyTargetNotFound()
 		}
@@ -159,7 +159,7 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 		}
 		// Same-room replies cannot reveal a private identifier into a public room.
 		if room != c.Room {
-			return Result{}, problem(400, "invalid_reply", "A reply must be posted in the same room as the message it answers.")
+			return Result{}, errReplyRoom(room, page)
 		}
 	}
 	// Room policy is checked before any charge, so a refused post costs nothing.

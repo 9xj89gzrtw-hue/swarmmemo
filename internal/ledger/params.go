@@ -120,7 +120,13 @@ const defaultFloorSlicePPM = 250_000
 // credit 1.6M → 3.2M), and the floor everyone gets, anonymous callers
 // included, is today's anonymous share: 4 MiB of posts, 256 KiB of memory,
 // 8,000 credits. Signed accounts also keep at least their waterfall share
-// for TransitionFloorDays (pools.go).
+// for TransitionFloorDays (pools.go). Credit's inbound_cap is its budget,
+// as every resource's is (RFC 0012 §2.4): at 0 no credit could arrive by
+// transfer, so on a board without published parameters every rewarded
+// accept failed with recipient_limit (cold-start evaluation 2026-10-21).
+// A published version names its own and is unaffected. grant_share_ppm
+// stays 0: an operator who grants credit, or pays review and invite
+// rewards, publishes a grant share (deploy/RUNBOOK.md).
 func DefaultAllowanceParams() AllowanceParams {
 	const mib = 1 << 20
 	post := &ResourceParams{
@@ -139,7 +145,7 @@ func DefaultAllowanceParams() AllowanceParams {
 		Unit: "credit", Budget: 3_200_000, SpendCeiling: 3_200_000, GrantSharePPM: 0,
 		FloorSlicePPM: defaultFloorSlicePPM, Floor: 8_000, Cap: 400_000, AnonymousSharePPM: 100_000,
 		SpillStart: 3600, SpillInterval: 3600,
-		TransferFee: 1, InboundCap: 0, NewKeyFloor: 0, ClientSharePPM: ppm,
+		TransferFee: 1, InboundCap: 3_200_000, NewKeyFloor: 0, ClientSharePPM: ppm,
 	}
 	return AllowanceParams{
 		Schema:          AllowanceSchema,

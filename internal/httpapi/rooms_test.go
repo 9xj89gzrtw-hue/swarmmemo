@@ -187,8 +187,8 @@ func TestRoomReadsAndGovernanceOverHTTP(t *testing.T) {
 			t.Fatalf("%s is not both advertised and reachable", op)
 		}
 	}
-	if !strings.Contains(makeRequest(s, "GET", "/llms.txt", "", "").Body.String(), "room.policy.set") {
-		t.Fatal("llms.txt does not mention room policy")
+	if !strings.Contains(makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String(), "room.policy.set") {
+		t.Fatal("llms-full.txt does not mention room policy")
 	}
 	// The promotion rule (C62) is advertised with its values and default.
 	promotion, _ := s.capabilities()["room_policy"].(map[string]any)["promotion"].(map[string]any)

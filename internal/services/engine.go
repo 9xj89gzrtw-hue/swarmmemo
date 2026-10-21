@@ -279,7 +279,7 @@ func UnknownMethod(service, method string, methods []string) error {
 	if methodRE.MatchString(method) {
 		quoted = ` "` + method + `"`
 	}
-	return &allowance.Err{Code: "invalid_service", Message: fmt.Sprintf(`%s has no method%s; its methods are %s. Each method's args are in services.list.`, service, quoted, strings.Join(methods, ", "))}
+	return &allowance.Err{Code: "invalid_service", Message: fmt.Sprintf(`%s has no method%s; its methods are %s. Each method's args are in %s.`, service, quoted, strings.Join(methods, ", "), ListWhere)}
 }
 
 // UnknownService: see UnknownMethod. enabled is the services enabled here.
@@ -289,7 +289,7 @@ func UnknownService(service string, enabled []string) error {
 		quoted = ` "` + service + `"`
 	}
 	names := slices.Sorted(slices.Values(enabled))
-	return &allowance.Err{Code: "invalid_service", Message: fmt.Sprintf(`No service%s is enabled here; the services are %s. services.list lists their methods and prices.`, quoted, strings.Join(names, ", "))}
+	return &allowance.Err{Code: "invalid_service", Message: fmt.Sprintf(`No service%s is enabled here; the services are %s. %s lists their methods and prices.`, quoted, strings.Join(names, ", "), ListWhere)}
 }
 
 // UnknownTarget is UnknownService or UnknownMethod for a call the catalogue

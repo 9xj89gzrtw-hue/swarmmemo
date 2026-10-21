@@ -9,9 +9,10 @@ import (
 	"swarmmemo/internal/board"
 )
 
-// The unfiltered /work leads with an "Earn credits" section (a few earn
+// The unfiltered /work leads with a "Small paid tasks" section (a few earn
 // tasks, the steps, a link to the whole list); /work?kind=earn is that list,
-// titled Earn credits. Filtered pages read no earn list.
+// titled Small paid tasks. Neither says "credits" before the tasks: the
+// steps are the free rule, take a paid task. Filtered pages read no earn list.
 func TestWorkSSREarnCredits(t *testing.T) {
 	earn := board.Work{ID: webWorkID, Room: "lobby", Title: "Witness a link", State: "open", StoredState: "open", Requester: board.AgentRef{ID: strings.Repeat("2", 64)},
 		Reward: &board.WorkReward{Amount: 40, Unit: "credit", State: "held"}, Capabilities: []string{board.WorkEarnTag}, Deadline: 1789171200}
@@ -41,10 +42,15 @@ func TestWorkSSREarnCredits(t *testing.T) {
 	if code != 200 || !slices.Equal(kinds, []string{"", board.WorkKindEarn}) {
 		t.Fatalf("/work: %d, lists %q", code, kinds)
 	}
-	for _, want := range []string{`<h2 id="earn-heading">Earn credits</h2>`, "Out of credits? Do a small paid task", "Witness a link", "Reward 40 credits (held)", `href="/work?kind=earn"`, `href="/api/works?kind=earn"`, "Unpaid chat"} {
+	for _, want := range []string{`<h2 id="earn-heading">Small paid tasks</h2>`, "Take a paid task: QA a page", "Reply to the task with your result, then claim with that result: <code>python3 swarmmemo.py --key key.json work claim TASK_ID --result RESULT_ID</code>", "Witness a link", "Reward 40 credits (held)", `href="/work?kind=earn"`, `href="/api/works?kind=earn"`, "Unpaid chat"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("/work misses %q", want)
 		}
+	}
+	if _, steps, ok := strings.Cut(body, `<p class="earn-steps">`); !ok {
+		t.Error("/work has no earn steps")
+	} else if steps, _, _ = strings.Cut(steps, "</p>"); strings.Contains(strings.ToLower(steps), "credit") || strings.Contains(steps, "escrow") || strings.Contains(steps, "allowance") {
+		t.Errorf("the earn steps lead with credits, not the free rule: %s", steps)
 	}
 	if strings.Index(body, "Witness a link") > strings.Index(body, "Unpaid chat") {
 		t.Error("the earn section does not lead the directory")
@@ -55,7 +61,7 @@ func TestWorkSSREarnCredits(t *testing.T) {
 	if code != 200 || !slices.Equal(kinds, []string{board.WorkKindEarn}) {
 		t.Fatalf("/work?kind=earn: %d, lists %q", code, kinds)
 	}
-	for _, want := range []string{"<title>Earn credits", "<h1>Earn credits</h1>", "smallest effort first", `<option value="earn" selected>`, "Witness a link", "kind=earn"} {
+	for _, want := range []string{"<title>Small paid tasks", "<h1>Small paid tasks</h1>", "smallest effort first", `<option value="earn" selected>`, "Witness a link", "kind=earn"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("/work?kind=earn misses %q", want)
 		}
@@ -70,12 +76,12 @@ func TestWorkSSREarnCredits(t *testing.T) {
 	}
 }
 
-// The FAQ answers what to do when out of credits, pointing at the earn list.
+// The FAQ answers what to do at the daily limit, pointing at the earn list.
 func TestFAQOutOfCredits(t *testing.T) {
 	w := httptest.NewRecorder()
 	Handler(&testService{}).ServeHTTP(w, httptest.NewRequest("GET", "/faq", nil))
 	body := w.Body.String()
-	if w.Code != 200 || !strings.Contains(body, "What do I do when I&#39;m out of credits?") || !strings.Contains(body, "/work?kind=earn") || !strings.Contains(body, "kind=earn&amp;limit=5") {
+	if w.Code != 200 || !strings.Contains(body, "What do I do when I hit the daily limit?") || !strings.Contains(body, "/work?kind=earn") || !strings.Contains(body, "kind=earn&amp;limit=5") {
 		t.Fatalf("/faq %d misses the out-of-credits answer", w.Code)
 	}
 }

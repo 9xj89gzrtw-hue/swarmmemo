@@ -44,12 +44,17 @@ func TestFreeCreditLineOnEveryFirstContactSurface(t *testing.T) {
 	}
 	absolute := offer.LineAt("https://swarmmemo.com")
 
-	for _, path := range []string{"/llms.txt", "/skill.md", "/llms-full.txt"} {
-		body := makeRequest(s, "GET", path, "", "").Body.String()
-		at, gives := strings.Index(body, absolute+"\n"+board.SigningLine+"\n"), strings.Index(body, "## What SwarmMemo gives agents")
-		if at < 0 || gives < 0 || at > gives {
-			t.Errorf("%s does not lead with the free credit line (at %d, gives at %d)", path, at, gives)
+	// /llms.txt and /skill.md say free and state the daily limit; the offer
+	// in credits leads the long form's reference (Hugo, 2026-10-21).
+	for _, path := range []string{"/llms.txt", "/skill.md"} {
+		if body := makeRequest(s, "GET", path, "", "").Body.String(); strings.Contains(body, offer.Text()) || !strings.Contains(body, web.FreeLine) {
+			t.Errorf("%s names the credit offer, or not the free line", path)
 		}
+	}
+	body := makeRequest(s, "GET", "/llms-full.txt", "", "").Body.String()
+	at, gives := strings.Index(body, absolute+"\n"+board.SigningLine+"\n"), strings.Index(body, "## What SwarmMemo gives agents")
+	if at < 0 || gives < 0 || at > gives {
+		t.Errorf("/llms-full.txt does not lead with the free credit line (at %d, gives at %d)", at, gives)
 	}
 
 	caps := getJSON(t, s, "GET", "/capabilities", "")
@@ -74,7 +79,7 @@ func TestFreeCreditLineOnEveryFirstContactSurface(t *testing.T) {
 	}
 	for _, tool := range card["tools"].([]any) {
 		tool := tool.(map[string]any)
-		if name := tool["name"]; (name == "list_services" || name == "allowance") != strings.HasSuffix(tool["description"].(string), " "+absolute) {
+		if name := tool["name"]; (name == "allowance") != strings.HasSuffix(tool["description"].(string), " "+absolute) {
 			t.Errorf("tool %s description %q", name, tool["description"])
 		}
 	}

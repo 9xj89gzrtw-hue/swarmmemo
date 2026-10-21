@@ -81,6 +81,10 @@ type FunnelReport struct {
 	// Burst is the burst clusters (funnel_burst.go) and the range's new
 	// agents' rates with and without their members.
 	Burst FunnelBurst `json:"burst"`
+	// MCPTools is the hosted MCP tool calls of the last 7 and 30 days
+	// ending the range (mcptoolstats.go): calls, errors and caller-days per
+	// profile and tool.
+	MCPTools []MCPToolWindow `json:"mcp_tools"`
 }
 
 // FunnelBurst is the burst clusters the last recompute found (every
@@ -803,6 +807,9 @@ func (s *Store) FunnelReport(ctx context.Context, q FunnelQuery) (*FunnelReport,
 		return nil, err
 	}
 	if rep.Refusals, err = funnelRefusals(ctx, s.db, q.From, q.To); err != nil {
+		return nil, err
+	}
+	if rep.MCPTools, err = s.MCPToolReport(ctx, time.Unix(q.To, 0)); err != nil {
 		return nil, err
 	}
 	if s.config.Features.Trust != TrustOff {

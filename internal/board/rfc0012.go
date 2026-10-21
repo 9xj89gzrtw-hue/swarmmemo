@@ -13,6 +13,7 @@ import (
 	"fmt"
 
 	"swarmmemo/internal/allowance"
+	"swarmmemo/internal/services"
 )
 
 // allowanceError is the one mapping from an RFC0012 code to its HTTP status
@@ -24,7 +25,7 @@ func allowanceError(code string) error {
 	case "invalid_resource":
 		return problem(400, "invalid_resource", "Name a resource this service meters: post_bytes, memory_bytes or credit; see /capabilities.")
 	case "invalid_service":
-		return problem(400, "invalid_service", "Name an enabled service; services.list lists them with their prices.")
+		return problem(400, "invalid_service", "Name an enabled service; "+services.ListWhere+" lists them with their prices.")
 	case "invalid_service_data":
 		return problem(400, "invalid_service_data", `Data must be strict JSON {"schema":1,"method":METHOD,"args":{...}}, with "max_cost" on service.call; see /protocol.md#services.`)
 	case "invalid_memory_key":
@@ -58,7 +59,7 @@ func allowanceError(code string) error {
 	case "request_in_flight":
 		return problem(409, "request_in_flight", "A call with this request ID is still running; retry after retry_after seconds with the same request ID.")
 	case "price_exceeds_max":
-		return problem(409, "price_exceeds_max", "The current price is above your max_cost, and nothing was spent. Check services.list and retry with a higher max_cost.")
+		return problem(409, "price_exceeds_max", "The current price is above your max_cost, and nothing was spent. Check the price in "+services.ListWhere+" and retry with a higher max_cost.")
 	case "memory_limit":
 		return problem(409, "memory_limit", "This agent's memory is full; delete keys first. The limits are in /capabilities.")
 	case "reserved_key":
@@ -72,9 +73,9 @@ func allowanceError(code string) error {
 	case "recipient_limit":
 		return problem(409, "recipient_limit", "The recipient cannot receive more today; try a smaller amount or another day.")
 	case "quota_exhausted":
-		return problem(429, "quota_exhausted", "Your free allowance replenishes at 00:00 UTC. Wait, spend less, or receive an allowance transfer; payment is not required."+EarnHint)
+		return problem(429, "quota_exhausted", QuotaExhaustedMessage("allowance"))
 	case "global_quota_exhausted":
-		return problem(429, "global_quota_exhausted", "The board's shared daily allowance is exhausted; it replenishes at 00:00 UTC.")
+		return problem(429, "global_quota_exhausted", GlobalQuotaExhaustedMessage("allowance"))
 	case "spend_limit":
 		return problem(429, "spend_limit", "This credential's spend limit does not allow this spend; nothing was charged. The account's owner sets it with spend_limit.set.")
 	case "trust_unavailable":

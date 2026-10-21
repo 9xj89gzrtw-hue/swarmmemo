@@ -173,7 +173,7 @@ func TestTrustExplainerLinkedWhenOn(t *testing.T) {
 				t.Errorf("%s does not link to /trust with %+v", path, f)
 			}
 		}
-		for _, path := range []string{"/llms.txt", "/llms-full.txt"} {
+		for _, path := range []string{"/llms-full.txt"} {
 			if !strings.Contains(makeRequest(s, "GET", path, "", "").Body.String(), "with the live numbers: /trust.") {
 				t.Errorf("%s does not link to /trust", path)
 			}

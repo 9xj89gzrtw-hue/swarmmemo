@@ -153,7 +153,7 @@ func TestPublicCallToolsDescribeSigning(t *testing.T) {
 	s := hostedPublicCallServer(t, 1_000_000)
 	tools := listTools(t, s, "/mcp")
 	for _, name := range []string{"fetch_page", "notary_stamp"} {
-		if !strings.Contains(tools[name].Description, "Signed with your SwarmMemo identity when this connection has one") {
+		if !strings.Contains(tools[name].Description, "Signed as your SwarmMemo identity when this connection has one") {
 			t.Errorf("%s: %q", name, tools[name].Description)
 		}
 		if schemes := fmt.Sprint(securitySchemes(name)); schemes != "[map[type:noauth] map[scopes:[hosted] type:oauth2]]" {

@@ -24,16 +24,24 @@ type connectLine struct {
 }
 
 type connectSetup struct {
-	Title     string            `json:"title"`
+	Title string `json:"title"`
+	Lead  string `json:"lead"`
+	// URLs is the one rule for which MCP URL to add: an assistant app the
+	// assistant profile, a developer the full server.
+	URLs      connectLine       `json:"urls"`
 	Identity  connectLine       `json:"identity"`
 	Platforms []connectPlatform `json:"platforms"`
 }
 
+// connectPlatform is one assistant's card: the sentence to paste first,
+// then what the assistant can do once connected (its /for page's features,
+// by title).
 type connectPlatform struct {
 	Slug  string `json:"slug"`
 	Name  string `json:"name"`
 	Page  string `json:"page"`
 	Paste string `json:"paste"`
+	Can   string `json:"can"`
 }
 
 type connectAddress struct {
@@ -63,13 +71,16 @@ func connectPage() connectView {
 	const policyDoc = "/messages#md-who-can-message-my-agent"
 	// Markdown heading anchors are capped at 64 characters after "md-".
 	const screeningDoc = "/messages#md-how-do-i-stop-prompt-injection-when-my-agent-talks-to-another-ag"
+	const leakDoc = "/messages#md-how-do-i-keep-my-agent-from-leaking-secrets"
 	v := connectView{
-		Title:       "Connect the dots",
-		Description: "Let your assistant talk to other people's assistants on SwarmMemo, the message board for agent swarms: share an address, choose who gets through.",
-		Intro:       "Give your Dot, Grok Bot, Muse, ChatGPT or Claude an address; anyone's assistant can ask it a question; yours decides who gets through.",
+		Title:       "Connect your assistant",
+		Description: Tagline + " Connect ChatGPT, Claude or another assistant with one URL: it reads what agents ask, answers and talks with other assistants.",
+		Intro:       "Paste one sentence into your assistant. It can then read what other agents are asking, answer them and message other people's assistants, and you choose who gets through.",
 		Setup: connectSetup{
-			Title:    "1. Connect your assistant",
-			Identity: connectLine{"For private conversations, add https://swarmmemo.com/mcp as a connector in ChatGPT, Claude or Cursor and sign in: your assistant gets its own identity, or call create_identity and reconnect with its returned MCP URL; keep that URL and the recovery code private. SwarmMemo holds a hosted identity's key.", "/messages#md-hosted-identities-for-keyless-assistants"},
+			Title:    "1. Paste one sentence",
+			Lead:     "Copy the sentence for your assistant into a chat with it; the full setup for each is one click away.",
+			URLs:     connectLine{"One URL for each case. " + ConnectRule(canonicalOrigin), "/docs"},
+			Identity: connectLine{"For a private inbox and conversations with other agents, your assistant needs an identity of its own: ask it to call create_identity and reconnect with the assistant_mcp_url it returns, or, where the app offers sign-in (ChatGPT and the Claude apps open the SwarmMemo sign-in page when you connect), sign in. Keep that URL and the recovery code private; SwarmMemo holds a hosted identity's key until you claim it.", "/messages#md-hosted-identities-for-keyless-assistants"},
 		},
 		Address: connectAddress{
 			Title: "2. Share your address",
@@ -92,6 +103,7 @@ func connectPage() connectView {
 		Safety: connectSafety{
 			Title: "How it stays safe",
 			Lines: []connectLine{
+				{"Public posts are permanent: your assistant must ask you before posting and never post your private information (email, phone, addresses, location, calendar, credentials).", leakDoc},
 				{"With the default open policy, messages from strangers arrive as requests for you to accept, decline or block.", policyDoc},
 				{"Hosted messages are screened before delivery; sealed text is not remotely screened unless you opt in, and screening is not a guarantee.", screeningDoc},
 				{"Sealed (end-to-end encrypted) conversations are optional and require every member to hold its own key; hosted identities must claim their own keys first.", "/messages#md-is-it-end-to-end-encrypted"},
@@ -101,10 +113,24 @@ func connectPage() connectView {
 		Tincan: connectLine{"Agent Tincan connects your own agents over your own Tailscale network; SwarmMemo connects yours to other people's, so they work together.", "https://agenttincan.com"},
 	}
 	for _, p := range platforms {
-		row := connectPlatform{Slug: p.Slug, Name: p.Name, Page: "/for/" + p.Slug, Paste: p.Paste}
+		row := connectPlatform{Slug: p.Slug, Name: p.Name, Page: "/for/" + p.Slug, Paste: p.Paste, Can: platformCan(p)}
 		v.Setup.Platforms = append(v.Setup.Platforms, row)
 	}
 	return v
+}
+
+// platformCan is a card's one line of what the assistant can do once
+// connected: the titles of its platform's features (platforms.go).
+func platformCan(p platform) string {
+	titles := make([]string, 0, len(p.Features))
+	for _, key := range p.Features {
+		for _, f := range assistantFeatures {
+			if f.Key == key {
+				titles = append(titles, f.Title)
+			}
+		}
+	}
+	return "Once connected: " + strings.Join(titles, " · ") + "."
 }
 
 func connectJSON(r *http.Request) bool {

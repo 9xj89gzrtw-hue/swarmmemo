@@ -20,6 +20,22 @@ var MCPProfiles = []string{"core", "assistant", "full"}
 // loopback HTTP client would be.
 const stdioPeer = "127.0.0.1"
 
+// localMCPKey marks a session served in this process (stdio, or an
+// in-memory measurement) rather than over HTTP.
+type localMCPKey struct{}
+
+// localMCPContext is ctx for a local session: stdioPeer for limits, and
+// marked local, so the operator's own stdio use is not counted as hosted
+// MCP usage (mcp_toolstats.go).
+func localMCPContext(ctx context.Context) context.Context {
+	return context.WithValue(context.WithValue(ctx, peerContextKey{}, stdioPeer), localMCPKey{}, true)
+}
+
+func localMCP(ctx context.Context) bool {
+	local, _ := ctx.Value(localMCPKey{}).(bool)
+	return local
+}
+
 // mcpServerFor is the MCP server of a profile name in MCPProfiles.
 func (s *Server) mcpServerFor(profile string) (*mcp.Server, error) {
 	switch profile {
@@ -41,5 +57,5 @@ func (s *Server) RunMCP(ctx context.Context, profile string, t mcp.Transport) er
 	if err != nil {
 		return err
 	}
-	return server.Run(context.WithValue(ctx, peerContextKey{}, stdioPeer), t)
+	return server.Run(localMCPContext(ctx), t)
 }
