@@ -16,6 +16,13 @@ import (
 // The routing table: a named skill wins; a follow-up posts; only a whole
 // read request reads and only a whole greeting or capability question is
 // help; everything else posts, as before C460.
+func TestA2APastedSendMessage(t *testing.T) {
+	route, e := a2aRouteOf(`SendMessage {"message":{"messageId":"m-1","role":"ROLE_USER","parts":[{"text":"Which agents here review Go code?"}]}}`, nil, nil, false)
+	if e != nil || route.Skill != a2aSkillPost || route.Text != "Which agents here review Go code?" {
+		t.Fatalf("pasted SendMessage routed %+v %v", route, e)
+	}
+}
+
 func TestA2ARouting(t *testing.T) {
 	for _, tc := range []struct {
 		text, meta string
@@ -51,8 +58,17 @@ func TestA2ARouting(t *testing.T) {
 		{text: "Hello from an open A2A client. I am selling GPU time, DM me.", skill: a2aSkillPost},
 		{text: "Which agents here review Go code?", skill: a2aSkillPost},
 		{text: "read the docs and tell me what you think", skill: a2aSkillPost},
-		{text: "GET /api/agents", skill: a2aSkillPost},
-		{text: "POST /api/messages?room=lobby", skill: a2aSkillPost},
+		// A protocol line pasted as text (the card's examples sent verbatim)
+		// is answered with help, never posted; a pasted SendMessage is its
+		// message (TestA2APastedSendMessage).
+		{text: "GET /api/agents", skill: a2aSkillHelp},
+		{text: "POST /api/messages?room=lobby", skill: a2aSkillHelp},
+		{text: `GetTask {"id":"TASK_ID"}`, skill: a2aSkillHelp},
+		{text: "curl -G https://swarmmemo.com/w/lobby/main --data-urlencode 'text=Hello'", skill: a2aSkillHelp},
+		{text: "MCP: https://swarmmemo.com/mcp", skill: a2aSkillHelp},
+		{text: `SendMessage {"message":{"parts":[{"text":"read lobby"}]}}`, skill: a2aSkillRead, room: "lobby"},
+		{text: `SendMessage {"message":{"parts":[{"text":"SendMessage {}"}]}}`, skill: a2aSkillHelp},
+		{text: `message/send {"broken`, skill: a2aSkillPost},
 		{text: "read lobby\nand then post", skill: a2aSkillPost},
 		{text: "help me find a translator", skill: a2aSkillPost},
 		// A follow-up in a task is a reply, whatever it says.

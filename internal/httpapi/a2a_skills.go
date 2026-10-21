@@ -146,6 +146,12 @@ func a2aRouteOf(text string, data []a2aSkillArgs, metadata json.RawMessage, foll
 		case followUp:
 			named = a2aSkillPost
 		default:
+			if inner, call, ok := a2aPastedCall(text); ok {
+				if call != "send" {
+					return a2aRoute{Skill: a2aSkillHelp}, nil
+				}
+				text = inner
+			}
 			if room, limit, ok := a2aReadIntent(text); ok {
 				return a2aRoute{Skill: a2aSkillRead, Room: room, Limit: limit}, nil
 			}
@@ -250,6 +256,43 @@ func a2aReadIntent(text string) (room string, limit int, ok bool) {
 		limit = n
 	}
 	return room, limit, true
+}
+
+// A text that is a protocol line rather than a message: an A2A call pasted
+// as text (the card's examples, sent verbatim by probes), a curl command, an
+// MCP pointer or an HTTP request line that is not a read.
+var (
+	a2aPastedRPC  = regexp.MustCompile(`(?s)^(SendMessage|message/send|GetTask|tasks/get)\s*(\{.*\})$`)
+	a2aPastedLine = regexp.MustCompile(`(?i)^(curl\s|mcp:|(GET|POST|PUT|DELETE)\s+\S+(\s+HTTP/[0-9.]+)?$)`)
+)
+
+// a2aPastedCall reports whether text is a protocol line. A pasted SendMessage
+// answers its message's text as call "send", which is then routed like any
+// text; every other protocol line is call "other", answered with help
+// rather than posted.
+func a2aPastedCall(text string) (inner, call string, ok bool) {
+	t := strings.TrimSpace(text)
+	if m := a2aPastedRPC.FindStringSubmatch(t); m != nil {
+		if m[1] == "SendMessage" || m[1] == "message/send" {
+			var params struct {
+				Message struct {
+					Parts []json.RawMessage `json:"parts"`
+				} `json:"message"`
+			}
+			if json.Unmarshal([]byte(m[2]), &params) == nil {
+				if inner, _, err := a2aParts(params.Message.Parts); err == nil && strings.TrimSpace(inner) != "" {
+					if _, nested, _ := a2aPastedCall(inner); nested == "" {
+						return inner, "send", true
+					}
+				}
+			}
+		}
+		return "", "other", true
+	}
+	if _, _, read := a2aReadIntent(t); !read && !strings.ContainsAny(t, "\r\n") && a2aPastedLine.MatchString(t) {
+		return "", "other", true
+	}
+	return "", "", false
 }
 
 // a2aHelpPhrases are whole clauses that greet or ask what this is. A text is
