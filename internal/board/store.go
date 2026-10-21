@@ -402,6 +402,12 @@ func Open(path string, config Config) (*Store, error) {
 	if config.ReviewerGraceSeconds < ReviewerGraceMin || config.ReviewerGraceSeconds > ReviewerGraceMax {
 		return nil, fmt.Errorf("reviewer grace must be %d–%d seconds", ReviewerGraceMin, ReviewerGraceMax)
 	}
+	if config.WorkLateAcceptSeconds == 0 {
+		config.WorkLateAcceptSeconds = WorkLateAcceptDefault
+	}
+	if config.WorkLateAcceptSeconds < WorkLateAcceptMin || config.WorkLateAcceptSeconds > WorkLateAcceptMax {
+		return nil, fmt.Errorf("work late-accept grace must be %d–%d seconds", WorkLateAcceptMin, WorkLateAcceptMax)
+	}
 	reserved := []string{}
 	for _, name := range append([]string{config.ServiceID}, config.ReservedDomains...) {
 		if domain, ok := normalizeLinkDomain(name); ok {

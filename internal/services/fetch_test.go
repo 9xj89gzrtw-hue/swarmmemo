@@ -217,6 +217,57 @@ func TestFetchReadsAPageHonestly(t *testing.T) {
 	}
 }
 
+// A realistic page converts as /tools/fetch promises: headings, lists, code
+// and links (absolute) kept; scripts, styles, navigation and footer dropped.
+// The page leaves </head> out (as example.com does) and wraps its body in a
+// <form> (as many server-rendered sites do): neither may swallow the page.
+func TestFetchKeepsAPagesStructure(t *testing.T) {
+	s := newSite(t, false, map[string]http.HandlerFunc{
+		"/docs/guide": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, `<!doctype html><html lang="en"><head><title>Guide | Site</title>
+<meta name="viewport" content="width=device-width"><link rel="stylesheet" href="/s.css">
+<style>body{color:red}</style><script>window.track("SECRET-HEAD")</script>
+<body><form id="aspnetForm" action="/docs/guide" method="post">
+<header><a href="/" class="logo">Site</a><nav><ul><li><a href="/pricing">Pricing</a></li><li><a href="/login">Log in</a></li></ul></nav></header>
+<div role="navigation" class="breadcrumbs"><a href="/docs/">Docs</a> &gt; Guide</div>
+<main>
+<h1>Getting started</h1>
+<p>Install the tool, then read the <a href="../api/reference.html">API reference</a> or the <a href="https://other.example/faq#top">FAQ</a>.</p>
+<h2>Steps</h2>
+<ol><li>Download it.</li><li>Run <code>tool init</code>.</li></ol>
+<h3>Options</h3>
+<ul><li><a href="/docs/flags">Flags</a></li><li>Config <a href="data:text/html,evil">inline</a> and <a href="javascript:steal()">here</a></li></ul>
+<pre><code>tool run --fast
+tool stop</code></pre>
+<script>document.write("SECRET-BODY")</script><noscript>Enable JS</noscript>
+</main>
+<aside>Related: <a href="/ads">ads</a></aside>
+<footer><p>&copy; Site 2026</p><a href="/privacy">Privacy</a></footer>
+<input type="hidden" name="__VIEWSTATE" value="abc"></form></body></html>`)
+		},
+	})
+	r := newFetchRig(t, s, fetchOpts{})
+	res := get(r.must("alice", noScreen("http://site.test/docs/guide")), "result").(map[string]any)
+	text, _ := res["text"].(string)
+	want := "[Site](http://site.test/)\n\n" +
+		"# Getting started\n\n" +
+		"Install the tool, then read the [API reference](http://site.test/api/reference.html) or the [FAQ](https://other.example/faq).\n\n" +
+		"## Steps\n\n" +
+		"1. Download it.\n2. Run `tool init`.\n\n" +
+		"### Options\n\n" +
+		"- [Flags](http://site.test/docs/flags)\n- Config inline and here\n\n" +
+		"```\ntool run --fast\ntool stop\n```"
+	if text != want || res["title"] != "Guide | Site" || res["format"] != "markdown" {
+		t.Fatalf("converted page:\n%s\n---want---\n%s\n%+v", text, want, res)
+	}
+	for _, leaked := range []string{"SECRET", "color:red", "Pricing", "Log in", "Breadcrumbs", "Docs](", "Enable JS", "ads", "Privacy", "2026", "data:", "javascript:", "VIEWSTATE"} {
+		if strings.Contains(text, leaked) {
+			t.Fatalf("%q leaked into the text:\n%s", leaked, text)
+		}
+	}
+}
+
 func TestFetchCacheAndAllowance(t *testing.T) {
 	s := newSite(t, false, nil)
 	r := newFetchRig(t, s, fetchOpts{})

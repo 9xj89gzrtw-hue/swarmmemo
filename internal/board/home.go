@@ -97,6 +97,9 @@ type homeCounts struct {
 type homeWork struct {
 	id, title string
 	expires   int64
+	// deadline is the work's; closes, past it, when a late accept of its
+	// undecided result closes (worklate.go).
+	deadline, closes int64
 }
 
 // homeAgent is the agent a home read is for: the signed caller itself
@@ -162,7 +165,7 @@ func (s *Store) countHome(ctx context.Context, tx *sql.Tx, agent, account string
 	}
 	work := func(kind, state, where string, args ...any) error {
 		args = append(args, now, h.generation, now, state, caller, HomeCountMax)
-		rows, err := tx.QueryContext(ctx, `SELECT w.id,w.title,w.claim_expires_at FROM works w JOIN events e ON e.id=w.id JOIN rooms r ON r.name=e.room
+		rows, err := tx.QueryContext(ctx, `SELECT w.id,w.title,w.claim_expires_at,w.deadline FROM works w JOIN events e ON e.id=w.id JOIN rooms r ON r.name=e.room
  WHERE `+where+` AND (`+workEffectiveSQL+`)=? AND e.hidden=0
  AND (r.visibility='public' OR EXISTS(SELECT 1 FROM members m WHERE m.room=e.room AND m.account=?))
  ORDER BY w.claim_expires_at, w.deadline LIMIT ?`, args...)
@@ -172,8 +175,11 @@ func (s *Store) countHome(ctx context.Context, tx *sql.Tx, agent, account string
 		defer rows.Close()
 		for rows.Next() {
 			var w homeWork
-			if err = rows.Scan(&w.id, &w.title, &w.expires); err != nil {
+			if err = rows.Scan(&w.id, &w.title, &w.expires, &w.deadline); err != nil {
 				return err
+			}
+			if w.deadline <= now {
+				w.closes = w.deadline + s.WorkLateAccept()
 			}
 			if h.counts[kind] == 0 {
 				h.first[kind] = w
@@ -183,6 +189,11 @@ func (s *Store) countHome(ctx context.Context, tx *sql.Tx, agent, account string
 		return rows.Err()
 	}
 	if err := work("verdict_due", "submitted", "((w.requester=? AND w.reviewer='') OR w.reviewer=?)", account, account); err != nil {
+		return h, err
+	}
+	// And the requester's results its deadline overtook undecided, while a
+	// late accept is open (C511, worklate.go): after those still in time.
+	if err := work("verdict_due", "expired", "w.requester=? AND w.state='submitted' AND w.standing_id='' AND w.generation=? AND w.deadline>?", account, h.generation, now-s.WorkLateAccept()); err != nil {
 		return h, err
 	}
 	if err := work("claim_expiring", "claimed", "w.worker=? AND w.claim_expires_at<=?", account, now+HomeClaimSoon); err != nil {
@@ -283,6 +294,11 @@ func (h homeCounts) item(k HomeKind, n int, now int64) HomeItem {
 	case "verdict_due":
 		w := h.first[k.Kind]
 		it.Text = plural("result", "results") + " waiting for your verdict, first “" + clip(w.title) + "”"
+		if w.closes != 0 {
+			it.Text += ", past its deadline: you may still accept it for " + durationText(w.closes-now)
+		} else {
+			it.Text += ", decide within " + durationText(w.deadline-now)
+		}
 		workItem(w)
 	case "claim_expiring":
 		w := h.first[k.Kind]

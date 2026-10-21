@@ -3,6 +3,7 @@ package services
 import (
 	"html"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -10,16 +11,27 @@ import (
 // HTML to readable text for fetch: a small, bounded tokenizer, not a
 // browser. It runs no script, loads nothing and renders nothing: it keeps
 // the text of the page with its structure as Markdown (headings, list items,
-// paragraphs, preformatted blocks, links as [text](url)) and drops scripts,
+// numbered for <ol>, paragraphs, preformatted blocks as fenced code, inline
+// code in backticks, links as [text](absolute url)) and drops scripts,
 // styles, templates, embedded objects and the page's navigation chrome.
 // Every loop advances through the input, so the work is linear in its size
 // (at most FetchBodyBytes).
 
-// skippedElements are left out with everything inside them.
+// skippedElements are left out with everything inside them, and so is any
+// element marked role="navigation". <head> and <form> are not here: HTML
+// lets a page leave </head> out (example.com does), and many sites wrap
+// their whole body in one <form>, so skipping either until its closing tag
+// dropped the page. What a head holds converts to nothing anyway (title,
+// style and script are raw text, meta and link are void).
 var skippedElements = map[string]bool{
 	"script": true, "style": true, "noscript": true, "template": true, "svg": true, "math": true,
 	"iframe": true, "object": true, "embed": true, "canvas": true, "video": true, "audio": true,
-	"head": true, "nav": true, "footer": true, "aside": true, "select": true, "button": true, "form": true,
+	"nav": true, "footer": true, "aside": true, "select": true, "button": true,
+}
+
+// skips says whether an opened element is left out with its content.
+func skips(name string, attrs map[string]string) bool {
+	return skippedElements[name] || strings.EqualFold(strings.TrimSpace(attrs["role"]), "navigation")
 }
 
 // rawTextElements hold text up to their own closing tag, never markup.
@@ -147,7 +159,7 @@ func htmlToText(doc string, base *url.URL) pageText {
 			}
 			continue
 		}
-		if skippedElements[name] && !selfClosing && !voidElements[name] {
+		if skips(name, attrs) && !selfClosing && !voidElements[name] {
 			skip, skipName = 1, name
 			continue
 		}
@@ -225,7 +237,7 @@ func parseTag(s string) (name string, attrs map[string]string, closing, selfClos
 					val = s[vs:i]
 				}
 			}
-			if key != "" && (key == "href" || key == "alt") {
+			if key == "href" || key == "alt" || key == "role" {
 				if attrs == nil {
 					attrs = map[string]string{}
 				}
@@ -276,8 +288,10 @@ type mdWriter struct {
 	link     string // the open link's target
 	linkText strings.Builder
 	inLink   bool
-	space    bool // a space is pending before the next word
-	lineDone bool // the current line has text
+	code     int   // depth inside inline <code>, <kbd> or <samp> outside <pre>
+	lists    []int // open lists, innermost last: the next number for <ol>, -1 for <ul>
+	space    bool  // a space is pending before the next word
+	lineDone bool  // the current line has text
 }
 
 func (w *mdWriter) out() *strings.Builder {
@@ -368,6 +382,34 @@ func (w *mdWriter) open(name string, attrs map[string]string) {
 	case "li":
 		w.newline(false)
 		w.listPfx = "- "
+		if n := len(w.lists); n > 0 {
+			w.listPfx = strings.Repeat("  ", min(n-1, 8)) + "- "
+			if next := w.lists[n-1]; next > 0 {
+				w.listPfx = strings.Repeat("  ", min(n-1, 8)) + strconv.Itoa(next) + ". "
+				w.lists[n-1]++
+			}
+		}
+	case "ul", "ol":
+		if len(w.lists) == 0 {
+			w.newline(true)
+		} else {
+			w.newline(false)
+		}
+		if len(w.lists) < 64 {
+			if name == "ol" {
+				w.lists = append(w.lists, 1)
+			} else {
+				w.lists = append(w.lists, -1)
+			}
+		}
+	case "code", "kbd", "samp":
+		if w.pre > 0 {
+			return
+		}
+		if w.code == 0 {
+			w.mark("`", true)
+		}
+		w.code++
 	case "blockquote":
 		w.newline(true)
 		w.listPfx = "> "
@@ -442,11 +484,43 @@ func (w *mdWriter) close(name string) {
 	case "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "tr":
 		w.listPfx = ""
 		w.newline(name != "li" && name != "tr")
+	case "ul", "ol":
+		if n := len(w.lists); n > 0 {
+			w.lists = w.lists[:n-1]
+		}
+		w.newline(len(w.lists) == 0)
+	case "code", "kbd", "samp":
+		if w.pre > 0 || w.code == 0 {
+			return
+		}
+		w.code--
+		if w.code == 0 {
+			w.mark("`", false)
+		}
 	default:
 		if blockElements[name] {
 			w.newline(true)
 		}
 	}
+}
+
+// mark writes an inline marker (a backtick): an opening one takes the
+// pending space before it, a closing one sits against the text it ends.
+// Inside a link it writes nothing: the label stays plain text.
+func (w *mdWriter) mark(m string, opening bool) {
+	if w.inLink { // a link's label is plain text
+		return
+	}
+	if w.listPfx != "" {
+		w.b.WriteString(w.listPfx)
+		w.listPfx, w.space = "", false
+	}
+	if opening && w.space && w.lineDone {
+		w.b.WriteByte(' ')
+	}
+	w.b.WriteString(m)
+	w.lineDone = true
+	w.space = !opening && w.space
 }
 
 func (w *mdWriter) finish() string {
@@ -456,6 +530,8 @@ func (w *mdWriter) finish() string {
 	}
 	if w.pre > 0 {
 		w.b.WriteString("\n```")
+	} else if w.code > 0 {
+		w.b.WriteString("`")
 	}
 	lines := strings.Split(w.b.String(), "\n")
 	out := make([]string, 0, len(lines))

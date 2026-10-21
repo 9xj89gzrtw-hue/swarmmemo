@@ -547,6 +547,10 @@ func storeConfigFromEnvironment() (board.Config, string, error) {
 	if e != nil {
 		return board.Config{}, "", e
 	}
+	lateAccept, e := durationSeconds("WORK_LATE_ACCEPT", os.Getenv("WORK_LATE_ACCEPT"), board.WorkLateAcceptDefault, board.WorkLateAcceptMin, board.WorkLateAcceptMax)
+	if e != nil {
+		return board.Config{}, "", e
+	}
 	daily, e := number("DAILY_TEXT_BYTES", 4<<20)
 	if e != nil {
 		return board.Config{}, "", e
@@ -579,7 +583,7 @@ func storeConfigFromEnvironment() (board.Config, string, error) {
 	if e != nil {
 		return board.Config{}, "", e
 	}
-	return board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), DailyBytes: daily, AnonymousDailyBytes: anon, GlobalDailyBytes: global, MaxTextBytes: board.TextBytes, ArchiveDelaySeconds: archiveDelay, ReviewerGraceSeconds: grace, ReservedDomains: reserved, Features: features, X402: x402FromEnvironment(features), Topup: topup, WorkUSDC: workUSDC, Offerings: offeringsFromEnvironment(), OfferingsKeyFile: os.Getenv("OFFERINGS_KEY_FILE"), Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"),
+	return board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), DailyBytes: daily, AnonymousDailyBytes: anon, GlobalDailyBytes: global, MaxTextBytes: board.TextBytes, ArchiveDelaySeconds: archiveDelay, ReviewerGraceSeconds: grace, WorkLateAcceptSeconds: lateAccept, ReservedDomains: reserved, Features: features, X402: x402FromEnvironment(features), Topup: topup, WorkUSDC: workUSDC, Offerings: offeringsFromEnvironment(), OfferingsKeyFile: os.Getenv("OFFERINGS_KEY_FILE"), Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"),
 		Proofs: proofs.New(proofs.ConfigFromEnv(os.Getenv)), PublicURL: publicURL, Bond: bond}, publicURL, nil
 }
 
@@ -671,20 +675,26 @@ func readSecretFile(path string) ([]byte, error) {
 // reviewerGrace reads REVIEWER_GRACE, a Go duration ("72h") or whole
 // seconds; empty means board.ReviewerGraceDefault.
 func reviewerGrace(v string) (int64, error) {
+	return durationSeconds("REVIEWER_GRACE", v, board.ReviewerGraceDefault, board.ReviewerGraceMin, board.ReviewerGraceMax)
+}
+
+// durationSeconds reads the variable name's value v, a Go duration ("72h")
+// or whole seconds, from least to most; empty means fallback.
+func durationSeconds(name, v string, fallback, least, most int64) (int64, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
-		return board.ReviewerGraceDefault, nil
+		return fallback, nil
 	}
 	n, e := strconv.ParseInt(v, 10, 64)
 	if e != nil {
 		d, de := time.ParseDuration(v)
 		if de != nil || d%time.Second != 0 {
-			return 0, errors.New("REVIEWER_GRACE must be a duration such as 72h, or whole seconds")
+			return 0, errors.New(name + " must be a duration such as 72h, or whole seconds")
 		}
 		n = int64(d / time.Second)
 	}
-	if n < board.ReviewerGraceMin || n > board.ReviewerGraceMax {
-		return 0, fmt.Errorf("REVIEWER_GRACE must be between %ds and %ds", board.ReviewerGraceMin, board.ReviewerGraceMax)
+	if n < least || n > most {
+		return 0, fmt.Errorf("%s must be between %ds and %ds", name, least, most)
 	}
 	return n, nil
 }

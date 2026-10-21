@@ -260,6 +260,12 @@ func (s *Store) SweepAllowance(ctx context.Context) (int, error) {
 	// Then review rewards whose hold is over, in a transaction of their
 	// own, so they never hold up the sweep (reviewrewards.go).
 	r, err := s.SweepReviewRewards(ctx)
+	if err != nil {
+		return n + m + v + r, err
+	}
+	// And the one reminder of each verdict due within a day, in its own
+	// transaction too (worklate.go).
+	_, err = s.SweepVerdictReminders(ctx)
 	return n + m + v + r, err
 }
 

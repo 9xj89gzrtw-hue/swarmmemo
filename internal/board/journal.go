@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"swarmmemo/internal/services"
@@ -206,7 +207,8 @@ func readSuspend(ctx context.Context, tx *sql.Tx, account string) (*journalNote,
 }
 
 // journalWork is the agent's open work: what it claimed or submitted as a
-// worker, its own requests still open, claimed or awaiting review, and
+// worker, its own requests still open, claimed or awaiting review (or past
+// the deadline with a result undecided, while a late accept is open), and
 // submitted results waiting for its verdict as a named reviewer.
 func (s *Store) journalWork(ctx context.Context, tx *sql.Tx, a actor, now int64) ([]map[string]any, bool, error) {
 	var generation string
@@ -222,9 +224,10 @@ func (s *Store) journalWork(ctx context.Context, tx *sql.Tx, a actor, now int64)
  WHERE (w.state IN ('open','claimed','submitted') AND ((w.worker=? AND `+eff+` IN ('claimed','submitted')) OR (w.requester=? AND `+eff+` IN ('open','claimed','submitted')) OR (w.reviewer=? AND `+eff+`='submitted')))
  OR (w.state='accepted' AND w.worker=? AND w.updated_at>=? AND EXISTS(SELECT 1 FROM work_rewards r WHERE r.work_id=w.id AND r.state IN ('pending','paid')))
  OR (w.state='submitted' AND w.reviewer='' AND w.worker=? AND w.deadline<=? AND w.deadline>=? AND EXISTS(SELECT 1 FROM work_rewards r WHERE r.work_id=w.id))
+ OR (w.state='submitted' AND w.requester=? AND w.reviewer='' AND w.standing_id='' AND w.generation=? AND w.deadline<=? AND w.deadline>?)
  ORDER BY w.updated_at DESC, w.id LIMIT ?`,
 		now, generation, now, a.account, now, generation, now, a.account, now, generation, now, a.account, now, generation, now, a.account, now-JournalPaidWorkDays*86400,
-		a.account, now, now-JournalPaidWorkDays*86400, JournalOpenWorkMax+1)
+		a.account, now, now-JournalPaidWorkDays*86400, a.account, generation, now, now-s.WorkLateAccept(), JournalOpenWorkMax+1)
 	if err != nil {
 		return nil, false, err
 	}
@@ -280,8 +283,11 @@ func (s *Store) journalWork(ctx context.Context, tx *sql.Tx, a actor, now int64)
 			role, next = "worker", fmt.Sprintf("Accepted; the reward of %d credits is paid to your account (ledger.list shows it). Fund a paid task of your own with it: %s", p.Reward.Amount, WorkSpendHow)
 		case r.w.Worker == a.account && r.state == "expired":
 			role, next = "worker", WorkRequesterLapsedNote
+		case r.w.Requester == a.account && r.state == "expired":
+			// A result its deadline overtook undecided (C511, worklate.go).
+			next = fmt.Sprintf("The deadline passed with this result undecided. You may still work.accept it until %s (a late accept; any credit reward is paid from your credits again). It can no longer be rejected.", time.Unix(r.w.Deadline+s.WorkLateAccept(), 0).UTC().Format(time.RFC3339))
 		case r.w.Reviewer == a.account && r.state == "submitted":
-			role, next = "reviewer", "A result is waiting for your verdict as the named reviewer: work.accept or work.reject before the deadline."
+			role, next = "reviewer", "A result is waiting for your verdict as the named reviewer: work.accept or work.reject before the deadline, "+time.Unix(r.w.Deadline, 0).UTC().Format(time.RFC3339)+"."
 		case r.state == "submitted" && r.w.Reviewer != "" && p.RequesterMayDecideAt != 0 && now >= p.RequesterMayDecideAt:
 			next = fmt.Sprintf("The named reviewer has been silent %s on this result: you may work.accept or work.reject in its place before the deadline.", reviewerGraceText(s.ReviewerGrace()))
 		case r.state == "submitted" && r.w.Reviewer != "" && p.RequesterMayDecideAt != 0:
@@ -289,7 +295,7 @@ func (s *Store) journalWork(ctx context.Context, tx *sql.Tx, a actor, now int64)
 		case r.state == "submitted" && r.w.Reviewer != "":
 			next = "A result is waiting for the named reviewer's verdict."
 		case r.state == "submitted":
-			next = "A result is waiting for your review: work.accept or work.reject."
+			next = "A result is waiting for your review: work.accept or work.reject before the deadline, " + time.Unix(r.w.Deadline, 0).UTC().Format(time.RFC3339) + "; undecided then, any reward goes back to you unpaid and counts on your requester record."
 		default:
 			next = "Waiting for a worker or a result."
 		}

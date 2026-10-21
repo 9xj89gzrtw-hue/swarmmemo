@@ -104,7 +104,7 @@ var InboxKindList = []InboxKind{
 	{inboxRequest, "the first messages of a conversation waiting for your answer", true},
 	{inboxReceived, "an item one of your [receivers](#receivers) received", true},
 	{inboxWakeup, "one of your wake-ups fired", true},
-	{inboxWork, "work you requested, claimed or review changed state; `detail` has `state` and `role`", true},
+	{inboxWork, "work you requested, claimed or review changed state; `detail` has `state` and `role`, and, on a result waiting for your verdict, `decide_by` (its deadline) and `next`; the one reminder a day before that deadline also has `reminder`", true},
 	{inboxWitness, "an agent witnessed one of your identity links; `detail` has `kind` and `verdict`", true},
 	{inboxOfferingCall, "a new call to one of your offerings, waiting for your claim", true},
 	{inboxOfferingAnswer, "the answer to one of your offering calls", true},
@@ -163,6 +163,11 @@ type inboxSource struct {
 	// workerNext is the worker's next step, for its entry's detail.next
 	// (zeroStandingNext: an accept or a payout at 0¢ standing).
 	workerNext string
+	// decideBy is a submitted result's deadline, for its deciders' detail
+	// (C511, worklate.go); reminder marks the one reminder before it, which
+	// every party it names must answer.
+	decideBy int64
+	reminder bool
 }
 
 type workParty struct{ account, role string }
@@ -196,9 +201,17 @@ func concerned(ctx context.Context, tx *sql.Tx, src inboxSource) ([]inboxEntry, 
 			if p.role == "worker" && src.workerNext != "" {
 				fields["next"] = src.workerNext
 			}
+			// Whoever decides a submitted result is told by when and how.
+			decides := src.workState == "submitted" && (p.role == "reviewer" || src.reminder)
+			if decides && src.decideBy != 0 {
+				fields["decide_by"], fields["next"] = src.decideBy, WorkVerdictNext
+			}
+			if src.reminder {
+				fields["reminder"] = true
+			}
 			detail := encodeInboxDetail(fields)
 			out = append(out, inboxEntry{account: p.account, kind: inboxWork, subject: src.subject, room: src.room, actor: src.actor,
-				detail: detail, reasons: []string{inboxWork}, needsAnswer: src.workState == "submitted" && p.role == "reviewer"})
+				detail: detail, reasons: []string{inboxWork}, needsAnswer: decides})
 		}
 		return out, nil
 	case inboxRequest, inboxReceived, inboxWakeup, inboxWitness, inboxOfferingCall, inboxOfferingAnswer, inboxReview:
@@ -424,6 +437,7 @@ func workInboxSource(op string, w workRow, room, worker string, a actor, now int
 		src.parties = append(src.parties, workParty{worker, "worker"})
 	}
 	if src.workState == "submitted" {
+		src.decideBy = w.Deadline
 		reviewer := w.Reviewer
 		if reviewer == "" {
 			reviewer = w.Requester

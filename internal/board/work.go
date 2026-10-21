@@ -875,6 +875,7 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	worker, before := w.Worker, w.State
 	verdict := false  // a reviewer's accept or reject of a submitted result
 	fallback := false // the requester's verdict in a silent reviewer's place
+	late := false     // the requester's accept after the deadline (checkLateAccept)
 	// A standing task (workstanding.go): its configuration, and, once a
 	// claim opens a result on it, the standing root itself and its seats.
 	var standing *workStanding
@@ -957,6 +958,15 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		if e != nil {
 			return Result{}, e
 		}
+		// A late accept (C511): the requester's accept of a result its
+		// deadline overtook undecided, within the late-accept grace. Work
+		// with a named reviewer is review_lapsed there: the requester gave
+		// up its verdict, so it gets none late either.
+		if late = c.Operation == "work.accept" && w.State == "submitted" && state == "expired"; late {
+			if err = s.checkLateAccept(w, generation, a, now); err != nil {
+				return Result{}, err
+			}
+		}
 		allowed := false
 		switch c.Operation {
 		case "work.claim":
@@ -964,7 +974,7 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		case "work.renew", "work.submit":
 			allowed = state == "claimed"
 		case "work.accept":
-			allowed = state == "submitted"
+			allowed = state == "submitted" || late
 		case "work.reject":
 			allowed = state == "claimed" || state == "submitted" || state == "recovery_required"
 		case "work.cancel":
@@ -1034,6 +1044,9 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 				return Result{}, delegationError("delegation_forbidden")
 			}
 		case "work.accept", "work.reject":
+			if late {
+				break // checkLateAccept admitted the requester
+			}
 			if w.Reviewer != "" && a.account != w.Reviewer {
 				// A reviewer silent for the grace after the submit lets the
 				// requester decide in its place, before the deadline.
@@ -1174,6 +1187,15 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			if err = checkResult(w.Result, false); err != nil {
 				return Result{}, err
 			}
+			if late {
+				// Late, only the result exactly as submitted: an edit since
+				// is not what the deadline overtook.
+				if _, changed, e := workResultChanged(ctx, tx, w.Result); e != nil {
+					return Result{}, e
+				} else if changed {
+					return Result{}, problem(409, "work_state_conflict", "The worker edited this result after its submit, so it can no longer be accepted after the deadline; only the result exactly as submitted can be.")
+				}
+			}
 			if d.ResultSHA256 != "" {
 				hash, _, e := workResultChanged(ctx, tx, w.Result)
 				if e != nil {
@@ -1271,7 +1293,12 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 				err = oweWorkUSDC(ctx, tx, w, now)
 			}
 		case c.Operation == "work.accept":
-			err = oweWorkUSDC(ctx, tx, w, now)
+			if late {
+				err = reviveLapsedWorkUSDC(ctx, tx, w.ID)
+			}
+			if err == nil {
+				err = oweWorkUSDC(ctx, tx, w, now)
+			}
 		case c.Operation == "work.reject" && w.StandingID != "":
 			// Terminal: the promise comes to nothing, and the reward goes
 			// back to the standing task's pool.
@@ -1296,6 +1323,13 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		}
 		switch c.Operation {
 		case "work.accept":
+			if late {
+				// The sweeper released the reward at the deadline: hold it
+				// again from the requester, to pay it below.
+				if err = s.reholdWorkReward(ctx, tx, a, r, now); err != nil {
+					return Result{}, err
+				}
+			}
 			if r != nil && verdict {
 				r.Reviewer = a.id
 			}
@@ -1407,6 +1441,9 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	}
 	if c.Operation == "work.accept" && reward > 0 {
 		ack.Note = workPaidNote(reward)
+	}
+	if late {
+		ack.Note = strings.TrimSpace(workLateNote(reward) + " " + ack.Note)
 	}
 	if rejectFeePaid > 0 {
 		ack.Note = fmt.Sprintf("The reject fee, %d credits, was paid to the worker.", rejectFeePaid)

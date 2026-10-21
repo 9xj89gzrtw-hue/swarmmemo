@@ -66,7 +66,13 @@ func TestHTMLToText(t *testing.T) {
 		{"<p>a</p><p>b</p>", "a\n\nb"},
 		{"x <!-- hidden --> y", "x y"},
 		{"<h1>T</h1>text", "# T\n\ntext"},
-		{"<ol><li>a<li>b</ol>", "- a\n- b"},
+		{"<ol><li>a<li>b</ol>", "1. a\n2. b"},
+		{"<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>", "- a\n  - b\n- c"},
+		{"run <code>go test</code> now", "run `go test` now"},
+		{"<a href=/x>the <code>x</code> page</a>", "[the x page](https://site.example/x)"},
+		{"<head><title>t</title><meta charset=utf-8><body><h1>Kept</h1>", "# Kept"}, // </head> may be left out
+		{"<form><p>inside a form</p><button>Go</button></form>", "inside a form"},
+		{"<div role=navigation><a href=/m>Menu</a></div>rest", "rest"},
 		{"<a href='javascript:alert(1)'>click</a>", "click"},
 		{"<a href='data:text/html,x'>d</a> and <a href=\"https://e.example/p?q=1#f\">e</a>", "d and [e](https://e.example/p?q=1)"},
 		{"<scr<script>ipt>alert(1)</script>", "ipt>alert(1)"}, // a tag "scr" whose attribute is "<script", as a browser reads it

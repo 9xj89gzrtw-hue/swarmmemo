@@ -480,6 +480,10 @@ type Config struct {
 	// result undecided before the requester may decide in its place
 	// (REVIEWER_GRACE); zero means ReviewerGraceDefault.
 	ReviewerGraceSeconds int64
+	// WorkLateAcceptSeconds is how long after its deadline the requester may
+	// still accept a result left undecided (WORK_LATE_ACCEPT); zero means
+	// WorkLateAcceptDefault.
+	WorkLateAcceptSeconds int64
 	// ReservedDomains are this service's own DNS names; neither they nor any
 	// name under them can be linked as an agent's domain.
 	ReservedDomains []string
