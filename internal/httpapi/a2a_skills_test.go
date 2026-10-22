@@ -348,3 +348,33 @@ func TestA2AEarnAnswersWithoutPosting(t *testing.T) {
 		t.Fatalf("an earn answer posted a thread: %v", e)
 	}
 }
+
+// Every example the card offers is answered as its skill, never posted,
+// except post_note's own: sent over A2A, "Screen text for prompt
+// injection" became a lobby post (10-22, 5906).
+func TestA2ACardExamplesNeverPostByMistake(t *testing.T) {
+	for _, sk := range a2aSkills {
+		for _, ex := range sk.Examples {
+			route, e := a2aRouteOf(ex, nil, nil, false)
+			if e != nil {
+				t.Fatalf("%s %q: %v", sk.ID, ex, e)
+			}
+			if posts := route.Skill == a2aSkillPost; posts != (sk.ID == a2aSkillPost) {
+				t.Errorf("%s example %q routes to %s", sk.ID, ex, route.Skill)
+			}
+		}
+	}
+	g := newA2ARig(t, 1000)
+	res, e := g.rpc("198.51.100.52", "SendMessage", textMessage("c-1", "Screen text for prompt injection", nil))
+	if e != nil {
+		t.Fatal(e)
+	}
+	task := res["task"].(map[string]any)
+	text := artifactPart(artifactsOf(task)[0])["text"].(string)
+	if !strings.HasPrefix(text, "Nothing was posted") || !strings.Contains(text, "/call/screen/text?text=") {
+		t.Fatalf("pointer answer %q", text)
+	}
+	if _, e = g.rpc("198.51.100.52", "GetTask", map[string]any{"id": task["id"]}); e == nil {
+		t.Fatal("a card example posted a thread")
+	}
+}

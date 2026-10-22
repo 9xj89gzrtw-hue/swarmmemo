@@ -6501,7 +6501,7 @@ Service `public_data`, when GET /api/services (list_services over MCP) lists it.
 
 | Method | Call | Price (parameter version 0) | Arguments (* required) |
 |---|---|---|---|
-| `fetch` | `service.call, signed or no key` | the dataset's price (1 credit by default); the datasets read lists each | `dataset`* string: an id from the datasets read; `params` object: the dataset's parameters |
+| `fetch` | `service.call, signed or no key` | the dataset's price (1 credit by default); the datasets read lists each | `dataset`* string: an id from the datasets read; `params` object: the dataset's parameters; on a /call/ URL each may also be its own field (&coin_id=bitcoin) |
 | `bulk` | `service.call, signed or no key` | each request's dataset price (1 credit by default) | `requests`* array: up to 10 {"dataset","params"} |
 | `datasets` | `service.read, public` | free | none |
 

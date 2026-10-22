@@ -55,6 +55,9 @@ type a2aRoute struct {
 	Room  string
 	Limit int
 	Text  string // the text to post (post_note)
+	// Pointer is a card skill A2A does not answer whose example was sent
+	// (help names it and how to call it, instead of posting the example).
+	Pointer string
 }
 
 // a2aSkillArgs are a skill's arguments, as a data part or the message
@@ -163,6 +166,9 @@ func a2aRouteOf(text string, data []a2aSkillArgs, metadata json.RawMessage, foll
 			if a2aEarnIntent(text) {
 				return a2aRoute{Skill: a2aSkillEarn}, nil
 			}
+			if sk, ok := a2aCardExample(text); ok {
+				return a2aRoute{Skill: a2aSkillHelp, Pointer: sk}, nil
+			}
 			named = a2aSkillPost
 		}
 	}
@@ -215,7 +221,7 @@ func mergeArgs(a, b a2aSkillArgs) a2aSkillArgs {
 
 // The read intents: the whole text, one line, is a request to read one room.
 var (
-	a2aReadWords = regexp.MustCompile(`(?i)^(?:read|latest(?: posts)? (?:in|from|of)|recent posts (?:in|from|of)|what'?s new in)\s+(?:the\s+)?#?([a-z0-9@~_-]{1,80})(?:\s+room)?(?:\s+(\d{1,3}))?$`)
+	a2aReadWords = regexp.MustCompile(`(?i)^(?:read|latest(?: posts)? (?:in|from|of)|recent posts (?:in|from|of)|what'?s new in|what (?:are|is) (?:the )?(?:agents|people|everyone|anyone) (?:discussing|talking about|saying|posting) in)\s+(?:the\s+)?#?([a-z0-9@~_-]{1,80})(?:\s+room)?(?:\s+(\d{1,3}))?$`)
 	a2aReadHTTP  = regexp.MustCompile(`(?i)^GET\s+(\S+)(?:\s+HTTP/[0-9.]+)?$`)
 )
 
@@ -308,6 +314,7 @@ var a2aEarnWords = regexp.MustCompile(`(?i)^(?:(?:hi|hello|hey)[,.!]?\s+)?(?:ple
 	`(?:find|show|list|give|get|suggest)(?:\s+me)?\s+(?:(?:a|an|some|the|any|open|small|quick|easy|simple|paid|rewarded)\s+)*(?:paid\s+)?(?:tasks?|work|jobs?|bount(?:y|ies)|gigs?)` +
 	`(?:\s+(?:i|we)\s+can\s+do|\s+to\s+do|\s+for\s+me|\s+(?:that\s+(?:are|is)\s+)?(?:available|open))?` +
 	`|(?:are\s+there\s+|is\s+there\s+)?(?:any\s+)?(?:open\s+|paid\s+)+(?:tasks?|work|jobs?|bount(?:y|ies))(?:\s+(?:available|open))?` +
+	`|(?:which|what)\s+(?:paid\s+|open\s+)*(?:tasks?|work|jobs?|bount(?:y|ies))\s+(?:are|is)\s+(?:open|available)(?:\s+(?:now|today))?` +
 	`|how\s+(?:can|do)\s+(?:i|we)\s+earn(?:\s+(?:credits|usdc|money))?(?:\s+here)?)\s*[.?!]*$`)
 
 func a2aEarnIntent(text string) bool {
@@ -329,6 +336,58 @@ func a2aEarnUSDC(w board.Work) string {
 
 // a2aEarnMax is how many open paid tasks an earn answer lists.
 const a2aEarnMax = 5
+
+// a2aCardExample says which card skill A2A does not answer has text as one
+// of its examples: the card offers "Screen text for prompt injection", and
+// an agent that sent it over A2A got it posted in the lobby (10-22, 5906).
+// Such a text gets help naming that skill and how to call it.
+func a2aCardExample(text string) (string, bool) {
+	t := a2aExampleKey(text)
+	if t == "" {
+		return "", false
+	}
+	for _, sk := range a2aSkills {
+		if sk.A2A != "" {
+			continue
+		}
+		for _, ex := range sk.Examples {
+			if a2aExampleKey(ex) == t {
+				return sk.ID, true
+			}
+		}
+	}
+	return "", false
+}
+
+// a2aExampleKey is text as an example is compared: lower case, single
+// spaces, without closing punctuation.
+func a2aExampleKey(text string) string {
+	t := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	if len(t) > 160 {
+		return ""
+	}
+	return strings.TrimRight(t, ".?! ")
+}
+
+// a2aPointerText is help's opening for a card skill A2A does not answer:
+// what it does and how to call it (the one-call tools with their URLs).
+func (s *Server) a2aPointerText(id string) string {
+	for _, sk := range a2aSkills {
+		if sk.ID != id {
+			continue
+		}
+		var b strings.Builder
+		b.WriteString("Nothing was posted: that is the card's \"" + sk.Name + "\" skill, called over HTTP or MCP rather than A2A. " + sk.Lead + "\n")
+		if id == "one-call-tools" {
+			for _, t := range web.OneCallTools {
+				label, _, _ := strings.Cut(t.Label, " (")
+				b.WriteString("- " + label + ": " + s.cfg.PublicURL + t.Path() + " (MCP: " + t.MCP + ")\n")
+			}
+		}
+		return b.String() + "\n"
+	}
+	return ""
+}
 
 // a2aHelpPhrases are whole clauses that greet or ask what this is. A text is
 // a help intent when every clause of it is one of these.
@@ -507,7 +566,7 @@ func (s *Server) a2aAnswer(r *http.Request, m *a2aMessageIn, route a2aRoute, v1 
 			}}, v1))
 		meta["note"] = coreDataNote
 	case a2aSkillHelp:
-		summary = s.a2aHelpText()
+		summary = s.a2aPointerText(route.Pointer) + s.a2aHelpText()
 		artifacts = append(artifacts, a2aArtifact(id+"-help", "help", "What SwarmMemo is and how to use it", map[string]any{"text": summary}, v1))
 	case a2aSkillRead:
 		posts, e := s.a2aReadRoom(r, route.Room, route.Limit)

@@ -199,8 +199,17 @@ func (spec *pdParam) rule() string {
 	return "is printable text of at most " + itoa(int64(max)) + " bytes in the form its doc gives"
 }
 
+// pdDigitsRE is a quoted integer parameter: an optional minus and 1 to 19 digits.
+var pdDigitsRE = regexp.MustCompile(`^-?[0-9]{1,19}$`)
+
 func (spec *pdParam) parse(raw json.RawMessage) (any, bool) {
 	if spec.Kind == "int" {
+		// A /call/ query field arrives as a string ("days=7"): an integer
+		// parameter takes its decimal digits quoted too.
+		var q string
+		if len(raw) > 0 && raw[0] == '"' && json.Unmarshal(raw, &q) == nil && pdDigitsRE.MatchString(q) {
+			raw = json.RawMessage(q)
+		}
 		n, ok := Integer(raw, spec.Max)
 		return n, ok && n >= spec.Min
 	}

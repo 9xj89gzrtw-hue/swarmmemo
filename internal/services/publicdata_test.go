@@ -808,7 +808,7 @@ func TestPublicDataParamValidation(t *testing.T) {
 		`{"dataset":"sea_ice_extent","params":{"start_date":"2026-07-02","end_date":"2026-07-01"}}`,
 		`{"dataset":"sea_ice_extent","params":{"limit":0}}`,
 		`{"dataset":"sea_ice_extent","params":{"limit":1201}}`,
-		`{"dataset":"sea_ice_extent","params":{"limit":"5"}}`,
+		`{"dataset":"sea_ice_extent","params":{"limit":"5.0"}}`, // quoted digits are taken (a /call/ query field); anything else quoted is not
 		`{"dataset":"sea_ice_extent","params":{"limit":1.5}}`,
 		`{"dataset":"sea_ice_extent","params":{"url":"https://evil.example/"}}`,
 		`{"dataset":"sea_ice_extent","params":{"date":"2026-07-01","date":"2026-07-02"}}`,

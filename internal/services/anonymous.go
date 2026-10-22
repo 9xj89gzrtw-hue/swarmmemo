@@ -241,6 +241,9 @@ func CallPath(e Entry, m MethodEntry) (string, error) {
 const (
 	CallFieldMaxCost   = "max_cost"
 	CallFieldRequestID = "request_id"
+	// CallFieldParams is a method's parameters object; a method that takes
+	// one also takes each parameter as a field of its own.
+	CallFieldParams = "params"
 )
 
 // CallDefaultMaxCost is the max_cost of an unsigned call that gives none:
@@ -287,6 +290,7 @@ func CallData(m MethodEntry, fields url.Values, skip ...string) (data, requestID
 		types[a.Name] = a.Type
 	}
 	args := map[string]json.RawMessage{}
+	flat := map[string]string{}
 	var maxCost int64 = -1
 	for key, values := range fields {
 		if len(values) != 1 {
@@ -316,6 +320,14 @@ func CallData(m MethodEntry, fields url.Values, skip ...string) (data, requestID
 			continue
 		}
 		typ, ok := types[key]
+		if !ok && types[CallFieldParams] == "object" {
+			// A method with a params object (public_data.fetch) takes its
+			// parameters as query fields too, the way a URL gives them
+			// (aegis-pro 1f566ca6: ?dataset=...&coin_id=bitcoin); the
+			// method's own parser names any it does not take.
+			flat[key] = v
+			continue
+		}
 		if !ok {
 			return bad("%s", UnknownArg(key))
 		}
@@ -345,6 +357,12 @@ func CallData(m MethodEntry, fields url.Values, skip ...string) (data, requestID
 			raw = json.RawMessage(v)
 		}
 		args[key] = raw
+	}
+	if len(flat) > 0 {
+		if _, both := args[CallFieldParams]; both {
+			return bad("give the parameters as query fields or as params, not both")
+		}
+		args[CallFieldParams], _ = json.Marshal(flat)
 	}
 	if m.Write() && maxCost < 0 {
 		maxCost = CallDefaultMaxCost

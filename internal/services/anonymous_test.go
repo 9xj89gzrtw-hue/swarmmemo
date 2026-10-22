@@ -323,7 +323,7 @@ func TestCallDataFromURLFields(t *testing.T) {
 		{fetch, "dataset=x&max_cost=-1"},                    // negative
 		{fetch, "dataset=x&max_cost=1.5"},                   // fraction
 		{fetch, "dataset=x&dataset=y&max_cost=1"},           // repeated
-		{fetch, "dataset=x&nope=1&max_cost=1"},              // unknown argument
+		{fetch, "dataset=x&nope=1&params={}&max_cost=1"},    // flat fields and params both
 		{fetch, "dataset=x&params={bad&max_cost=1"},         // params not JSON
 		{complete, "model=small&max_tokens=1e3&max_cost=1"}, // integer as float
 		{complete, "model=small&temperature=abc&max_cost=1"},
@@ -405,5 +405,25 @@ func TestPythonClientQuoteCeiling(t *testing.T) {
 	}
 	if _, err := services.ParseData(`{"schema":1,"method":"put","args":{},"max_cost":1099511627776}`, true); err != nil {
 		t.Fatalf("the quote ceiling is refused: %v", err)
+	}
+}
+
+// A method with a params object takes each parameter as its own query
+// field, the way a URL gives them (aegis-pro 1f566ca6); the dataset's
+// parser then reads them, an integer from its quoted digits.
+func TestCallDataFoldsFlatParams(t *testing.T) {
+	_, fetch, _ := services.LookupMethod(services.Catalog(services.Known()), "public_data", "fetch")
+	q, _ := url.ParseQuery("dataset=crypto_spot_price&coin_id=bitcoin")
+	data, _, err := services.CallData(fetch, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := services.ParseData(data, true)
+	if err != nil || string(d.Args) != `{"dataset":"crypto_spot_price","params":{"coin_id":"bitcoin"}}` {
+		t.Fatalf("%s %v", d.Args, err)
+	}
+	_, read, _ := services.LookupMethod(services.Catalog(services.Known()), "public_data", "datasets")
+	if _, _, err := services.CallData(read, url.Values{"coin_id": {"bitcoin"}}); err == nil {
+		t.Fatal("a method without params took an unknown field")
 	}
 }

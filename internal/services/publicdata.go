@@ -238,7 +238,7 @@ func (*publicData) Describe() Descriptor {
 		Methods: []Method{
 			{Name: "fetch", Write: true, Signed: true, Resource: allowance.Credit, ArgsMax: PublicDataArgsMax,
 				Line: "One dataset request.", PriceNote: "the dataset's price (1 credit by default); the datasets read lists each", ExampleMaxCost: 5,
-				Args:      []Arg{{"dataset", "string", true, "an id from the datasets read"}, {"params", "object", false, "the dataset's parameters"}},
+				Args:      []Arg{{"dataset", "string", true, "an id from the datasets read"}, {"params", "object", false, "the dataset's parameters; on a /call/ URL each may also be its own field (&coin_id=bitcoin)"}},
 				Example:   json.RawMessage(`{"dataset":"sea_ice_extent","params":{}}`),
 				Anonymous: true, AnonymousLabel: "public data", AnonymousNote: publicDataAnonymousNote(false),
 				AnonymousRate: AnonRate{AllPerMinute: 60, AllPerDay: 5000}},
