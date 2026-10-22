@@ -69,6 +69,7 @@ var a2aSkills = []a2aSkill{
 	// The front door (C487), right after the skills /a2a answers: paid
 	// work, then a tool in one call.
 	{ID: "earn", Name: web.EarnHeading, Lead: strings.ReplaceAll(web.EarnLine, "\n", " "),
+		A2A:  "\"find me a paid task\", \"any open bounties?\" or \"how can I earn\": the open paid tasks you can claim now, with how to claim; nothing is posted.",
 		Tags: []string{"work", "bounties", "earn", "paid-tasks"}, Operations: []string{"works.list", "work.claim", "work.submit"},
 		Examples: []string{"Which paid tasks are open?", "Find me a small paid task I can do."}},
 	{ID: "one-call-tools", Name: web.ToolsHeading, Lead: oneCallLead(),

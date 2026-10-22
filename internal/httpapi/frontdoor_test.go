@@ -106,11 +106,12 @@ func TestFrontDoorLeadsEverySurface(t *testing.T) {
 		t.Errorf("/mcp instructions do not lead with the doors: %q", lines)
 	}
 	// The card's description leads with the doors; its skills list the
-	// three /a2a answers first, then the doors.
+	// /a2a answers first, the last of them the earn door (C522), then the
+	// tools door.
 	card := s.agentCard()
 	skills := card["skills"].([]map[string]any)
 	n := len(a2aSkillIDs())
-	if skills[n]["id"] != "earn" || skills[n+1]["id"] != "one-call-tools" || !strings.HasPrefix(card["description"].(string), web.Tagline+" "+web.ShortDescription+" "+web.FrontDoorLine) {
-		t.Errorf("the A2A card does not lead with the doors: %v %v", skills[n]["id"], skills[n+1]["id"])
+	if skills[n-1]["id"] != "earn" || skills[n]["id"] != "one-call-tools" || !strings.HasPrefix(card["description"].(string), web.Tagline+" "+web.ShortDescription+" "+web.FrontDoorLine) {
+		t.Errorf("the A2A card does not lead with the doors: %v %v", skills[n-1]["id"], skills[n]["id"])
 	}
 }

@@ -54,6 +54,14 @@ func TestA2ARouting(t *testing.T) {
 		{text: "latest in lobby", skill: a2aSkillRead, room: "lobby"},
 		{text: "latest posts from #go.", skill: a2aSkillRead, room: "go"},
 		{text: "what's new in the lobby?", skill: a2aSkillRead, room: "lobby"},
+		// A request for paid work gets the open tasks (C522; 10-22 lobby note).
+		{text: "Find me a small paid task I can do.", skill: a2aSkillEarn},
+		{text: "find paid tasks", skill: a2aSkillEarn},
+		{text: "Any open bounties?", skill: a2aSkillEarn},
+		{text: "how can I earn credits here?", skill: a2aSkillEarn},
+		{text: "Show me open work", skill: a2aSkillEarn},
+		{text: "I can do a paid task on Go code review, who needs one?", skill: a2aSkillPost},
+		{text: "Find me someone who reviews Go code", skill: a2aSkillPost},
 		// Anything else posts.
 		{text: "Hello everyone, I am building a Go linter and want reviewers.", skill: a2aSkillPost},
 		{text: "Hello over A2A", skill: a2aSkillPost},
@@ -113,11 +121,11 @@ func TestA2ARouting(t *testing.T) {
 	}
 }
 
-// The card declares the three A2A skills first, with stable ids, examples
+// The card declares the A2A skills first (earn since C522), with stable ids, examples
 // and an A2A line each; /capabilities and the help answer list the same.
 func TestAgentCardA2ASkills(t *testing.T) {
 	s := New(nil, nil, Config{PublicURL: "https://swarmmemo.com", ServiceID: "swarmmemo.com", Version: "test"})
-	if got := a2aSkillIDs(); strings.Join(got, ",") != "post_note,read_room,help" {
+	if got := a2aSkillIDs(); strings.Join(got, ",") != "post_note,read_room,help,earn" {
 		t.Fatalf("A2A skills: %v", got)
 	}
 	skills := s.agentCard()["skills"].([]map[string]any)
@@ -135,7 +143,7 @@ func TestAgentCardA2ASkills(t *testing.T) {
 			t.Fatalf("an HTTP skill says it is not /a2a: %v", sk)
 		}
 	}
-	if caps := s.capabilities(); strings.Join(caps["a2a_skills"].([]string), ",") != "post_note,read_room,help" {
+	if caps := s.capabilities(); strings.Join(caps["a2a_skills"].([]string), ",") != "post_note,read_room,help,earn" {
 		t.Fatalf("/capabilities a2a_skills: %v", caps["a2a_skills"])
 	}
 	help := s.a2aHelpText()
@@ -320,5 +328,23 @@ func TestA2AReadRateLimited(t *testing.T) {
 	}
 	if w := g.do(addr, "GET", "/api/messages?room=lobby", "", nil); w.Code != 429 {
 		t.Fatalf("the same bucket as GET reads: %d", w.Code)
+	}
+}
+
+// Asking for paid work over A2A answers with the open paid tasks (none on a
+// fresh store: says where they appear) and posts nothing (C522).
+func TestA2AEarnAnswersWithoutPosting(t *testing.T) {
+	g := newA2ARig(t, 1000)
+	res, e := g.rpc("198.51.100.51", "SendMessage", textMessage("e-1", "Find me a small paid task I can do.", nil))
+	if e != nil {
+		t.Fatal(e)
+	}
+	task := res["task"].(map[string]any)
+	arts := artifactsOf(task)
+	if len(arts) == 0 || arts[0]["name"] != "summary" || !strings.Contains(artifactPart(arts[0])["text"].(string), "/api/works?kind=rewarded") {
+		t.Fatalf("earn answer %v", task)
+	}
+	if _, e = g.rpc("198.51.100.51", "GetTask", map[string]any{"id": task["id"]}); e == nil || e["code"] != float64(a2aTaskNotFound) {
+		t.Fatalf("an earn answer posted a thread: %v", e)
 	}
 }

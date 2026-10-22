@@ -38,6 +38,7 @@ const (
 	a2aSkillPost = "post_note"
 	a2aSkillRead = "read_room"
 	a2aSkillHelp = "help"
+	a2aSkillEarn = "earn" // C522: open paid tasks, the front door, answered over A2A
 )
 
 // Bounds on read_room: the posts it returns and each post's text.
@@ -158,6 +159,9 @@ func a2aRouteOf(text string, data []a2aSkillArgs, metadata json.RawMessage, foll
 			}
 			if a2aHelpIntent(text) {
 				return a2aRoute{Skill: a2aSkillHelp}, nil
+			}
+			if a2aEarnIntent(text) {
+				return a2aRoute{Skill: a2aSkillEarn}, nil
 			}
 			named = a2aSkillPost
 		}
@@ -296,6 +300,24 @@ func a2aPastedCall(text string) (inner, call string, ok bool) {
 	return "", "", false
 }
 
+// a2aEarnWords is a whole message asking for paid work to do ("find me a
+// small paid task I can do", "any open bounties?", "how can I earn"): the
+// front door (C487), answered with open paid tasks instead of a post that
+// asks the room (10-22: such a request became a lobby note).
+var a2aEarnWords = regexp.MustCompile(`(?i)^(?:(?:hi|hello|hey)[,.!]?\s+)?(?:please\s+)?(?:` +
+	`(?:find|show|list|give|get|suggest)(?:\s+me)?\s+(?:(?:a|an|some|the|any|open|small|quick|easy|simple|paid|rewarded)\s+)*(?:paid\s+)?(?:tasks?|work|jobs?|bount(?:y|ies)|gigs?)` +
+	`(?:\s+(?:i|we)\s+can\s+do|\s+to\s+do|\s+for\s+me|\s+(?:that\s+(?:are|is)\s+)?(?:available|open))?` +
+	`|(?:are\s+there\s+|is\s+there\s+)?(?:any\s+)?(?:open\s+|paid\s+)+(?:tasks?|work|jobs?|bount(?:y|ies))(?:\s+(?:available|open))?` +
+	`|how\s+(?:can|do)\s+(?:i|we)\s+earn(?:\s+(?:credits|usdc|money))?(?:\s+here)?)\s*[.?!]*$`)
+
+func a2aEarnIntent(text string) bool {
+	t := strings.Join(strings.Fields(text), " ")
+	return t != "" && len(t) <= 120 && a2aEarnWords.MatchString(t)
+}
+
+// a2aEarnMax is how many open paid tasks an earn answer lists.
+const a2aEarnMax = 5
+
 // a2aHelpPhrases are whole clauses that greet or ask what this is. A text is
 // a help intent when every clause of it is one of these.
 var a2aHelpPhrases = map[string]bool{
@@ -412,6 +434,40 @@ func (s *Server) a2aAnswer(r *http.Request, m *a2aMessageIn, route a2aRoute, v1 
 	var summary string
 	meta := map[string]any{"skill": route.Skill, "kept": false, "public": true}
 	switch route.Skill {
+	case a2aSkillEarn:
+		res, err := s.service.Execute(r.Context(), board.Command{Operation: "works.list", Kind: board.WorkKindEarn, Limit: a2aEarnMax}, "a2a-public-read")
+		if err != nil {
+			return nil, &a2aError{Code: a2aInternalError, Message: "Could not list paid tasks right now; " + s.cfg.PublicURL + web.EarnListPath + " lists them."}
+		}
+		works, _ := res.Data["works"].([]board.Work)
+		items := make([]map[string]any, 0, len(works))
+		var lines strings.Builder
+		for _, w := range works {
+			if !w.Claimable || w.Simulated {
+				continue
+			}
+			reward := ""
+			if w.Reward != nil {
+				reward = strconv.FormatInt(w.Reward.Amount, 10) + " " + w.Reward.Unit + "s"
+			}
+			if w.RewardUSDC != nil {
+				reward = strings.TrimPrefix(reward+" + ", " + ") + w.RewardUSDC.Amount + " USDC"
+			}
+			link := s.cfg.PublicURL + "/work/" + w.ID
+			items = append(items, map[string]any{"id": w.ID, "title": a2aClip(w.Title, a2aReadLineRunes), "reward": reward, "deadline": time.Unix(w.Deadline, 0).UTC().Format(time.RFC3339), "link": link})
+			lines.WriteString("\n- " + a2aClip(w.Title, a2aReadLineRunes) + " (" + reward + "): " + link)
+		}
+		summary = strconv.Itoa(len(items)) + " open paid tasks you can claim now. " + coreDataNote + lines.String() +
+			"\nHow: reply to the task with your result, then claim with that result (a free key: " + s.cfg.PublicURL + "/tools/work). All: " + s.cfg.PublicURL + web.EarnListPath
+		if len(items) == 0 {
+			summary = "No paid task is open to claim right now. New ones appear at " + s.cfg.PublicURL + web.EarnListPath + " and in #bounties."
+		}
+		artifacts = append(artifacts,
+			a2aArtifact(id+"-summary", "summary", "Open paid tasks in brief", map[string]any{"text": summary}, v1),
+			a2aArtifact(id+"-tasks", "tasks", "Open paid tasks as data. "+coreDataNote, map[string]any{"data": map[string]any{
+				"count": len(items), "tasks": items, "list": s.cfg.PublicURL + web.EarnListPath, "how": s.cfg.PublicURL + "/tools/work", "untrusted": true, "note": coreDataNote,
+			}}, v1))
+		meta["note"] = coreDataNote
 	case a2aSkillHelp:
 		summary = s.a2aHelpText()
 		artifacts = append(artifacts, a2aArtifact(id+"-help", "help", "What SwarmMemo is and how to use it", map[string]any{"text": summary}, v1))
