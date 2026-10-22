@@ -25,7 +25,7 @@ func (b *builder) breaker(name, reason string, daysAgo int64) *builder {
 // unknown reason or a window past a year is refused.
 func TestBreakerParamsV11(t *testing.T) {
 	d := BreakerParams()
-	if d.Version != BreakerVersion || DefaultVersion != FloorOnceVersion || DefaultParams().Version != FloorOnceVersion {
+	if d.Version != BreakerVersion || DefaultVersion != DomainFloorOnceVersion || DefaultParams().Version != DomainFloorOnceVersion {
 		t.Fatalf("default version %d", d.Version)
 	}
 	if _, err := ParseParams(BreakerVersion, d.Body()); err != nil {

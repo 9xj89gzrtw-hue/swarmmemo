@@ -336,6 +336,29 @@ class Unified(unittest.TestCase):
             self.assertEqual((wallets("sybil") + wallets("sybil2"), wallets("rich"), wallets("x"), wallets("y")), want, version)
         self.assertEqual(recompute.assessed_value({"forge": 5000, "rent": 600, "assess": "capped", "units_per_cent": 1, "fallback_cents": 50}, 0), 0)
 
+    def test_domain_fallback_once_per_root(self):
+        # C515: the Go reference's golden_domain_floor fixtures recompute
+        # byte for byte. Version 12 keeps each unknown domain's 400¢
+        # fallback; version 13 counts it once per root, and domains priced
+        # by age or rank still stack.
+        totals = {}
+        for version in ("v12", "v13"):
+            inputs = golden_dir() / f"golden_domain_floor_{version}_inputs.jsonl"
+            output = golden_dir() / f"golden_domain_floor_{version}_output.json"
+            if not inputs.exists():
+                self.skipTest(f"no golden_domain_floor_{version} fixture at {golden_dir()}")
+            out = recompute.compute_any(inputs.read_text(encoding="utf-8").splitlines())
+            self.assertEqual(recompute.canonical(out), output.read_text(encoding="utf-8").rstrip("\n"), version)
+            self.assertEqual(out["params_version"], int(version[1:]))
+
+            def domains(name):
+                acct = hashlib.sha256(name.encode()).hexdigest()
+                score = next(s for s in out["scores"] if s["account"] == acct)
+                return sum(it["price_cents"] for it in score["parts"]["world"] if it["kind"] == "proof" and it["source"] == "domain")
+            totals[version] = (domains("farm") + domains("farm2"), domains("solo"))
+        self.assertEqual(totals["v12"][0] - totals["v13"][0], 3 * 400)
+        self.assertEqual(totals["v12"][1], totals["v13"][1])
+
     def test_log10(self):
         import math
         for n in (1, 2, 3, 10, 99, 100, 101, 12345, 10**6, 987654321, 2**62):

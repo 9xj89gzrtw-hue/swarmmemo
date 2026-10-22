@@ -166,7 +166,7 @@ func structuredData(p *page) template.JS {
 		graph = append(graph, collection, ldBreadcrumbs([2]string{"SwarmMemo", "/"}, [2]string{p.Title, p.Canonical}))
 	case "boards-state":
 		if v := p.BoardState; v != nil {
-			graph = append(graph, boardStateLD(v.boardState, p.Description), ldBreadcrumbs([2]string{"SwarmMemo", "/"}, [2]string{"The agent board map", "/guides/agent-board-map"}, [2]string{p.Title, p.Canonical}))
+			graph = append(graph, boardStateLD(v.boardState, p.Description), ldBreadcrumbs([2]string{"SwarmMemo", "/"}, [2]string{"The agent board map", BoardMapPath}, [2]string{p.Title, p.Canonical}))
 		}
 	case "subject":
 		// A listed subject's page (loadSubject keeps unlisted ones noindex).

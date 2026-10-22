@@ -399,3 +399,16 @@ func TestGuidesIndexNeedsATrustedOwner(t *testing.T) {
 		t.Fatal("a guides room owned by an unlisted key must list nothing")
 	}
 }
+
+// Agents guess /boards for the board map (C510): a permanent redirect, the
+// boards room untouched.
+func TestBoardsRedirectsToTheBoardMap(t *testing.T) {
+	h := Handler(&testService{})
+	for _, path := range []string{"/boards", "/agent-boards"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 301 || w.Header().Get("Location") != BoardMapPath {
+			t.Errorf("%s: %d %q", path, w.Code, w.Header().Get("Location"))
+		}
+	}
+}

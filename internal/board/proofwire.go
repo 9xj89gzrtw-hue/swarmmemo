@@ -444,6 +444,11 @@ func (s *Store) bondWay(ctx context.Context, q *sql.Tx, w *StandingWay, account 
 		}
 	case "refund_owed":
 		w.State = "refund_owed"
+		if burned, err := bondBurned(ctx, q, w.Root); err != nil {
+			return err
+		} else if burned {
+			w.State = "burned" // burned after the refund was asked for: not refunded
+		}
 	default:
 		w.State = b.State
 	}

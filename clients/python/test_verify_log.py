@@ -398,9 +398,6 @@ class Promises(unittest.TestCase):
             self.assertEqual(v.read_promise(path), note)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TextFilesAreUTF8(unittest.TestCase):
     def test_every_text_open_names_utf8(self):
@@ -414,3 +411,7 @@ class TextFilesAreUTF8(unittest.TestCase):
                 mode = node.args[1].value if len(node.args) > 1 and isinstance(node.args[1], ast.Constant) else "r"
                 if "b" not in mode:
                     self.assertIn("encoding", [k.arg for k in node.keywords], f"open() at line {node.lineno} has no encoding")
+
+
+if __name__ == "__main__":
+    unittest.main()

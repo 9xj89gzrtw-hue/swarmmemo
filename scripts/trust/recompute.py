@@ -1612,6 +1612,7 @@ UNIFIED_VERSION = 8
 PASS_VERSION = 10
 BREAKER_VERSION = 11
 FLOOR_ONCE_VERSION = 12  # C492: a capped row's fallback counts once per (kind, node root); rule only, body as 11
+DOMAIN_FLOOR_ONCE_VERSION = 13  # C515: a fallback-priced domain's floor counts once per node root; rule only, body as 12
 BREAKER_REASONS = {"agent.rotate", "dormant", "identity.link", "identity.unlink", "spike"}
 
 RECORD_FIELDS_V2 = [
@@ -2192,17 +2193,24 @@ def compute_unified(snap: SnapshotV2) -> dict:
             cents = domain_contribution(price, D - day_of(x.registered_at), x.registered_at, x.rank, cv)
             if x.registered_at <= 0 and x.rank <= 0:
                 it["note"] = "registration age and rank not yet fetched: priced at the domain row's fallback"
+            else:
+                value = cents  # priced by its signals: no floor to drop
         else:
             cents, value = assessed_contribution(price, x.assessed), assessed_value(price, x.assessed)
         it["price_cents"] = cents
         claims.append((x.account, it, cents, value))
     # From version 12, a capped row's fallback floor counts once per (kind,
     # node root): the best claim keeps it, the others price at their
-    # assessed value (C492). Versions up to 11 keep each claim's floor.
+    # assessed value (C492). From version 13 a domain priced at its row's
+    # fallback (value 0) takes the same rule (C515); one priced by its
+    # signals still stacks. Versions up to 11 keep each claim's floor, up
+    # to 12 each domain's.
     floor_of = {}
     for i, (a, it, price, value) in enumerate(claims):
         row = proofs_p.get(it["source"], {})
-        if snap.params_version < FLOOR_ONCE_VERSION or price <= 0 or row.get("assess", "") != "capped" or row.get("fallback_cents", 0) <= 0:
+        capped = snap.params_version >= FLOOR_ONCE_VERSION and row.get("assess", "") == "capped" and row.get("fallback_cents", 0) > 0
+        domain = snap.params_version >= DOMAIN_FLOOR_ONCE_VERSION and it["source"] == "domain" and value < price
+        if price <= 0 or not (capped or domain):
             continue
         k = (it["source"], root_of(a))
         j = floor_of.get(k)

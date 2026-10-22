@@ -8,6 +8,7 @@ package servicestest
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -62,7 +63,12 @@ func (m *Meter) Spend(ctx context.Context, q allowance.Querier, s allowance.Subj
 		return ledger.Receipt{}, &allowance.Err{Code: "quota_exhausted", RetryAfter: int(86400 - now%86400)}
 	}
 	_, err = q.ExecContext(ctx, "INSERT INTO fake_ledger(kind,account,resource,units,service,method) VALUES('spend',?,?,?,?,?)", s.ID, string(r), units, ref.Service, ref.Method)
-	return ledger.Receipt{Resource: r, Used: units}, err
+	return ledger.Receipt{Resource: r, Used: units, ByBucket: free(units)}, err
+}
+
+// free is the fake's bucket mix: its flat budget is all free allowance.
+func free(units int64) map[allowance.Bucket]int64 {
+	return map[allowance.Bucket]int64{allowance.Free: units}
 }
 
 func (m *Meter) Reserve(ctx context.Context, q allowance.Querier, s allowance.Subject, r allowance.Resource, max int64, requestKey string, ref ledger.Ref, ttl int64, now int64) (ledger.Hold, error) {
@@ -107,7 +113,24 @@ func (m *Meter) Commit(ctx context.Context, q allowance.Querier, holdID string, 
 		return ledger.Receipt{}, &allowance.Err{Code: "hold_not_held"}
 	}
 	_, err = q.ExecContext(ctx, "UPDATE fake_ledger SET state='committed', units=? WHERE kind='hold' AND hold_id=?", used, holdID)
-	return ledger.Receipt{HoldID: holdID, Resource: allowance.Resource(resource), Used: used, Refunded: max - used}, err
+	return ledger.Receipt{HoldID: holdID, Resource: allowance.Resource(resource), Used: used, Refunded: max - used, ByBucket: free(used)}, err
+}
+
+// HoldSpent is a settled hold's bucket mix: all free, as the fake's budget.
+func (m *Meter) HoldSpent(ctx context.Context, q allowance.Querier, holdID string) (map[allowance.Bucket]int64, bool, error) {
+	if _, err := q.ExecContext(ctx, table); err != nil {
+		return nil, false, err
+	}
+	var state string
+	var units int64
+	err := q.QueryRowContext(ctx, "SELECT state,units FROM fake_ledger WHERE kind='hold' AND hold_id=?", holdID).Scan(&state, &units)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && state != "committed" && state != "expired" {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return free(units), true, nil
 }
 
 func (m *Meter) Refund(ctx context.Context, q allowance.Querier, holdID string, reason string, now int64) error {

@@ -215,7 +215,8 @@ func PowUnits(bits int64) int64 {
 // registration time (registered ≤ 0) or rank (≤ 0: unlisted, or not
 // fetched) counts 0: rank 1 is worth 400¢, 100 266¢, 10,000 133¢. While
 // neither signal is known the domain prices at the row's fallback_cents
-// (the old flat domain value), within the same cap.
+// (the old flat domain value), within the same cap; from version 13 a run
+// counts that floor once per node root (C515).
 func DomainContribution(price ProofPrice, ageDays, registered, rank int64) int64 {
 	if registered <= 0 && rank <= 0 {
 		return min(price.FallbackCents, price.Forge, price.Rent)

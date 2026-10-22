@@ -100,12 +100,14 @@ func TestWalletAssessedValueStacks(t *testing.T) {
 	}
 }
 
-// Version 12's body is version 11's: the rule is the only change.
+// Versions 12 and 13's bodies are version 11's: the rules are the only
+// change.
 func TestFloorOnceVersion(t *testing.T) {
-	if !bytes.Equal(DefaultParams().Body(), BreakerParams().Body()) || DefaultVersion != FloorOnceVersion {
-		t.Fatal("version 12 changes the parameter body")
+	if !bytes.Equal(DefaultParams().Body(), BreakerParams().Body()) || !bytes.Equal(DefaultParams().Body(), FloorOnceParams().Body()) ||
+		DefaultVersion != DomainFloorOnceVersion || FloorOnceParams().Version != FloorOnceVersion {
+		t.Fatal("versions 12 and 13 change the parameter body")
 	}
-	for _, v := range []int64{BreakerVersion, FloorOnceVersion} {
+	for _, v := range []int64{BreakerVersion, FloorOnceVersion, DomainFloorOnceVersion} {
 		if _, err := ParseParams(v, DefaultParams().Body()); err != nil {
 			t.Errorf("version %d: %v", v, err)
 		}
@@ -149,36 +151,10 @@ func TestGoldenWalletFloor(t *testing.T) {
 		// 0xpq, claimed by p and q, joins them into one root: the floor
 		// counts once there (on p, the lower account at equal price); q's
 		// claims of 0xpq and of its own empty 0xq2 add nothing.
-		{"v12", DefaultParams(), [6]int64{50, 500, 50, 50, 50, 0}},
+		{"v12", FloorOnceParams(), [6]int64{50, 500, 50, 50, 50, 0}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			inPath := filepath.Join("testdata", "golden_wallet_floor_"+c.name+"_inputs.jsonl")
-			outPath := filepath.Join("testdata", "golden_wallet_floor_"+c.name+"_output.json")
-			snap := walletFloorSnapshot(c.params)
-			var buf bytes.Buffer
-			if err := snap.WriteJSONL(&buf); err != nil {
-				t.Fatal(err)
-			}
-			out, err := Compute(context.Background(), snap)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if *updateGolden {
-				if err = os.WriteFile(inPath, buf.Bytes(), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				if err = os.WriteFile(outPath, out.Canonical(), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			raw, err := os.ReadFile(inPath)
-			if err != nil || !bytes.Equal(raw, buf.Bytes()) {
-				t.Fatalf("fixture inputs differ from walletFloorSnapshot (%v); rerun with -update", err)
-			}
-			want, err := os.ReadFile(outPath)
-			if err != nil || !bytes.Equal(out.Canonical(), want) {
-				t.Fatalf("golden wallet floor output changed (%v); if intended, rerun with -update", err)
-			}
+			out := goldenFloor(t, "golden_wallet_floor_"+c.name, walletFloorSnapshot(c.params))
 			a, _ := walletCents(out, "sybil")
 			b, _ := walletCents(out, "sybil2")
 			got := [6]int64{a + b, first(walletCents(out, "rich")), first(walletCents(out, "x")), first(walletCents(out, "y")),
@@ -186,9 +162,141 @@ func TestGoldenWalletFloor(t *testing.T) {
 			if got != c.want || out.ParamsVersion != c.params.Version {
 				t.Errorf("version %d: wallets count %v, want %v", out.ParamsVersion, got, c.want)
 			}
-			testRecomputePy(t, raw, want)
+		})
+	}
+}
+
+// goldenFloor computes snap, checks it against testdata/<name>_inputs.jsonl
+// and _output.json (written with -update), and recomputes both in
+// recompute.py byte for byte.
+func goldenFloor(t *testing.T, name string, snap Snapshot) Output {
+	t.Helper()
+	inPath := filepath.Join("testdata", name+"_inputs.jsonl")
+	outPath := filepath.Join("testdata", name+"_output.json")
+	var buf bytes.Buffer
+	if err := snap.WriteJSONL(&buf); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Compute(context.Background(), snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *updateGolden {
+		if err = os.WriteFile(inPath, buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(outPath, out.Canonical(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := os.ReadFile(inPath)
+	if err != nil || !bytes.Equal(raw, buf.Bytes()) {
+		t.Fatalf("%s inputs differ from its snapshot (%v); rerun with -update", name, err)
+	}
+	want, err := os.ReadFile(outPath)
+	if err != nil || !bytes.Equal(out.Canonical(), want) {
+		t.Fatalf("%s output changed (%v); if intended, rerun with -update", name, err)
+	}
+	testRecomputePy(t, raw, want)
+	return out
+}
+
+// domainFloorSnapshot is the golden_domain_floor fixtures' snapshot under
+// params: one root with four unknown domains over two keys and two aged
+// ones, and one root with one unknown domain.
+func domainFloorSnapshot(params Params) Snapshot {
+	b := newBuilder()
+	b.snap.Params = params
+	for _, name := range []string{"farm", "farm2", "solo"} {
+		b.account(name, 60)
+	}
+	b.link("farm2", "farm")
+	for i := range 3 {
+		b.domain("farm", "unknown"+strconv.Itoa(i)+".zz", 0, 0)
+	}
+	b.domain("farm2", "unknown3.zz", 0, 0)
+	b.domain("farm", "aged.com", 3*365, 0).domain("farm", "ranked.org", 0, 5000)
+	b.domain("solo", "solo.zz", 0, 0)
+	return b.snap
+}
+
+// Version 12 keeps each unknown domain's fallback; version 13 counts it
+// once per root, and aged or ranked domains stack in both. Both fixtures
+// recompute in recompute.py.
+func TestGoldenDomainFloor(t *testing.T) {
+	row := DefaultParams().Proofs["domain"]
+	signals := DomainContribution(row, 3*365, 1, 0) + DomainContribution(row, 0, 0, 5000)
+	for _, c := range []struct {
+		name   string
+		params Params
+		want   [2]int64 // farm+farm2, solo
+	}{
+		{"v12", FloorOnceParams(), [2]int64{4*row.FallbackCents + signals, row.FallbackCents}},
+		{"v13", DefaultParams(), [2]int64{row.FallbackCents + signals, row.FallbackCents}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			out := goldenFloor(t, "golden_domain_floor_"+c.name, domainFloorSnapshot(c.params))
+			got := [2]int64{first(domainCents(out, "farm")) + first(domainCents(out, "farm2")), first(domainCents(out, "solo"))}
+			if got != c.want || out.ParamsVersion != c.params.Version {
+				t.Errorf("version %d: domains price %v, want %v", out.ParamsVersion, got, c.want)
+			}
 		})
 	}
 }
 
 func first(a int64, _ int) int64 { return a }
+
+// domainCents is what an account's domain proofs price this run, and how
+// many of them carry the once-per-root note.
+func domainCents(out Output, name string) (cents int64, once int) {
+	for _, it := range scoreOf(out, name).Parts.World {
+		if it.Kind == "proof" && it.Source == "domain" {
+			cents += it.PriceCents
+			if strings.HasPrefix(it.Note, "fallback counted once per root: on ") {
+				once++
+			}
+		}
+	}
+	return cents, once
+}
+
+// C515 (version 13): a domain whose registration age and rank are both
+// unknown prices at the domain row's fallback, which a TLD without RDAP
+// makes cheap to repeat, so that floor counts once per node root; a domain
+// priced by its age or rank still stacks. Version 12 counts each fallback.
+func TestDomainFallbackOncePerRoot(t *testing.T) {
+	row := DefaultParams().Proofs["domain"]
+	fallback, aged := row.FallbackCents, DomainContribution(row, 3*365, 1, 0)
+	if aged <= 0 || aged == fallback {
+		t.Fatalf("a three-year-old domain prices %d¢", aged)
+	}
+	b := newBuilder().link("d2", "d")
+	for i := range 3 {
+		b.domain("d", "unknown"+strconv.Itoa(i)+".zz", 0, 0)
+	}
+	b.domain("d2", "unknown3.zz", 0, 0)
+	b.domain("d", "aged.com", 3*365, 0).domain("d", "aged.org", 3*365, 0)
+	out := compute(t, b)
+	a, onceA := domainCents(out, "d")
+	c, onceC := domainCents(out, "d2")
+	if a+c != fallback+2*aged || onceA+onceC != 3 {
+		t.Errorf("four unknown and two aged domains on one root count %d¢ (%d noted), want %d¢ (3 noted)", a+c, onceA+onceC, fallback+2*aged)
+	}
+
+	// Version 12: each unknown domain keeps its fallback.
+	b.snap.Params = FloorOnceParams()
+	out = compute(t, b)
+	a, onceA = domainCents(out, "d")
+	c, onceC = domainCents(out, "d2")
+	if a+c != 4*fallback+2*aged || onceA+onceC != 0 {
+		t.Errorf("version 12: domains count %d¢ (%d noted), want %d¢ as before", a+c, onceA+onceC, 4*fallback+2*aged)
+	}
+
+	// Two node roots, one unknown domain each: each keeps its floor.
+	out = compute(t, newBuilder().domain("x", "x.zz", 0, 0).domain("y", "y.zz", 0, 0))
+	for _, who := range []string{"x", "y"} {
+		if got, _ := domainCents(out, who); got != fallback {
+			t.Errorf("%s's one unknown domain counts %d¢, want %d", who, got, fallback)
+		}
+	}
+}

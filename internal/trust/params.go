@@ -195,11 +195,21 @@ func DefaultBreakerTrustDays() map[string]int64 {
 // recompute.
 const FloorOnceVersion = 12
 
+// DomainFloorOnceVersion is version 12 plus C515's rule: a domain priced at
+// the domain row's fallback_cents (the 400¢ for neither registration age
+// nor rank known) counts that floor once per node root, on the root's best
+// such claim; its other fallback-priced domains price at 0, their value
+// with no signal, so N domains whose signals cannot be fetched add 400¢,
+// not N × 400¢. Domains priced by age or rank still stack. The rule only:
+// the body is version 12's, and runs at versions up to 12 compute as
+// before.
+const DomainFloorOnceVersion = 13
+
 // DefaultVersion is the compiled-in trust parameter version: RFC 0021 with
-// C326's price rows, C336's pass share, C338's breaker windows and C492's
-// once-per-root fallback, active from the deploy that ships it (no
-// parameter write is needed).
-const DefaultVersion = FloorOnceVersion
+// C326's price rows, C336's pass share, C338's breaker windows, C492's
+// once-per-root fallback and C515's once-per-root domain fallback, active
+// from the deploy that ships it (no parameter write is needed).
+const DefaultVersion = DomainFloorOnceVersion
 
 // Evidence classes (RFC 0015 §5.4, judge.EvidenceWeightPPM).
 var evidenceClasses = []string{"free_use", "observed", "opinion", "paid_use", "work"}
@@ -218,12 +228,13 @@ func DayFactor(halfLifeDays int64) int64 {
 	return int64(math.Round(1e6 * math.Pow(2, -1/float64(halfLifeDays))))
 }
 
-// DefaultParams is the compiled-in parameter set (version 12): RFC 0021's
+// DefaultParams is the compiled-in parameter set (version 13): RFC 0021's
 // knobs (G 120 days, Hd 180, H 180, the evidence weights), U = 200¢ and
 // m = 2, the values derived from them, the price rows of §10 and C326's
 // (proofRowsV9), C336's pass share and C338's breaker windows, under C492's
-// once-per-root fallback. BreakerParams is version 11, the same body
-// without that rule; PassParams
+// and C515's once-per-root fallbacks. FloorOnceParams is version 12, the
+// same body without C515's rule; BreakerParams is version 11, also without
+// C492's; PassParams
 // is version 10, also without the breaker windows; ProofsParams version
 // 9, also without the pass share; UnifiedParams version 8, also without
 // C326's rows.
@@ -275,10 +286,19 @@ func DefaultParams() Params {
 	return p
 }
 
-// BreakerParams is parameter version 11: DefaultParams' body, without
+// FloorOnceParams is parameter version 12: DefaultParams' body, without
+// C515's once-per-root domain fallback (each fallback-priced domain's floor
+// counts).
+func FloorOnceParams() Params {
+	p := DefaultParams()
+	p.Version = FloorOnceVersion
+	return p
+}
+
+// BreakerParams is parameter version 11: FloorOnceParams' body, without
 // C492's once-per-root fallback (each wallet's floor counts).
 func BreakerParams() Params {
-	p := DefaultParams()
+	p := FloorOnceParams()
 	p.Version = BreakerVersion
 	return p
 }

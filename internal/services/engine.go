@@ -28,6 +28,36 @@ type Meter interface {
 
 var _ Meter = (*ledger.Ledger)(nil)
 
+// HoldSpender is a Meter that can say, for a settled hold, which buckets
+// paid what it used; the engine reads it to name a loaded call's paid_from.
+type HoldSpender interface {
+	HoldSpent(ctx context.Context, q allowance.Querier, holdID string) (map[allowance.Bucket]int64, bool, error)
+}
+
+var _ HoldSpender = (*ledger.Ledger)(nil)
+
+// A call answer's call.paid_from names what paid its cost (C516): the
+// one-call tools are free, charged to the caller's free daily allowance, so
+// a cost met wholly from it says so; credits is any cost that granted,
+// earned or bought credit paid part of.
+const (
+	PaidFromFreeAllowance = "free_allowance"
+	PaidFromCredits       = "credits"
+)
+
+// paidFrom is a charge's paid_from from its bucket mix; "" when unknown.
+func paidFrom(byBucket map[allowance.Bucket]int64) string {
+	if byBucket == nil {
+		return ""
+	}
+	for b, n := range byBucket {
+		if n > 0 && b != allowance.Free {
+			return PaidFromCredits
+		}
+	}
+	return PaidFromFreeAllowance
+}
+
 // Engine bounds. Every loop, map and stored body the engine keeps is bounded
 // by one of these.
 const (
@@ -164,6 +194,9 @@ type CallRecord struct {
 	FinishedAt    int64  `json:"finished_at,omitempty"`
 	DueAt         int64  `json:"due_at,omitempty"`
 	Error         string `json:"error,omitempty"` // failed: why; nothing was charged
+	// PaidFrom is what paid Cost: PaidFromFreeAllowance or PaidFromCredits;
+	// absent while running, failed or when the ledger cannot say.
+	PaidFrom string `json:"paid_from,omitempty"`
 	// RequestID is an unsigned call's request_id, its retry key; the board
 	// sets it on the answer (a random one when the caller gave none).
 	RequestID string `json:"request_id,omitempty"`
@@ -466,12 +499,14 @@ func (e *Engine) Call(ctx context.Context, tx *sql.Tx, req Request, now int64) (
 			res.Used = MinWriteUnits
 		}
 		var receipt map[string]any
+		rec.PaidFrom = PaidFromFreeAllowance // nothing charged
 		if res.Used > 0 {
 			r, err := e.cfg.Meter.Spend(ctx, tx, req.Subject, quote.Resource, res.Used, ref, now)
 			if err != nil {
 				return Outcome{}, err
 			}
 			receipt = receiptData(r)
+			rec.PaidFrom = paidFrom(r.ByBucket)
 		}
 		rec.Cost, rec.FinishedAt = res.Used, now
 		if err = e.insertCall(ctx, tx, req, c, rec, "", publicOf(res.Public), 0); err != nil {
@@ -653,7 +688,7 @@ func (e *Engine) settle(ctx context.Context, account, callID, jobID string, res 
 		return nil, err
 	}
 	defer tx.Rollback()
-	row, err := loadCall(ctx, tx, account, callID)
+	row, err := e.loadCall(ctx, tx, account, callID)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +739,7 @@ func (e *Engine) settle(ctx context.Context, account, callID, jobID string, res 
 			return nil, err
 		}
 	}
-	if row, err = loadCall(ctx, tx, account, callID); err != nil {
+	if row, err = e.loadCall(ctx, tx, account, callID); err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -730,6 +765,31 @@ type callRow struct {
 	service, method string
 	holdID, body    string
 	errCode         string
+}
+
+// loadCall is a call as stored, with its paid_from: a settled hold's from
+// the ledger, a local call's when it cost nothing.
+func (e *Engine) loadCall(ctx context.Context, q allowance.Querier, account, id string) (callRow, error) {
+	r, err := loadCall(ctx, q, account, id)
+	if err != nil || (r.rec.State != "done" && r.rec.State != "unknown") {
+		return r, err
+	}
+	if r.holdID == "" {
+		if r.rec.Cost == 0 {
+			r.rec.PaidFrom = PaidFromFreeAllowance
+		}
+		return r, nil
+	}
+	hs, ok := e.cfg.Meter.(HoldSpender)
+	if !ok {
+		return r, nil
+	}
+	by, ok, err := hs.HoldSpent(ctx, q, r.holdID)
+	if err != nil || !ok {
+		return r, err
+	}
+	r.rec.PaidFrom = paidFrom(by)
+	return r, nil
 }
 
 func loadCall(ctx context.Context, q allowance.Querier, account, id string) (callRow, error) {
@@ -792,7 +852,7 @@ func (e *Engine) Retry(ctx context.Context, q allowance.Querier, account string,
 	if state != "running" || id == "" {
 		return stored, nil
 	}
-	row, err := loadCall(ctx, q, account, id)
+	row, err := e.loadCall(ctx, q, account, id)
 	if err != nil {
 		return nil, err
 	}
@@ -897,7 +957,7 @@ func (e *Engine) status(ctx context.Context, q allowance.Querier, req Request, d
 	if !callIDRE.MatchString(args.Call) {
 		return nil, badArg("call is the call's id from its receipt: 32 lowercase hex digits.")
 	}
-	row, err := loadCall(ctx, q, req.Subject.ID, args.Call)
+	row, err := e.loadCall(ctx, q, req.Subject.ID, args.Call)
 	if err != nil {
 		return nil, err
 	}

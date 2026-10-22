@@ -190,6 +190,30 @@ func (l *Ledger) GetHold(ctx context.Context, q allowance.Querier, id string) (H
 	return loadHold(ctx, q, id)
 }
 
+// HoldSpent is the bucket mix of what a settled hold used, in the order
+// settle takes it (spend order over the hold's parts); ok is false for a
+// hold still held or refunded, or none.
+func (l *Ledger) HoldSpent(ctx context.Context, q allowance.Querier, id string) (map[allowance.Bucket]int64, bool, error) {
+	h, ok, err := loadHoldRow(ctx, q, id)
+	if err != nil || !ok || (h.State != "committed" && h.State != "expired") {
+		return nil, false, err
+	}
+	parts, err := loadHoldParts(ctx, q, id)
+	if err != nil {
+		return nil, false, err
+	}
+	out := map[allowance.Bucket]int64{}
+	left := h.Used
+	for _, p := range parts {
+		take := min(p.Units, left)
+		left -= take
+		if take > 0 {
+			out[p.Bucket] += take
+		}
+	}
+	return out, true, nil
+}
+
 type holdPart struct {
 	LotID, Units, ExpiresAt, Origin int64
 	Bucket                          allowance.Bucket
@@ -257,11 +281,15 @@ func (l *Ledger) settle(ctx context.Context, q allowance.Querier, id string, use
 	day := now / 86400
 	ref := Ref{Service: h.Service, Method: h.Method}
 	left := used
+	byBucket := map[allowance.Bucket]int64{}
 	var backNonpaid, backPaid int64
 	var backFree [5]int64 // free units to return, by lot origin
 	for _, p := range parts {
 		take := min(p.Units, left)
 		left -= take
+		if take > 0 {
+			byBucket[p.Bucket] += take
+		}
 		back := p.Units - take
 		var lost int64
 		if p.ExpiresAt != 0 && p.ExpiresAt <= now {
@@ -308,7 +336,7 @@ func (l *Ledger) settle(ctx context.Context, q allowance.Querier, id string, use
 	if _, err = q.ExecContext(ctx, "UPDATE ledger_holds SET state=?,used_units=? WHERE id=?", final, used, id); err != nil {
 		return Receipt{}, err
 	}
-	return Receipt{HoldID: id, Resource: h.Resource, Used: used, Refunded: h.Max - used, ParamsVersion: version}, nil
+	return Receipt{HoldID: id, Resource: h.Resource, Used: used, Refunded: h.Max - used, ParamsVersion: version, ByBucket: byBucket}, nil
 }
 
 // undrawDay returns a settled hold's unused free units to the slices of the

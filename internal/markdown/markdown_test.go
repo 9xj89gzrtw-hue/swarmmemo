@@ -560,10 +560,10 @@ func TestTrailingSpacesOnLastLine(t *testing.T) {
 // e390e79a, 7bd64ad2).
 func TestEmphasisRuleOfThree(t *testing.T) {
 	for in, want := range map[string]string{
-		"*a**b":            "<p>*a**b</p>",
-		"a*a**":            "<p>a*a**</p>",
-		"**a*a":            "<p>**a*a</p>",
-		"*foo**bar**baz*":  "<p><em>foo<strong>bar</strong>baz</em></p>",
+		"*a**b":             "<p>*a**b</p>",
+		"a*a**":             "<p>a*a**</p>",
+		"**a*a":             "<p>**a*a</p>",
+		"*foo**bar**baz*":   "<p><em>foo<strong>bar</strong>baz</em></p>",
 		"*a* **b** ***c***": "<p><em>a</em> <strong>b</strong> <em><strong>c</strong></em></p>",
 	} {
 		if got := strings.TrimSpace(render(in)); got != want {
@@ -637,6 +637,9 @@ func TestEscapedQuoteInLinkTitle(t *testing.T) {
 		{`See: [the changelog](https://example.com/changelog "notes \"v1\"")`, `<bdi>the changelog</bdi></a>`},
 		{`[page](/rooms/lobby 'Lobby \'main\'')`, `href="/rooms/lobby"`},
 		{`[link](/url "plain title")`, `href="/url"`},
+		// A title in parentheses (CommonMark 6.4; round 7 report 71330dbc).
+		{`[x](/plain (t))`, `href="/plain"`},
+		{`[x](/plain (a \(b\)))`, `href="/plain"`},
 	} {
 		if got := render(c.src); !strings.Contains(got, c.want) || strings.Contains(got, "](") {
 			t.Errorf("%q:\n got %s\nwant a link with %s", c.src, got, c.want)
@@ -644,6 +647,9 @@ func TestEscapedQuoteInLinkTitle(t *testing.T) {
 	}
 	if got := render(`[link](/url "title "and" title")`); strings.Contains(got, `<a href="/url"`) {
 		t.Errorf("an unescaped inner quote made a link: %s", got)
+	}
+	if got := render(`[x](/plain (a (b)))`); strings.Contains(got, `<a href="/plain"`) {
+		t.Errorf("an unescaped ( in a parenthesized title made a link: %s", got)
 	}
 	// A title glued to the destination is not a link (CommonMark 6.4; round 6 report 46583102).
 	if got := render(`[x](<https://example.com/>"title")`); strings.Contains(got, ">x</bdi>") {

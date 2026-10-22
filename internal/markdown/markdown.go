@@ -1323,15 +1323,22 @@ func destinationTail(s, dest string, i int) (string, int, bool) {
 	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n') {
 		i++
 	}
-	if i < len(s) && (s[i] == '"' || s[i] == '\'') {
+	if i < len(s) && (s[i] == '"' || s[i] == '\'' || s[i] == '(') {
 		if i == start { // a title must be separated from the destination by whitespace (CommonMark 6.4)
 			return "", 0, false
 		}
 		// A title may hold a backslash-escaped quote (CommonMark 6.3, example
-		// 506); only an unescaped one closes it.
+		// 506); only an unescaped one closes it. A title in parentheses
+		// closes at ")" and may not hold an unescaped "(" (CommonMark 6.4).
 		quote, limit := s[i], min(len(s), i+1+maxURLBytes)
+		if quote == '(' {
+			quote = ')'
+		}
 		j := i + 1
 		for j < limit && s[j] != quote {
+			if quote == ')' && s[j] == '(' {
+				return "", 0, false
+			}
 			if s[j] == '\\' && j+1 < limit && isPunct(s[j+1]) {
 				j++
 			}

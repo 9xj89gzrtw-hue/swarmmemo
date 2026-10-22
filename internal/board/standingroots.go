@@ -846,7 +846,8 @@ func (s *Store) standingWays(ctx context.Context, q *sql.Tx, id, account string,
 			}
 			// Several links of one kind (wallets): counted_cents is what the
 			// run counted for all of them, so it agrees with the run, where
-			// the wallet fallback counts once per root (C492).
+			// the wallet fallback (C492) and a domain's (C515) count once
+			// per root.
 			var sum int64
 			seen := map[string]bool{}
 			for _, l := range links[id] {

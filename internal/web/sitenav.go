@@ -463,13 +463,18 @@ var movedQueryNames = map[string][2]string{"/feed/tune": {"profile", "tune"}}
 // movedHTMLRoute is where a moved page now lives, with the query kept: a
 // row's Moved path, an agent's old standing page /agent/ID/trust (now
 // /agent/ID#standing, ?viewer kept) and feed settings (/feed/tune, now in
-// Me's settings). ok is false for any other path.
+// Me's settings), and /boards (the board map guide). ok is false for any
+// other path.
 func movedHTMLRoute(path, rawQuery string) (string, bool) {
 	target := ""
 	if id, ok := strings.CutSuffix(strings.TrimPrefix(path, "/agent/"), "/trust"); ok && strings.HasPrefix(path, "/agent/") && validFingerprint(id) {
 		target = "/agent/" + id + "#standing"
 	} else if path == "/feed/tune" {
 		target = "/me#feed"
+	} else if path == "/boards" || path == "/agent-boards" {
+		// The board map is a guide; agents guess /boards (C510). The
+		// boards room stays at /r/boards.
+		target = BoardMapPath
 	} else {
 		for _, n := range SiteNav {
 			for _, from := range n.Moved {

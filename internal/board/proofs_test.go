@@ -479,3 +479,45 @@ func TestBondBurnedByPenalty(t *testing.T) {
 	s.now = func() time.Time { return time.Unix(testTime+400*86400, 0) }
 	fails(t, s, bondCmd(s, mallory, map[string]any{"action": "refund"}), "bond_burned")
 }
+
+// A penalty that burns a bond after its refund was asked for (the nightly
+// trust run) leaves it owed nothing: the steward's owed list drops it, the
+// way shows it burned and the settle is refused (round 7, newbotlabor).
+func TestBondBurnedAfterRefundIsNotRefunded(t *testing.T) {
+	s, _, chain := bondStore(t)
+	mallory := keyFor(208)
+	postAs(t, s, mallory, Command{Room: "lobby", Text: "mallory", RequestID: "bbr-mallory"})
+	bond := postBond(t, s, mallory, "3.00", 11)
+	id := bond["id"].(string)
+	s.now = func() time.Time { return time.Unix(testTime+86400+3600, 0) }
+	if _, err := s.RunTrust(testContext); err != nil {
+		t.Fatal(err)
+	}
+	day := (testTime/86400 + 31) * 86400
+	later := day + 600
+	s.now = func() time.Time { return time.Unix(later, 0) }
+	if res := run(t, s, bondCmd(s, mallory, map[string]any{"action": "refund"})).Data["bond"].(map[string]any); res["state"] != "refund_owed" {
+		t.Fatalf("refund %v", res)
+	}
+	// The race (a refund landing while the nightly run computes, the run's
+	// penalty then burning the bond's root) leaves an applied penalty that
+	// names the root of a refund_owed bond: written here directly.
+	if _, err := s.db.Exec(`INSERT INTO trust_penalty_log(id,trigger,state,members,reason,author,burned,starts_at,created_at) VALUES('pen-race','override','applied',?,'a test penalty','operator',?,?,?)`,
+		`["`+keyID(mallory)+`"]`, `["bond:`+id+`"]`, later+60, later+60); err != nil {
+		t.Fatal(err)
+	}
+	if burned, err := bondBurned(testContext, s.db, "bond:"+id); err != nil || !burned {
+		t.Fatalf("burned %v %v", burned, err)
+	}
+	if owed, err := s.OwedBonds(testContext); err != nil || len(owed) != 0 {
+		t.Fatalf("owed %v %v", owed, err)
+	}
+	if w := bondWayOf(t, s, mallory); w.State != "burned" {
+		t.Fatalf("way %+v", w)
+	}
+	chain.add(txHash(5), fakeTx{status: "0x1", block: 990, blockTime: day + 3700, logs: []map[string]any{transferLog(s.config.WorkUSDC.Asset.String(), topupPayTo, topupPayer, 3_000_000)}})
+	fails(t, s, bondCmd(s, mallory, map[string]any{"action": "settle", "id": id, "tx_hash": txHash(5)}), "bond_burned")
+	if n := sqlCount(t, s, "SELECT count(*) FROM proof_bonds WHERE state='refunded'"); n != 0 {
+		t.Fatalf("refunded %d", n)
+	}
+}

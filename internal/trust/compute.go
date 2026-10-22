@@ -747,6 +747,8 @@ func (r *run) compute(ctx context.Context) (Output, error) {
 			cents = DomainContribution(price, D-dayOf(x.RegisteredAt), x.RegisteredAt, x.Rank)
 			if x.RegisteredAt <= 0 && x.Rank <= 0 {
 				it.Note = "registration age and rank not yet fetched: priced at the domain row's fallback"
+			} else {
+				value = cents // priced by its signals: no floor to drop
 			}
 		default:
 			cents, value = AssessedContribution(price, x.Assessed), AssessedValue(price, x.Assessed)
@@ -758,11 +760,18 @@ func (r *run) compute(ctx context.Context) (Output, error) {
 	// to make again: from version 12 (FloorOnceVersion), per (kind, node
 	// root) only the best claim keeps it, and the others price at their
 	// assessed value (C492). N fresh wallets on one root count the floor
-	// once; real balances still stack. Versions up to 11 price each claim
-	// with its floor, as their published runs did.
+	// once; real balances still stack. From version 13
+	// (DomainFloorOnceVersion) a domain priced at its row's fallback (age
+	// and rank unknown, value 0) takes the same rule (C515); a domain
+	// priced by its signals still stacks. Versions up to 11 price each
+	// claim with its floor, and up to 12 each domain, as their published
+	// runs did.
 	floorOf := map[[2]string]int{} // (kind, node root) → claim index
 	for i, c := range claims {
-		if row := p.Proofs[c.item.Source]; p.Version < FloorOnceVersion || c.price <= 0 || row.Assess != AssessCapped || row.FallbackCents <= 0 {
+		row := p.Proofs[c.item.Source]
+		capped := p.Version >= FloorOnceVersion && row.Assess == AssessCapped && row.FallbackCents > 0
+		domain := p.Version >= DomainFloorOnceVersion && c.item.Source == "domain" && c.value < c.price
+		if c.price <= 0 || !capped && !domain {
 			continue
 		}
 		k := [2]string{c.item.Source, r.rootOf(c.account)}

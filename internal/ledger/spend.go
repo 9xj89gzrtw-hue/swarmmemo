@@ -246,6 +246,8 @@ type op struct {
 	// noShareBand to that subject's band.
 	noShareLot  bool
 	noShareBand allowance.Band
+	// spent is the bucket mix of the last debit of kind "spend".
+	spent map[allowance.Bucket]int64
 }
 
 // refusal is the refusal of a spend planSpend left short: the day's, or,
@@ -586,9 +588,15 @@ func (l *Ledger) debit(ctx context.Context, q allowance.Querier, o *op, s allowa
 			return err
 		}
 	}
+	if kind == "spend" {
+		o.spent = map[allowance.Bucket]int64{}
+	}
 	for _, p := range parts {
 		if err = takeFrom(ctx, q, p.Lot.ID, p.Take, 0, 0); err != nil {
 			return err
+		}
+		if kind == "spend" {
+			o.spent[p.Lot.Bucket] += p.Take
 		}
 		e := o.entry(kind, s.ID, p.Take)
 		e.Bucket, e.LotID, e.Ref = p.Lot.Bucket, p.Lot.ID, ref
@@ -653,7 +661,7 @@ func (l *Ledger) Spend(ctx context.Context, q allowance.Querier, s allowance.Sub
 		l.noteRefusal(o.day, r, refusal)
 		return Receipt{}, refusal
 	}
-	return Receipt{Resource: r, Used: units, ParamsVersion: o.version}, nil
+	return Receipt{Resource: r, Used: units, ParamsVersion: o.version, ByBucket: o.spent}, nil
 }
 
 func isRefusal(err error) bool {

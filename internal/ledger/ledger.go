@@ -46,6 +46,9 @@ type Receipt struct {
 	Used          int64
 	Refunded      int64
 	ParamsVersion int64
+	// ByBucket is where the used units came from, by bucket (free, granted,
+	// earned, paid); nil when the ledger cannot say (a hold settled before).
+	ByBucket map[allowance.Bucket]int64
 }
 
 // Balance is a subject's allowance for one resource on one day. Prospective

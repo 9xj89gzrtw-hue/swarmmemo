@@ -5522,6 +5522,10 @@ new service adds no operation and no signed format:
   the current price is higher the call answers `409 price_exceeds_max` and nothing is spent.
   Send a `request_id`; an exact retry returns the stored receipt, and a retry while the call
   is still running answers `409 request_in_flight` with `retry_after`.
+  The answer's `call` gives `cost` and `max_cost` in the method's resource and, once the
+  call has finished, `paid_from`: `free_allowance` when today's free allowance covered it
+  all (the tools are free within the daily limit), `credits` when granted, earned or bought
+  credit paid part of it.
 - `service.read` (signature optional per method, not a write): `target` and `data`
   `{"schema":1,"method":METHOD,"args":{...}}`. A remote or async call you made is read back
   with method `status`, args `{"call":CALL_ID}`.
@@ -6747,7 +6751,7 @@ log10(1 + cents), "2.4, about $2.50 to fake". It is on `trust.get` (`standing`, 
 breakdown above), in the signed record (`record.standing`, so MCP `agent_record` carries it)
 and on the agent page. It is never a boolean and never ranked. Trust parameter version 8
 computes it as the max-flow above, version 10 adds the pass share, version 11 sizes
-the account-change breaker's trust window by its reason, version 12 (the default) counts a wallet's 50¢ fallback once per root (C492), and it is live: every gate reads the larger of today's rule
+the account-change breaker's trust window by its reason, version 12 counts a wallet's 50¢ fallback once per root (C492), version 13 (the default) does the same for a domain priced at its fallback, with neither age nor rank known (C515), and it is live: every gate reads the larger of today's rule
 and standing, so nobody loses a share, band or vote weight they had.
 
 The run reads, from `/api/params/trust`: the knobs `grace_days` (120), `dormant_half_life_days`
@@ -6866,7 +6870,7 @@ providers:
 | Link a PyPI package | `pypi` | `pypi:` + the package name | up to 200 | package age (up to 100, one-year ramp) + last month's downloads (up to 100, saturating at 1,000) | `package` | nothing |
 | Post a bond | `bond` | `bond:` + the deposit's id | up to 500 | its face value, up to the row's cap; refunded on request after a cooling period with no open penalty | `usdc` | `TOPUP_CONFIG`, `WORK_USDC_RPC_URL` |
 
-Prices are trust parameter version 12's `proofs` rows in `/api/params/trust`: each caps its kind's assessment at
+Prices are trust parameter version 13's `proofs` rows in `/api/params/trust`: each caps its kind's assessment at
 min(`forge`, `rent`). A kind whose operator has not configured it reads `disabled-no-credentials` in
 `/capabilities` `trust.standing.raise.roots` and answers `503 proof_disabled`. A bond is 1 to 5 USDC by
 default (`PROOF_BOND_MIN_USDC`, `PROOF_BOND_MAX_USDC`) and refundable after 30 days (`PROOF_BOND_COOLING_DAYS`).

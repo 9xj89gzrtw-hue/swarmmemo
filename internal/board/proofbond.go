@@ -397,6 +397,13 @@ func (s *Store) settleBond(ctx context.Context, tx *sql.Tx, d standingData, now 
 	case b.State != "refund_owed":
 		return Result{}, bondError("not_found")
 	}
+	// A penalty can burn the bond's root after its refund was asked for
+	// (the nightly trust run): a burned bond is never refunded.
+	if burned, err := bondBurned(ctx, tx, "bond:"+b.ID); err != nil {
+		return Result{}, err
+	} else if burned {
+		return Result{}, bondError("burned")
+	}
 	operator, _ := services.ParseEVMAddress(strings.ToLower(b.PayTo))
 	pay, err := s.checkUSDCPayment(ctx, tx, usdcOwed{command: "standing.challenge", txHash: d.TxHash, network: b.Network, asset: b.Asset, payTo: b.RefundPayTo,
 		amount: b.Amount, notBefore: b.RefundRequestedAt, senders: map[services.EVMAddress]bool{operator: true}, payee: "the bond's refund address",
@@ -474,13 +481,30 @@ func (s *Store) OwedBonds(ctx context.Context) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []map[string]any
-	now := s.now().Unix()
+	var bonds []bondRow
 	for rows.Next() {
 		r, err := scanBond(rows.Scan)
 		if err != nil {
+			rows.Close()
 			return nil, err
+		}
+		bonds = append(bonds, r)
+	}
+	// Closed before the burn checks: one connection (no query while rows
+	// are open).
+	if err = closeRows(rows); err != nil {
+		return nil, err
+	}
+	var out []map[string]any
+	now := s.now().Unix()
+	for _, r := range bonds {
+		if r.State == "refund_owed" {
+			// Burned after the refund was asked for: owed nothing.
+			if burned, err := bondBurned(ctx, s.db, "bond:"+r.ID); err != nil {
+				return nil, err
+			} else if burned {
+				continue
+			}
 		}
 		v := r.view(s, now)
 		v["account"], v["agent"] = r.Account, r.Agent
@@ -489,7 +513,7 @@ func (s *Store) OwedBonds(ctx context.Context) ([]map[string]any, error) {
 		}
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ResolveBond is the operator's verdict on a bond whose settlement is
