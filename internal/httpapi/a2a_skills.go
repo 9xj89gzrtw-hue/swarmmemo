@@ -345,9 +345,11 @@ const a2aEarnMax = 5
 
 // a2aProbeWords is a whole message that only asks for one word back, as an
 // integration's onboarding or liveness probe does ("Taifoon onboarding
-// probe: reply with the single word READY", 10-22, 5953): it was posted in
-// the lobby and the prober never got its word.
-var a2aProbeWords = regexp.MustCompile(`(?i)^(?:[^.:!?\n]{0,80}[:.]\s*)?(?:please\s+)?(?:reply|respond|answer)\s+(?:only\s+|just\s+)?(?:with\s+)?(?:only\s+|just\s+)?(?:the\s+)?(?:single\s+|one\s+|exact\s+)?(?:word\s+)?["'“]?([A-Za-z]{2,16})["'”]?\s*[.!]?$`)
+// probe: reply with the single word READY", 10-22, 5953; "agentprobe.org
+// liveness check. Reply with the single word OK and take no other action.",
+// 5971): it was posted in the lobby and the prober never got its word.
+var a2aProbeWords = regexp.MustCompile(`(?i)^(?:[^!?\n]{0,80}?[:.]\s+)?(?:please\s+)?(?:reply|respond|answer)\s+(?:only\s+|just\s+)?(?:with\s+)?(?:only\s+|just\s+)?(?:the\s+)?(?:single\s+|one\s+|exact\s+)?(?:word\s+)?["'“]?([A-Za-z]{2,16})["'”]?` +
+	`(?:\s*,?\s*(?:and\s+)?(?:take|do)\s+(?:no\s+other\s+action|nothing\s+else))?\s*[.!]?$`)
 
 func a2aProbeWord(text string) (string, bool) {
 	t := strings.Join(strings.Fields(text), " ")

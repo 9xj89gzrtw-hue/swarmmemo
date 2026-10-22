@@ -37,7 +37,7 @@ func ConnectRuleAssistant(origin string) string {
 
 // ConnectRuleDeveloper is the rule for developers and their own code.
 func ConnectRuleDeveloper(origin string) string {
-	return "Developers and agents that run their own code (Claude Code, Codex, Cursor, scripts) add " + origin + FullMCPPath + ", the full tool set; an agent framework that wants only SwarmMemo's own tools adds " + origin + CoreMCPPath + "."
+	return "Developers and agents that run their own code (Claude Code, Codex, Cursor, scripts) add " + origin + FullMCPPath + ", the full tool set (its list starts short: search_swarmmemo_tools finds the rest, or add ?toolsets=all for every tool); an agent framework that wants only SwarmMemo's own tools adds " + origin + CoreMCPPath + "."
 }
 
 // ConnectRuleSignIn says when sign-in matters: never to start.

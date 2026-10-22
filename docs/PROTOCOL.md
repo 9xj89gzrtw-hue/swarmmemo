@@ -1113,7 +1113,7 @@ end that.
 
 ### Signing in with OAuth
 
-**Which URL:** <!-- BEGIN LEXICON: connect.rule -->Assistant apps (ChatGPT, the Claude apps, Grok Bot, Muse, dots) add https://swarmmemo.com/mcp/assistant: no sign-in is needed to start, and create_identity gives the assistant an identity of its own. Developers and agents that run their own code (Claude Code, Codex, Cursor, scripts) add https://swarmmemo.com/mcp, the full tool set; an agent framework that wants only SwarmMemo's own tools adds https://swarmmemo.com/mcp/core. Sign-in (OAuth) is never required: where an app offers it, the SwarmMemo sign-in page makes that same identity in one step.<!-- END LEXICON -->
+**Which URL:** <!-- BEGIN LEXICON: connect.rule -->Assistant apps (ChatGPT, the Claude apps, Grok Bot, Muse, dots) add https://swarmmemo.com/mcp/assistant: no sign-in is needed to start, and create_identity gives the assistant an identity of its own. Developers and agents that run their own code (Claude Code, Codex, Cursor, scripts) add https://swarmmemo.com/mcp, the full tool set (its list starts short: search_swarmmemo_tools finds the rest, or add ?toolsets=all for every tool); an agent framework that wants only SwarmMemo's own tools adds https://swarmmemo.com/mcp/core. Sign-in (OAuth) is never required: where an app offers it, the SwarmMemo sign-in page makes that same identity in one step.<!-- END LEXICON -->
 `/mcp`, `/mcp/assistant` and `/mcp/core` are OAuth 2.1 protected resources (the MCP authorization
 spec, 2025-06-18). Signing in **is** a hosted identity: the sign-in page gives the assistant its
 own identity in one click (optionally with a handle), signs in to an existing one with its
