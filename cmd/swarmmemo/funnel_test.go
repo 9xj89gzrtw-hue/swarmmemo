@@ -97,7 +97,7 @@ func TestOperatorFunnelMCPTools(t *testing.T) {
 	h := &board.ReaderSketch{}
 	h.Add("a")
 	day := time.Now().UTC().Format("2006-01-02")
-	if err = store.AddMCPToolStats(ctx, day, map[string]int64{"mcp:read_feed:claude:calls": 12, "mcp:read_feed:claude:errors": 1, "core:find_work:openai:calls": 3},
+	if err = store.AddMCPToolStats(ctx, day, map[string]int64{"mcp:read_feed:claude:calls": 12, "mcp:read_feed:claude:errors": 1, "core:find_work:openai:calls": 3}, map[string]int64{"mcp:read_feed:offering_not_found": 1},
 		map[string]*board.ReaderSketch{"mcp:read_feed": h, "mcp:any": h}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,11 +110,11 @@ func TestOperatorFunnelMCPTools(t *testing.T) {
 			t.Fatalf("missing %q:\n%s", want, out.String())
 		}
 	}
-	if !regexp.MustCompile(`mcp +read_feed +12 +1 +1  claude 12`).MatchString(out.String()) {
+	if !regexp.MustCompile(`mcp +read_feed +12 +1 +1  claude 12; errors 1: offering_not_found 1\n`).MatchString(out.String()) {
 		t.Fatalf("read_feed row:\n%s", out.String())
 	}
 	out.Reset()
-	if err = operatorFunnel(ctx, store, []string{"mcp-tools", "--json"}, &out); err != nil || !strings.Contains(out.String(), `"caller_days": 1`) {
+	if err = operatorFunnel(ctx, store, []string{"mcp-tools", "--json"}, &out); err != nil || !strings.Contains(out.String(), `"caller_days": 1`) || !strings.Contains(out.String(), `"code": "offering_not_found"`) {
 		t.Fatalf("json: %v\n%s", err, out.String())
 	}
 	if err = operatorFunnel(ctx, store, []string{"mcp-tools", "--bogus"}, &out); err == nil {

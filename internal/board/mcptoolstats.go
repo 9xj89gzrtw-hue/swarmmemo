@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"regexp"
@@ -23,12 +24,17 @@ import (
 //	counters mcp_tool:YYYY-MM-DD:PROFILE:TOOL:FAMILY:METRIC  METRIC calls or errors
 //	counters mcp_tool_distinct:YYYY-MM-DD:PROFILE:TOOL       the day's distinct-caller estimate
 //	meta     mcp_tool_hll:YYYY-MM-DD:PROFILE:TOOL            the day's HyperLogLog sketch, kept MCPToolSketchDays
+//	counters mcp_tool_code:YYYY-MM-DD:PROFILE:TOOL:CODE      failed calls by the refusal's error code
 //	counters mcp_tool_skipped:YYYY-MM-DD                     the day's entries skipped for an invalid key
 //
 // PROFILE is one of MCPToolProfiles; TOOL a tool the profile registers
 // whose name is ValidMCPToolName, anything else folded into MCPToolOther by
 // the HTTP layer (and skipped here unless it has a tool name's shape); TOOL is MCPToolAny for the
-// profile's callers of any tool. FAMILY is one of ClientFamilies. No
+// profile's callers of any tool. FAMILY is one of ClientFamilies. CODE is
+// the failed call's error code (board.Error's Code, as the tool's structured
+// refusal carries it) or MCPToolOther when it has none; at most
+// MCPToolCodesMax codes are kept per profile, tool and day, any further code
+// folded into MCPToolOther, so the table's size never depends on callers. No
 // address, token, key, User-Agent or argument is stored: the HTTP layer
 // adds a daily-salted caller id (httpapi/mcp_toolstats.go) to the sketch,
 // and only the sketch's registers reach storage. Its salt is memory only,
@@ -51,11 +57,16 @@ const (
 	// MCPToolSketchDays is how many days' sketches are kept: a closed day's
 	// estimate is final, so only today's and yesterday's are needed.
 	MCPToolSketchDays = 2
+	// MCPToolCodesMax is how many distinct error codes are kept per
+	// profile, tool and day, MCPToolOther not counted; a further code is
+	// counted under MCPToolOther.
+	MCPToolCodesMax = 16
 
 	mcpToolScopePrefix    = "mcp_tool:"
 	mcpToolDistinctPrefix = "mcp_tool_distinct:"
 	mcpToolSketchPrefix   = "mcp_tool_hll:"
 	mcpToolSkippedPrefix  = "mcp_tool_skipped:"
+	mcpToolCodePrefix     = "mcp_tool_code:"
 )
 
 var mcpToolNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
@@ -72,6 +83,20 @@ func MCPToolKey(profile, tool, family, metric string) string {
 // MCPToolDistinctKey is the sketch key of one profile and tool.
 func MCPToolDistinctKey(profile, tool string) string { return profile + ":" + tool }
 
+// ValidMCPToolCode reports an error code a codes key can carry; the HTTP
+// layer counts any other code as MCPToolOther.
+func ValidMCPToolCode(code string) bool { return mcpToolNameRE.MatchString(code) }
+
+// MCPToolCodeKey is the codes key of one profile, tool and error code.
+func MCPToolCodeKey(profile, tool, code string) string {
+	return profile + ":" + tool + ":" + code
+}
+
+func validMCPToolCodeKey(key string) bool {
+	parts := strings.Split(key, ":")
+	return len(parts) == 3 && validMCPToolPair(parts[0], parts[1]) && parts[1] != MCPToolAny && ValidMCPToolCode(parts[2])
+}
+
 func validMCPToolPair(profile, tool string) bool {
 	return slices.Contains(MCPToolProfiles, profile) && mcpToolNameRE.MatchString(tool)
 }
@@ -86,13 +111,14 @@ func validMCPToolDistinctKey(key string) bool {
 	return ok && validMCPToolPair(profile, tool)
 }
 
-// AddMCPToolStats adds one UTC day's tool call counts and merges its
-// distinct-caller sketches, in one transaction: the HTTP layer's batched
+// AddMCPToolStats adds one UTC day's tool call counts and error codes
+// (MCPToolCodeKey) and merges its distinct-caller sketches, in one
+// transaction: the HTTP layer's batched
 // flush, never a request's path. Every key is checked, so no caller can
 // put an identifier in a scope string; an entry with an invalid key (or a
 // negative count, or no sketch) is skipped and counted under
 // mcp_tool_skipped, so one bad key never loses the day's other counts.
-func (s *Store) AddMCPToolStats(ctx context.Context, day string, counts map[string]int64, sketches map[string]*ReaderSketch) error {
+func (s *Store) AddMCPToolStats(ctx context.Context, day string, counts, codes map[string]int64, sketches map[string]*ReaderSketch) error {
 	if !validReaderDay(day) {
 		return fmt.Errorf("mcp tool stats: invalid day")
 	}
@@ -113,6 +139,9 @@ func (s *Store) AddMCPToolStats(ctx context.Context, day string, counts map[stri
 		if err = addCounter(ctx, tx, mcpToolScopePrefix+day+":"+key, n); err != nil {
 			return err
 		}
+	}
+	if skipped, err = addMCPToolCodes(ctx, tx, day, codes, skipped); err != nil {
+		return err
 	}
 	for key, h := range sketches {
 		if !validMCPToolDistinctKey(key) || h == nil {
@@ -148,6 +177,63 @@ func (s *Store) AddMCPToolStats(ctx context.Context, day string, counts map[stri
 	return tx.Commit()
 }
 
+// addMCPToolCodes adds a day's error code counts in tx, keeping at most
+// MCPToolCodesMax codes per profile and tool (the most frequent of the
+// batch first, codes already stored kept), the rest under MCPToolOther. It
+// returns skipped plus the entries it skipped for an invalid key.
+func addMCPToolCodes(ctx context.Context, tx *sql.Tx, day string, codes map[string]int64, skipped int64) (int64, error) {
+	keys := make([]string, 0, len(codes))
+	for key, n := range codes {
+		if !validMCPToolCodeKey(key) || n < 0 {
+			skipped++
+			continue
+		}
+		if n > 0 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return codes[keys[i]] > codes[keys[j]] || codes[keys[i]] == codes[keys[j]] && keys[i] < keys[j]
+	})
+	held := map[string]int{} // PROFILE:TOOL -> distinct codes stored, MCPToolOther not counted
+	for _, key := range keys {
+		n := codes[key]
+		cut := strings.LastIndexByte(key, ':')
+		pair, code := key[:cut], key[cut+1:]
+		if code != MCPToolOther {
+			var exists int
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM counters WHERE scope=?", mcpToolCodePrefix+day+":"+key).Scan(&exists); err != nil {
+				return skipped, err
+			}
+			if exists == 0 {
+				stored, ok := held[pair]
+				if !ok {
+					prefix := mcpToolCodePrefix + day + ":" + pair + ":"
+					if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM counters WHERE scope>=? AND scope<? AND scope<>?", prefix, prefix+"~", prefix+MCPToolOther).Scan(&stored); err != nil {
+						return skipped, err
+					}
+				}
+				if stored >= MCPToolCodesMax {
+					held[pair] = stored
+					key = pair + ":" + MCPToolOther
+				} else {
+					held[pair] = stored + 1
+				}
+			}
+		}
+		if err := addCounter(ctx, tx, mcpToolCodePrefix+day+":"+key, n); err != nil {
+			return skipped, err
+		}
+	}
+	return skipped, nil
+}
+
+// MCPToolCode is one error code's failed calls.
+type MCPToolCode struct {
+	Code   string `json:"code"`
+	Errors int64  `json:"errors"`
+}
+
 // MCPToolRow is one profile's tool over a window.
 type MCPToolRow struct {
 	Profile string `json:"profile"`
@@ -160,6 +246,11 @@ type MCPToolRow struct {
 	CallerDays int64 `json:"caller_days"`
 	// Families is calls by client family.
 	Families map[string]int64 `json:"families"`
+	// ErrorCodes is the failed calls by error code, most first: the
+	// refusal's code, MCPToolOther for one without a code or past
+	// MCPToolCodesMax a day.
+	ErrorCodes []MCPToolCode `json:"error_codes,omitempty"`
+	codes      map[string]int64
 }
 
 // MCPToolWindow is the tool calls of the days From to To (UTC, inclusive).
@@ -204,7 +295,7 @@ func (s *Store) MCPToolStats(ctx context.Context, end time.Time, days int) (MCPT
 	row := func(profile, tool string) *MCPToolRow {
 		k := profile + ":" + tool
 		if rows[k] == nil {
-			rows[k] = &MCPToolRow{Profile: profile, Tool: tool, Families: map[string]int64{}}
+			rows[k] = &MCPToolRow{Profile: profile, Tool: tool, Families: map[string]int64{}, codes: map[string]int64{}}
 		}
 		return rows[k]
 	}
@@ -246,6 +337,14 @@ func (s *Store) MCPToolStats(ctx context.Context, end time.Time, days int) (MCPT
 	if err := s.db.QueryRowContext(ctx, "SELECT coalesce(sum(value),0) FROM counters WHERE scope>=? AND scope<=?", mcpToolSkippedPrefix+w.From, mcpToolSkippedPrefix+w.To).Scan(&w.Skipped); err != nil {
 		return w, err
 	}
+	if err := read(mcpToolCodePrefix, func(_, key string, n int64) {
+		if validMCPToolCodeKey(key) {
+			p := strings.Split(key, ":")
+			row(p[0], p[1]).codes[p[2]] += n
+		}
+	}); err != nil {
+		return w, err
+	}
 	if err := read(mcpToolDistinctPrefix, func(_, key string, n int64) {
 		if validMCPToolDistinctKey(key) {
 			profile, tool, _ := strings.Cut(key, ":")
@@ -274,10 +373,15 @@ func (s *Store) MCPToolStats(ctx context.Context, end time.Time, days int) (MCPT
 		for f, n := range r.Families {
 			p.Families[f] += n
 		}
+		for c, n := range r.codes {
+			p.codes[c] += n
+		}
+		r.ErrorCodes = mcpToolCodes(r.codes)
 		w.Tools = append(w.Tools, *r)
 	}
 	for _, name := range MCPToolProfiles {
 		if p := profiles[name]; p != nil {
+			p.ErrorCodes = mcpToolCodes(p.codes)
 			w.Profiles = append(w.Profiles, *p)
 		}
 	}
@@ -292,4 +396,19 @@ func (s *Store) MCPToolStats(ctx context.Context, end time.Time, days int) (MCPT
 		return a.Tool < b.Tool
 	})
 	return w, nil
+}
+
+// mcpToolCodes is codes most failed calls first, then by code.
+func mcpToolCodes(codes map[string]int64) []MCPToolCode {
+	out := make([]MCPToolCode, 0, len(codes))
+	for c, n := range codes {
+		out = append(out, MCPToolCode{Code: c, Errors: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Errors > out[j].Errors || out[i].Errors == out[j].Errors && out[i].Code < out[j].Code
+	})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

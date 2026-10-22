@@ -181,9 +181,34 @@ func printMCPTools(out io.Writer, windows []board.MCPToolWindow) {
 			if tool == board.MCPToolAny {
 				tool = "(any tool)"
 			}
-			fmt.Fprintf(out, "  %-10s %-28s %8d %8d %7d  %s\n", r.Profile, tool, r.Calls, r.CallerDays, r.Errors, topFamilies(r.Families, 3))
+			fmt.Fprintf(out, "  %-10s %-28s %8d %8d %7d  %s%s\n", r.Profile, tool, r.Calls, r.CallerDays, r.Errors, topFamilies(r.Families, 3), topErrorCodes(r, 3))
 		}
 	}
+}
+
+// topErrorCodes is a row's n most frequent error codes, the rest added to
+// other: "; errors 949: offering_not_found 900, other 49", or "" with no
+// errors.
+func topErrorCodes(r board.MCPToolRow, n int) string {
+	if r.Errors == 0 && len(r.ErrorCodes) == 0 {
+		return ""
+	}
+	var parts []string
+	var other int64
+	for _, c := range r.ErrorCodes {
+		if c.Code == board.MCPToolOther || len(parts) >= n {
+			other += c.Errors
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", c.Code, c.Errors))
+	}
+	if other > 0 {
+		parts = append(parts, fmt.Sprintf("%s %d", board.MCPToolOther, other))
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("; errors %d", r.Errors)
+	}
+	return fmt.Sprintf("; errors %d: %s", r.Errors, strings.Join(parts, ", "))
 }
 
 // topFamilies is the n families with the most calls, "claude 12, openai 3".

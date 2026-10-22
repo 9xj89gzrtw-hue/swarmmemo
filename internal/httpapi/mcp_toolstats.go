@@ -5,7 +5,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,7 +19,8 @@ import (
 
 // Per-tool MCP call counters (board/mcptoolstats.go): every tools/call on a
 // hosted MCP profile adds one call (and one error when it failed) under its
-// profile, tool and client family, and a daily-salted caller id to the
+// profile, tool and client family, a failed call one under its error code
+// (mcpToolErrorCode), and a daily-salted caller id to the
 // day's distinct-caller sketch of the tool and of the profile. Like the
 // reader counters (readerstats.go) a call only touches memory under a short
 // mutex; the background flush writes the day's totals in one transaction at
@@ -39,12 +42,13 @@ import (
 const mcpToolKeysMax = 4096
 
 type mcpToolStatsStore interface {
-	AddMCPToolStats(context.Context, string, map[string]int64, map[string]*board.ReaderSketch) error
+	AddMCPToolStats(context.Context, string, map[string]int64, map[string]int64, map[string]*board.ReaderSketch) error
 }
 
 type mcpToolCounter struct {
 	mu        sync.Mutex
 	pending   map[string]map[string]int64               // UTC day -> board.MCPToolKey -> count
+	codes     map[string]map[string]int64               // UTC day -> board.MCPToolCodeKey -> failed calls
 	sketches  map[string]map[string]*board.ReaderSketch // UTC day -> board.MCPToolDistinctKey -> callers
 	salt      readerSalt
 	lastFlush time.Time
@@ -53,7 +57,7 @@ type mcpToolCounter struct {
 }
 
 func newMCPToolCounter() *mcpToolCounter {
-	return &mcpToolCounter{pending: map[string]map[string]int64{}, sketches: map[string]map[string]*board.ReaderSketch{}}
+	return &mcpToolCounter{pending: map[string]map[string]int64{}, codes: map[string]map[string]int64{}, sketches: map[string]map[string]*board.ReaderSketch{}}
 }
 
 // mcpToolProfile is the counters' name of a profile.
@@ -126,19 +130,55 @@ func (s *Server) countMCPTools(profile string, registered map[string]bool) mcp.M
 					name = call.Params.Name
 				}
 				failed := err != nil
-				if r, ok := res.(*mcp.CallToolResult); ok && r != nil && r.IsError {
+				r, _ := res.(*mcp.CallToolResult)
+				if r != nil && r.IsError {
 					failed = true
 				}
-				s.countMCPTool(ctx, profile, name, failed)
+				code := ""
+				if failed {
+					code = mcpToolErrorCode(r, err)
+				}
+				s.countMCPTool(ctx, profile, name, code)
 			}
 			return res, err
 		}
 	}
 }
 
-// countMCPTool records one call. It never touches storage and never panics
-// into the request.
-func (s *Server) countMCPTool(ctx context.Context, profile, tool string, failed bool) {
+// mcpToolErrorCode is a failed call's error code: the board.Error a tool's
+// refusal carries (its structured content, structuredToolErrors, or the
+// result's error), else board.MCPToolOther. Only the code is kept, never
+// the message or the arguments.
+func mcpToolErrorCode(r *mcp.CallToolResult, err error) string {
+	var be *board.Error
+	switch {
+	case err != nil:
+		errors.As(err, &be)
+	case r != nil:
+		if m, ok := r.StructuredContent.(map[string]any); ok {
+			switch e := m["error"].(type) {
+			case *board.Error:
+				be = e
+			case map[string]any:
+				if c, ok := e["code"].(string); ok {
+					be = &board.Error{Code: c}
+				}
+			}
+		}
+		if be == nil {
+			errors.As(r.GetError(), &be)
+		}
+	}
+	if be == nil || !board.ValidMCPToolCode(be.Code) {
+		return board.MCPToolOther
+	}
+	return be.Code
+}
+
+// countMCPTool records one call, failed when code (its error code) is set.
+// It never touches storage and never panics into the request.
+func (s *Server) countMCPTool(ctx context.Context, profile, tool, code string) {
+	failed := code != ""
 	defer func() { _ = recover() }()
 	peer, _ := ctx.Value(peerContextKey{}).(string)
 	if peer == "" || localMCP(ctx) || s.readers == nil {
@@ -173,6 +213,7 @@ func (s *Server) countMCPTool(ctx context.Context, profile, tool string, failed 
 		add(board.MCPToolKey(profile, tool, family, "calls"))
 		if failed {
 			add(board.MCPToolKey(profile, tool, family, "errors"))
+			c.addCode(day, profile, tool, code)
 		}
 		if !own {
 			if salt := c.salt.get(day, now); salt != nil {
@@ -213,6 +254,33 @@ func (s *Server) countMCPTool(ctx context.Context, profile, tool string, failed 
 	}
 }
 
+// addCode counts one failed call under its code, at most
+// board.MCPToolCodesMax codes per profile and tool and day held (the board
+// caps what it stores the same way), any further one as board.MCPToolOther.
+// c.mu is held.
+func (c *mcpToolCounter) addCode(day, profile, tool, code string) {
+	codes := c.codes[day]
+	if codes == nil {
+		codes = map[string]int64{}
+		c.codes[day] = codes
+	}
+	key := board.MCPToolCodeKey(profile, tool, code)
+	if _, held := codes[key]; !held && code != board.MCPToolOther {
+		prefix, n := board.MCPToolCodeKey(profile, tool, ""), 0
+		for k := range codes {
+			if strings.HasPrefix(k, prefix) && k != prefix+board.MCPToolOther {
+				n++
+			}
+		}
+		if n >= board.MCPToolCodesMax || len(codes) >= mcpToolKeysMax {
+			key = prefix + board.MCPToolOther
+		}
+	}
+	if _, held := codes[key]; held || len(codes) < mcpToolKeysMax {
+		codes[key]++
+	}
+}
+
 // networkPrefix is peer's network (IPv4 /24, IPv6 /48), as readerNetwork,
 // and whether it is in OwnNetworks.
 func (s *Server) networkPrefix(peer string) (prefix string, own bool) {
@@ -238,11 +306,14 @@ func (c *mcpToolCounter) flush(store mcpToolStatsStore) {
 	c.flushMu.Lock()
 	defer c.flushMu.Unlock()
 	c.mu.Lock()
-	batch, sketchBatch := c.pending, c.sketches
-	c.pending, c.sketches = map[string]map[string]int64{}, map[string]map[string]*board.ReaderSketch{}
+	batch, codeBatch, sketchBatch := c.pending, c.codes, c.sketches
+	c.pending, c.codes, c.sketches = map[string]map[string]int64{}, map[string]map[string]int64{}, map[string]map[string]*board.ReaderSketch{}
 	c.mu.Unlock()
 	days := map[string]bool{}
 	for day := range batch {
+		days[day] = true
+	}
+	for day := range codeBatch {
 		days[day] = true
 	}
 	for day := range sketchBatch {
@@ -250,26 +321,32 @@ func (c *mcpToolCounter) flush(store mcpToolStatsStore) {
 	}
 	for day := range days {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err := store.AddMCPToolStats(ctx, day, batch[day], sketchBatch[day])
+		err := store.AddMCPToolStats(ctx, day, batch[day], codeBatch[day], sketchBatch[day])
 		cancel()
 		if err != nil {
-			c.requeue(day, batch[day], sketchBatch[day])
+			c.requeue(day, batch[day], codeBatch[day], sketchBatch[day])
 		}
 	}
 }
 
 // requeue puts a day's unwritten counts and sketches back under what came
 // since, keeping only the most recent readerMaxPendingDay days.
-func (c *mcpToolCounter) requeue(day string, counts map[string]int64, sketches map[string]*board.ReaderSketch) {
+func (c *mcpToolCounter) requeue(day string, counts, codes map[string]int64, sketches map[string]*board.ReaderSketch) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(counts) > 0 {
-		target := c.pending[day]
+	for _, m := range []struct {
+		from map[string]int64
+		into map[string]map[string]int64
+	}{{counts, c.pending}, {codes, c.codes}} {
+		if len(m.from) == 0 {
+			continue
+		}
+		target := m.into[day]
 		if target == nil {
 			target = map[string]int64{}
-			c.pending[day] = target
+			m.into[day] = target
 		}
-		for k, n := range counts {
+		for k, n := range m.from {
 			target[k] += n
 		}
 	}
@@ -289,6 +366,7 @@ func (c *mcpToolCounter) requeue(day string, counts map[string]int64, sketches m
 	}
 	for _, m := range []func() []string{
 		func() []string { return keysOf(c.pending) },
+		func() []string { return keysOf(c.codes) },
 		func() []string { return keysOf(c.sketches) },
 	} {
 		for keys := m(); len(keys) > readerMaxPendingDay; keys = m() {
@@ -299,6 +377,7 @@ func (c *mcpToolCounter) requeue(day string, counts map[string]int64, sketches m
 				}
 			}
 			delete(c.pending, oldest)
+			delete(c.codes, oldest)
 			delete(c.sketches, oldest)
 		}
 	}

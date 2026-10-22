@@ -1,6 +1,7 @@
 package board
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -31,14 +32,14 @@ func TestMCPToolStats(t *testing.T) {
 		{"mcp:read_feed:claude:calls": -1},      // negative
 	} {
 		bad["core:list_rooms:claude:calls"] = 1
-		if err := s.AddMCPToolStats(testContext, day0.Format("2006-01-02"), bad, nil); err != nil {
+		if err := s.AddMCPToolStats(testContext, day0.Format("2006-01-02"), bad, nil, nil); err != nil {
 			t.Fatalf("refused the batch of %v: %v", bad, err)
 		}
 	}
-	if err := s.AddMCPToolStats(testContext, day0.Format("2006-01-02"), nil, map[string]*ReaderSketch{"mcp:curl/8.5.0": sketch("a"), "core:list_rooms": nil, "core:" + strings.Repeat("x", 49): sketch("z")}); err != nil {
+	if err := s.AddMCPToolStats(testContext, day0.Format("2006-01-02"), nil, nil, map[string]*ReaderSketch{"mcp:curl/8.5.0": sketch("a"), "core:list_rooms": nil, "core:" + strings.Repeat("x", 49): sketch("z")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddMCPToolStats(testContext, "2026-13-01", map[string]int64{"core:list_rooms:claude:calls": 1}, nil); err == nil {
+	if err := s.AddMCPToolStats(testContext, "2026-13-01", map[string]int64{"core:list_rooms:claude:calls": 1}, nil, nil); err == nil {
 		t.Fatal("accepted an invalid day")
 	}
 	var skipped, rooms int64
@@ -61,7 +62,7 @@ func TestMCPToolStats(t *testing.T) {
 	add := func(at time.Time, counts map[string]int64, sketches map[string]*ReaderSketch) {
 		t.Helper()
 		s.now = func() time.Time { return at }
-		if err := s.AddMCPToolStats(testContext, at.Format("2006-01-02"), counts, sketches); err != nil {
+		if err := s.AddMCPToolStats(testContext, at.Format("2006-01-02"), counts, nil, sketches); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,5 +97,51 @@ func TestMCPToolStats(t *testing.T) {
 	}
 	if _, err := s.MCPToolStats(testContext, day1, 0); err == nil {
 		t.Fatal("a zero-day window")
+	}
+}
+
+// Error codes are summed per tool and profile, most first; past
+// MCPToolCodesMax a day a new code folds into "other", across flushes; an
+// invalid codes key is skipped and counted.
+func TestMCPToolErrorCodes(t *testing.T) {
+	s := openTest(t, Config{})
+	day0 := time.Unix(testTime, 0).UTC()
+	s.now = func() time.Time { return day0 }
+	day := day0.Format("2006-01-02")
+	codes := map[string]int64{
+		"mcp:offering_calls:offering_not_found": 900,
+		"mcp:offering_calls:other":              4,
+		"mcp:offering_calls:Bad-Code":           1, // not a code
+		"mcp:any:not_found":                     1, // not a tool
+		"web:offering_calls:not_found":          1, // not a profile
+	}
+	for i := 0; i < MCPToolCodesMax; i++ {
+		codes[fmt.Sprintf("mcp:offering_calls:code_%02d", i)] = int64(20 - i)
+	}
+	if err := s.AddMCPToolStats(testContext, day, map[string]int64{"mcp:offering_calls:claude:calls": 1000, "mcp:offering_calls:claude:errors": 1000}, codes, nil); err != nil {
+		t.Fatal(err)
+	}
+	// A further new code is "other"; a held one still counts as itself.
+	if err := s.AddMCPToolStats(testContext, day, nil, map[string]int64{"mcp:offering_calls:late_code": 3, "mcp:offering_calls:offering_not_found": 1}, nil); err != nil {
+		t.Fatal(err)
+	}
+	w, err := s.MCPToolStats(testContext, day0, 1)
+	if err != nil || len(w.Tools) != 1 || w.Skipped != 3 {
+		t.Fatalf("window: %+v %v", w, err)
+	}
+	got := map[string]int64{}
+	for _, c := range w.Tools[0].ErrorCodes {
+		got[c.Code] = c.Errors
+	}
+	// 16 kept: offering_not_found and code_00..code_14; code_15 (the least
+	// frequent) and late_code fold into other.
+	if len(got) != MCPToolCodesMax+1 || got["offering_not_found"] != 901 || got["code_00"] != 20 || got["code_15"] != 0 || got["late_code"] != 0 || got[MCPToolOther] != 4+5+3 {
+		t.Fatalf("codes: %v", got)
+	}
+	if first := w.Tools[0].ErrorCodes[0]; first.Code != "offering_not_found" {
+		t.Fatalf("not most first: %+v", w.Tools[0].ErrorCodes)
+	}
+	if p := w.Profiles[0]; p.Tool != MCPToolAny || len(p.ErrorCodes) != len(got) {
+		t.Fatalf("profile codes: %+v", p)
 	}
 }

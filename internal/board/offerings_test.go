@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -306,7 +307,13 @@ func TestOfferingCallLifecycle(t *testing.T) {
 	if len(pending) != 1 || pending[0]["call"] != id {
 		t.Fatalf("updates.get offering_calls %v", upd.Data["offering_calls"])
 	}
-	calls := run(t, s, signed(key, Command{Operation: "offering.calls", Kind: "open"})).Data["calls"].([]map[string]any)
+	page := run(t, s, signed(key, Command{Operation: "offering.calls", Kind: "open"}))
+	// The page says to poll every offering's calls in one call, at the
+	// constant's pace.
+	if next, _ := page.Data["next"].(string); !strings.Contains(next, strconv.Itoa(OfferingCallsPollSeconds)+" seconds") || !strings.Contains(next, "all your offerings") {
+		t.Fatalf("offering.calls next %q", next)
+	}
+	calls := page.Data["calls"].([]map[string]any)
 	if len(calls) != 1 || calls[0]["text_is_untrusted"] != true || string(calls[0]["input"].(json.RawMessage)) != question || calls[0]["input_screen"].(map[string]any)["state"] != "unscreened" {
 		t.Fatalf("offering.calls %v", calls)
 	}

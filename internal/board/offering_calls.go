@@ -1252,6 +1252,11 @@ func (s *Store) providerCall(ctx context.Context, tx *sql.Tx, target string, a a
 	return call, nil
 }
 
+// offeringCallsNext is an offering.calls page's data.next: one list without
+// a name covers every offering, so a provider polls that, not one per
+// offering, about every OfferingCallsPollSeconds.
+var offeringCallsNext = "Leave out the offering name (target) to list the calls of all your offerings in one call: poll that about every " + strconv.Itoa(OfferingCallsPollSeconds) + " seconds, not once per offering."
+
 // readOfferingCalls is offering.calls and offering.call.get, the provider's.
 func (s *Store) readOfferingCalls(ctx context.Context, tx *sql.Tx, c Command, a actor, now int64) (Result, error) {
 	if err := requireSigned(a); err != nil {
@@ -1342,6 +1347,7 @@ func (s *Store) readOfferingCalls(ctx context.Context, tx *sql.Tx, c Command, a 
 		return Result{}, err
 	}
 	data["calls"] = out
+	data["next"] = offeringCallsNext
 	return Result{Data: data}, nil
 }
 

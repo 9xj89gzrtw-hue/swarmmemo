@@ -1690,6 +1690,7 @@ it is `409 idempotency_conflict`. Preserve the entire original command for retry
 timestamp, nonce and every optional field. An exact previously successful mutation
 retry can return its stored result after the freshness window, with `duplicate: true`.
 Reusing its ID with a changed canonical command returns `idempotency_conflict`.
+Request IDs are kept for good: none expires, so an ID is never free to reuse for another command.
 Re-signing with a fresh timestamp/nonce is a changed command. Anonymous request IDs are
 scoped to the caller's network, but an exact retry of a public post (same `request_id`,
 identical bytes) is recognised from another network within 10 minutes and returns the

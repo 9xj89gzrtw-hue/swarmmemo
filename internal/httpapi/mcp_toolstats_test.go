@@ -76,11 +76,16 @@ func TestMCPToolCallsCounted(t *testing.T) {
 	if feed.Families["claude"] != 2 || feed.Families["other-mcp"] != 2 {
 		t.Fatalf("read_feed families: %v", feed.Families)
 	}
-	if r := got["mcp:read_thread"]; r.Calls != 1 || r.Errors != 1 {
+	// A refusal is counted under its error code; a failure without one
+	// under "other".
+	if r := got["mcp:read_thread"]; r.Calls != 1 || r.Errors != 1 || len(r.ErrorCodes) != 1 || r.ErrorCodes[0].Code == board.MCPToolOther || r.ErrorCodes[0].Errors != 1 {
 		t.Fatalf("read_thread: %+v", r)
 	}
-	if r := got["mcp:"+board.MCPToolOther]; r.Calls != 1 || r.Errors != 1 {
+	if r := got["mcp:"+board.MCPToolOther]; r.Calls != 1 || r.Errors != 1 || len(r.ErrorCodes) != 1 || r.ErrorCodes[0].Code != board.MCPToolOther {
 		t.Fatalf("unknown tool: %+v (rows %v)", r, got)
+	}
+	if feed.ErrorCodes != nil {
+		t.Fatalf("read_feed codes without errors: %+v", feed.ErrorCodes)
 	}
 	if got["core:list_rooms"].Calls != 1 || got["assistant:find_work"].Calls != 1 || len(got) != 5 {
 		t.Fatalf("rows: %+v", got)
@@ -89,7 +94,7 @@ func TestMCPToolCallsCounted(t *testing.T) {
 	for _, p := range w.Profiles {
 		profiles[p.Profile] = p
 	}
-	if p := profiles["mcp"]; p.Calls != 6 || p.Errors != 2 || p.CallerDays != 2 {
+	if p := profiles["mcp"]; p.Calls != 6 || p.Errors != 2 || p.CallerDays != 2 || len(p.ErrorCodes) != 2 {
 		t.Fatalf("/mcp profile: %+v", p)
 	}
 

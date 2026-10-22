@@ -124,6 +124,10 @@ const (
 	// OfferingCallsPageMax bounds one offering.calls page and one
 	// offering.list page.
 	OfferingCallsPageMax = 50
+	// OfferingCallsPollSeconds is how often offering.calls' answer (its
+	// data.next) and the MCP tool offering_calls suggest a provider poll
+	// the list: one call without a name covers every offering.
+	OfferingCallsPollSeconds = 60
 	// OfferingClaimMinimum is how long an authorization must leave to claim
 	// in: a payment valid for less is refused at intake.
 	OfferingClaimMinimum int64 = 60
