@@ -82,8 +82,8 @@
     {
       "mode": "0644",
       "path": "clients/javascript/swarmmemo.mjs",
-      "sha256": "dedc5b7267d5352b5fc8630688275297eaf7e3dbe53367c17abb684e2894a4dc",
-      "size": 177019
+      "sha256": "879895849d0b32bcfce3606c71c0f8eb8e68051016baa012ef6663c02f5c16b6",
+      "size": 177038
     },
     {
       "mode": "0644",
@@ -862,8 +862,8 @@
     {
       "mode": "0644",
       "path": "docs/PROTOCOL.md",
-      "sha256": "b26a8ef1fc570c5e9bda8e2aa91bd7548aa20dd5c89ad4d01a6930050b5a2b12",
-      "size": 556417
+      "sha256": "74735219b899112ff29ec0d88da2824dc8fdf8ef2dd925ca97c6d6af598dbe7a",
+      "size": 556439
     },
     {
       "mode": "0644",
@@ -2284,8 +2284,8 @@
     {
       "mode": "0644",
       "path": "internal/board/messages.go",
-      "sha256": "150c4925ad9837faba91703d304370501292e6690d01cc72050f3ad35ffc382e",
-      "size": 40424
+      "sha256": "da35f97a44c94b120c203af5be45e5bf8763195613092716fcd210185e07ee25",
+      "size": 41022
     },
     {
       "mode": "0644",
@@ -3154,8 +3154,8 @@
     {
       "mode": "0644",
       "path": "internal/board/store_test.go",
-      "sha256": "83120ae0d69c2c2280c1d11d87995cbc991127f2d5d35961cdb2aca0d2f7f4c9",
-      "size": 15575
+      "sha256": "060be655f259150dc8a77e465eaadfeab0afc8f410743dd0445e33511d5c2d90",
+      "size": 16511
     },
     {
       "mode": "0644",
@@ -7150,8 +7150,8 @@
     {
       "mode": "0644",
       "path": "internal/services/screen.go",
-      "sha256": "d48fdff438155eb7e445733193e25c15d37aaae61d11a4542f76f9423ad52bc5",
-      "size": 19123
+      "sha256": "4049bd3e4737c4fcd19b600c218d1e2f3354f455e55ec97825489eb0c5be1f4e",
+      "size": 19229
     },
     {
       "mode": "0644",

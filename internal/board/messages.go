@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 )
+
+// idLikeRoom is a room name that is a 32-hex message or work id.
+var idLikeRoom = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now int64) (Result, error) {
 	if c.Room == "" && c.ReplyTo != "" && workIDRE.MatchString(c.ReplyTo) {
@@ -101,6 +105,11 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 				return Result{}, err
 			}
 		} else {
+			// A room named like a message or work id is a reply that missed
+			// reply_to (round 7, kosoyy 10-22): never opened by a post.
+			if idLikeRoom.MatchString(c.Room) {
+				return Result{}, problem(400, "room_looks_like_id", "No room is named "+c.Room+", and a post never opens one named like a message or task id. To answer that post or task, post in its room (a task's is usually bounties) with reply_to set to the id; this request has not been published.")
+			}
 			// Name-squatting hook (RFC0010): any caller may open a global room by
 			// posting to it, and the room stays operator-owned. With NAME_GATE
 			// (RFC0012 §6.5) only the proven band may; the refusal publishes nothing.

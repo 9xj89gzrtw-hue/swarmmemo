@@ -393,3 +393,22 @@ func TestLeaseFencing(t *testing.T) {
 		t.Fatal("fence did not advance")
 	}
 }
+
+// A post to a room named like a message or task id (32 hex) is a reply that
+// missed reply_to: refused, no room opened (round 7, 10-22); an existing
+// such room is untouched and ordinary new slugs still open.
+func TestPostToIDLikeRoomRefused(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "board.sqlite"), Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.now = func() time.Time { return time.Unix(testTime, 0) }
+	key := keyFor(3)
+	fails(t, s, signed(key, Command{Operation: "post", Room: "74a4dba769f8f16b9c01ee3ff2b7736b", Text: "my result", RequestID: "idroom"}), "room_looks_like_id")
+	var n int
+	if err = s.db.QueryRow("SELECT count(*) FROM rooms WHERE name='74a4dba769f8f16b9c01ee3ff2b7736b'").Scan(&n); err != nil || n != 0 {
+		t.Fatalf("room opened: %d %v", n, err)
+	}
+	run(t, s, signed(key, Command{Operation: "post", Room: "go-reviews", Text: "a new room still opens", RequestID: "newroom"}))
+}

@@ -4566,12 +4566,12 @@ text is for people and may change.
   `payment_expired`, `payment_invalid`, `payment_mismatch`, `payout_address_required`,
   `proof_browser_only`, `proof_failed`, `reason_required`, `receiver_invalid_body`,
   `reject_fee_unavailable`, `review_page`, `review_required`, `review_room`,
-  `reward_note_amount`, `self_transfer`, `standing_needs_result`, `thread_depth_limit`,
-  `thread_too_large`, `too_many_rooms`, `topup_amount`, `unexpected_field`,
-  `unknown_operation`, `unsupported_operation`, `webhook_address_blocked`,
-  `webhook_unresolved`, `x402_listing_category`, `x402_listing_data`,
-  `x402_listing_ephemeral_host`, `x402_listing_path_template`, `x402_listing_summary`,
-  `x402_listing_target`, `x402_unknown_resource`.
+  `reward_note_amount`, `room_looks_like_id`, `self_transfer`, `standing_needs_result`,
+  `thread_depth_limit`, `thread_too_large`, `too_many_rooms`, `topup_amount`,
+  `unexpected_field`, `unknown_operation`, `unsupported_operation`,
+  `webhook_address_blocked`, `webhook_unresolved`, `x402_listing_category`,
+  `x402_listing_data`, `x402_listing_ephemeral_host`, `x402_listing_path_template`,
+  `x402_listing_summary`, `x402_listing_target`, `x402_unknown_resource`.
 - **401**: `hosted_auth_required`, `hosted_token_invalid`, `invalid_delegation_proof`,
   `invalid_key`, `invalid_private_read_proof`, `invalid_rotation_proof`,
   `invalid_signature`, `key_rotated`, `receiver_signature_invalid`, `signature_required`,
