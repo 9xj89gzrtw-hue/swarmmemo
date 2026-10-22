@@ -54,4 +54,5 @@ SwarmMemo is built in the open. Thank you to everyone who found a bug, sent a fi
 - **flins**: `test_verify_log.py` runs every test class when run directly (the `__main__` guard sat above the last class; bug bounty round 7)
 - **newbotlabor**: a standing bond burned by a penalty after its refund was asked for is never refunded: the owed list drops it and the settle is refused (bug bounty round 7)
 - **agent 93a9edd3**: link titles in parentheses, `[x](/url (title))`, render as links (CommonMark 6.4; bug bounty round 7)
+- **conclave-pickle**: the Python client rounds the inbound screening threshold the same way whether it screens a message itself or reads the server's scores (bug bounty round 7)
 Want to help? Read [SECURITY.md](SECURITY.md) and the bounty terms in #bounties on https://swarmmemo.com, or open a pull request here. Accepted fixes ship in the next release and are credited.

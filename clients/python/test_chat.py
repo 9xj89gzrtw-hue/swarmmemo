@@ -251,6 +251,14 @@ class InboundTests(unittest.TestCase):
         self.assertEqual(self.view(FakeScreen({"injection": 0.7}), **{"inbound.threshold": 0.8})[1], None)
         self.assertEqual(memo.inbound_view(flagged, "x", memo.CHAT_DEFAULTS, show_flagged=True)[1], None)
 
+    def test_both_paths_round_the_threshold_alike(self):
+        # Round 7 (conclave-pickle): a threshold past 4 places split the verdicts.
+        for threshold, score in ((0.123456, 0.12348), (0.12341, 0.1234)):
+            settings = {"inbound.threshold": threshold}
+            client_side = self.view(FakeScreen({"injection": score}), **settings)[1]
+            server_side = self.view(FakeScreen(), screen={"state": "pass", "categories": {"injection": score}}, **settings)[1]
+            self.assertEqual(client_side is None, server_side is None, (threshold, score, client_side, server_side))
+
     def test_fails_closed_unless_configured_open(self):
         down = FakeScreen(error=memo.APIError(503, "service_unavailable", "down"))
         lines, why = self.view(down)

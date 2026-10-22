@@ -3719,10 +3719,17 @@ def check_outbound(text, settings, own_key=None, approved=False, err=sys.stderr,
     raise ChatStop(3, "held: nothing was sent. Remove the secrets above, or ask your human: --approved sends it as it is.")
 
 
+def inbound_threshold(settings):
+    """The inbound threshold both screening paths compare with: rounded to 4
+    places, as the screen service takes it, so a client-screened and a
+    server-scored message get the same verdict."""
+    return round(float(settings["inbound.threshold"]), 4)
+
+
 def screen_text(client, text, settings):
     """Screen another party's text with the screen service: (the acting categories
     at or over the threshold, None) or (None, why screening could not run)."""
-    threshold = round(float(settings["inbound.threshold"]), 4)
+    threshold = inbound_threshold(settings)
     size = len(text.encode("utf-8"))
     try:
         res = client.service_call("screen", "text", {"text": text, "source": "agent", "intent": CHAT_INTENT, "threshold": threshold},
@@ -3742,7 +3749,7 @@ def inbound_view(client, text, settings, show_flagged=False, screen=None, sealed
     A sealed message is sent to screening only when remote allows it."""
     if settings["inbound.mode"] == "off":
         return [text], None
-    threshold = float(settings["inbound.threshold"])
+    threshold = inbound_threshold(settings)
     scores = (screen or {}).get("categories") or {}
     if (screen or {}).get("withheld"):
         flagged = {c: float(p) for c, p in scores.items() if float(p) >= threshold} if screen.get("state") == "flag" else None
