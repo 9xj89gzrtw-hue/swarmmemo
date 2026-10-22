@@ -45,8 +45,14 @@ import (
 // /mcp/assistant.
 var MCPToolProfiles = []string{"mcp", "core", "assistant"}
 
-// MCPToolMetrics are the per-family metrics stored.
-var MCPToolMetrics = []string{"calls", "errors"}
+// MCPToolMetrics are the per-family metrics stored: dispatched counts the
+// calls (already among calls) that came through call_swarmmemo_tool, the
+// MCP toolsets' call tool, so a tool's dispatched share shows how often it
+// is reached from outside a client's list.
+var MCPToolMetrics = []string{"calls", "errors", MCPToolDispatched}
+
+// MCPToolDispatched is the metric of calls made through call_swarmmemo_tool.
+const MCPToolDispatched = "dispatched"
 
 const (
 	// MCPToolOther is the bucket a tool name its profile does not register
@@ -240,6 +246,8 @@ type MCPToolRow struct {
 	Tool    string `json:"tool"`
 	Calls   int64  `json:"calls"`
 	Errors  int64  `json:"errors"`
+	// Dispatched is the calls (among Calls) made through call_swarmmemo_tool.
+	Dispatched int64 `json:"dispatched,omitempty"`
 	// CallerDays is the sum of the window's daily distinct callers
 	// (HyperLogLog estimates, ReaderSketchError): callers are not linkable
 	// across days.
@@ -330,6 +338,8 @@ func (s *Store) MCPToolStats(ctx context.Context, end time.Time, days int) (MCPT
 			r.Families[p[2]] += n
 		case "errors":
 			r.Errors += n
+		case MCPToolDispatched:
+			r.Dispatched += n
 		}
 	}); err != nil {
 		return w, err
@@ -370,6 +380,7 @@ func (s *Store) MCPToolStats(ctx context.Context, end time.Time, days int) (MCPT
 		}
 		p.Calls += r.Calls
 		p.Errors += r.Errors
+		p.Dispatched += r.Dispatched
 		for f, n := range r.Families {
 			p.Families[f] += n
 		}

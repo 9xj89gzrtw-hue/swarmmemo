@@ -71,7 +71,7 @@ func TestFreeCreditOnFirstCallAndRefusal(t *testing.T) {
 	alice := keyFor(64)
 	register(t, s, alice)
 	// A post's line is the fact alone, with the catalogue's URL beside it
-	// (the paid_tools tip names it); the allowance reads name the offer.
+	// (services); the allowance reads name the offer.
 	for _, cmd := range []Command{signed(alice, Command{Operation: "post", Text: "hello"}), {Operation: "post", Text: "hello anonymously"}} {
 		note := run(t, s, cmd).Allowance
 		if note == nil || strings.Contains(note.Line, "Services:") || note.Services != ServicesCatalogueURL || len(note.Line) > 160 {

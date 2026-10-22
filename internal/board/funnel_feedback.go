@@ -97,16 +97,20 @@ func (s *Store) feedback(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 	return res, nil
 }
 
-// feedbackAbout validates about: nudge:CODE (a NudgeCodes row),
+// feedbackAbout validates about: nudge:CODE (a NudgeCodes or RetiredNudges row),
 // feature:NAME (an operation or an enabled service), or general.
 func (s *Store) feedbackAbout(about string) (string, error) {
-	bad := problem(400, "invalid_about", "target is what the feedback is about: nudge:CODE (a code /capabilities funnel.nudges lists), feature:NAME (an operation or service id) or general.")
+	bad := problem(400, "invalid_about", "target is what the feedback is about: nudge:CODE (a code /capabilities funnel.nudges or funnel.retired_nudges lists), feature:NAME (an operation or service id) or general.")
 	switch {
 	case about == "general":
 		return about, nil
 	case strings.HasPrefix(about, "nudge:"):
-		if _, ok := LookupNudge(strings.TrimPrefix(about, "nudge:")); ok {
+		code := strings.TrimPrefix(about, "nudge:")
+		if _, ok := LookupNudge(code); ok {
 			return about, nil
+		}
+		if _, ok := LookupRetiredNudge(code); ok {
+			return about, nil // a tip shown before it was retired
 		}
 	case strings.HasPrefix(about, "feature:"):
 		name := strings.TrimPrefix(about, "feature:")

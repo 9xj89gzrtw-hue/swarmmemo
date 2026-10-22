@@ -319,3 +319,16 @@ func TestFunnelDashboardBurst(t *testing.T) {
 		}
 	}
 }
+
+// A retired nudge's rows read under its label, marked retired.
+func TestFunnelDashboardRetiredNudge(t *testing.T) {
+	rep := funnelFixture()
+	rep.Nudges = []board.FunnelNudge{{Code: "first_work", Label: "First work", Shown: 4, Followed: board.RateOf(1, 4)},
+		{Code: "standing_bounty", Label: "Standing bounty", Retired: true, Shown: 9, Followed: board.RateOf(0, 9)}}
+	page := renderFunnel(t, rep)
+	for _, want := range []string{`<th scope="row">First work</th>`, `<th scope="row">Standing bounty (retired)</th><td class="num">9</td>`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("nudges table lacks %s", want)
+		}
+	}
+}

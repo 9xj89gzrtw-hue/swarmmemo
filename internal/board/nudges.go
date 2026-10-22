@@ -148,20 +148,16 @@ var nudgeTipFacts = map[string]nudgeFact{
 		return nil, true
 	},
 	"first_work": func(ctx context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
-		if !c.signed {
+		// A post, or a read of its own updates (where it looks for what to
+		// do next); home lists the same task as its open_task item.
+		if !c.signed || c.sub.account == "" || c.cmd.Operation == "updates.get" && c.cmd.Target != "" && c.cmd.Target != c.agent {
 			return nil, false
 		}
-		t, ok := s.openTask(ctx, c.sub.account, false)
-		return t.vars(), ok
-	},
-	"allowance_today": func(_ context.Context, _ *Store, c *nudgeCall) (map[string]string, bool) {
-		if c.res.Allowance == nil || c.res.Allowance.Line == "" {
+		t, ok := s.claimableTask(ctx, c.sub.account)
+		if !ok {
 			return nil, false
 		}
-		return map[string]string{"allowance": c.res.Allowance.Line}, true
-	},
-	"paid_tools": func(_ context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
-		return nil, len(s.config.Features.Services) > 0
+		return fitTitle("first_work", t.vars()), true
 	},
 	"encrypted_dm": func(_ context.Context, _ *Store, c *nudgeCall) (map[string]string, bool) {
 		if !c.signed || c.res.Receipt == nil || !c.res.Receipt.Public || c.cmd.To == "" {
@@ -173,23 +169,11 @@ var nudgeTipFacts = map[string]nudgeFact{
 		}
 		return map[string]string{"to": c.cmd.To, "to_short": short}, true
 	},
-	"standing_bounty": func(ctx context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
-		t, ok := s.openTask(ctx, c.sub.account, true)
-		return t.vars(), ok
-	},
 	"rate_paid_call": func(ctx context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
 		return s.ratePaidCallFact(ctx, c)
 	},
 	"rate_worker": func(ctx context.Context, s *Store, c *nudgeCall) (map[string]string, bool) {
 		return s.rateWorkerFact(ctx, c)
-	},
-	"home_first": func(_ context.Context, _ *Store, c *nudgeCall) (map[string]string, bool) {
-		// An inbox read for an agent: the caller's own, or ?agent=.
-		agent := c.cmd.Target
-		if agent == "" {
-			agent = c.agent
-		}
-		return map[string]string{"agent": agent}, agent != ""
 	},
 }
 
@@ -391,7 +375,7 @@ func renderNudge(n NudgeCode, c *nudgeCall, vars map[string]string) (*NudgeShown
 	if text == "" {
 		return nil, ""
 	}
-	if len(text) > NudgeTextBytes && n.Code != "allowance_today" {
+	if len(text) > NudgeTextBytes {
 		text = truncateUTF8(text, NudgeTextBytes)
 	}
 	return &NudgeShown{Code: n.Code, Text: text, How: how}, pairVariant(fmt.Sprint(i), vars[nudgePairVar])
@@ -514,23 +498,48 @@ func (s *Store) forgetNudgeSubject(key string) {
 	st.mu.Unlock()
 }
 
-// openTaskRow is a public open task with a reward: a starter task, or a
-// standing task in room bounties.
+// openTaskRow is an open task with a reward that an agent may claim
+// (claimableTaskTx, home.go): an ordinary task, or a standing task whose
+// reward is per accepted result.
 type openTaskRow struct {
-	id, title    string
-	credits      int64
-	usdc         int64
-	standingTask bool
+	id, title string
+	credits   int64
+	usdc      int64
+	// perResult: a standing task, paying credits and usdc per accepted
+	// result; upTo: its tiers differ, and these are the largest.
+	perResult, upTo bool
+}
+
+// standingReward sets t's reward to a standing task's tiers: the one tier,
+// or up to the largest (by USDC, then credits).
+func (t *openTaskRow) standingReward(tiers []WorkStandingTier) {
+	t.perResult, t.credits, t.usdc = true, 0, 0
+	for i, tier := range tiers {
+		u := tier.usdcUnits()
+		if i == 0 || u > t.usdc || u == t.usdc && tier.Credits > t.credits {
+			t.credits, t.usdc = tier.Credits, u
+		}
+		t.upTo = t.upTo || i > 0
+	}
 }
 
 func (t openTaskRow) reward() string {
+	var r string
 	switch {
 	case t.usdc > 0 && t.credits > 0:
-		return fmt.Sprintf("%s USDC + %d credits", usdcText(t.usdc), t.credits)
+		r = fmt.Sprintf("%s USDC + %d credits", usdcText(t.usdc), t.credits)
 	case t.usdc > 0:
-		return usdcText(t.usdc) + " USDC"
+		r = usdcText(t.usdc) + " USDC"
+	default:
+		r = fmt.Sprintf("%d credits", t.credits)
 	}
-	return fmt.Sprintf("%d credits", t.credits)
+	if t.upTo {
+		r = "up to " + r
+	}
+	if t.perResult {
+		r += " per accepted result"
+	}
+	return r
 }
 
 // usdcText is a USDC amount in its 6-decimal base units, as dollars.
@@ -544,18 +553,29 @@ func (t openTaskRow) vars() map[string]string {
 	if t.id == "" {
 		return nil
 	}
-	title := t.title
-	if len(title) > 60 {
-		title = truncateUTF8(title, 60) + "…"
-	}
-	return map[string]string{"task": t.id, "title": title, "reward": t.reward()}
+	return map[string]string{"task": t.id, "title": clip(t.title), "reward": t.reward()}
 }
 
-// openTask is the newest public open task with a reward that account may
-// claim and did not post: with standing, a standing task in room bounties;
-// without, one open to anyone or to a first-time worker. account "" (an
-// anonymous caller) excludes no requester.
-func (s *Store) openTask(ctx context.Context, account string, standing bool) (openTaskRow, bool) {
+// fitTitle shortens vars' title so that every variant of the tip code,
+// filled, stays within NudgeTextBytes: the title gives way, never the
+// reward or the claim order after it.
+func fitTitle(code string, vars map[string]string) map[string]string {
+	n, _ := LookupNudge(code)
+	title := vars["title"]
+	longest := 0
+	for _, v := range n.Variants {
+		r := strings.NewReplacer("{title}", "", "{reward}", vars["reward"], "{task}", vars["task"])
+		longest = max(longest, len(r.Replace(v)))
+	}
+	if budget := NudgeTextBytes - longest - len("…"); len(title) > budget && budget > 0 {
+		vars["title"] = truncateUTF8(strings.TrimSuffix(title, "…"), budget) + "…"
+	}
+	return vars
+}
+
+// claimableTask is claimableTaskTx in a public read of its own: the task
+// first_work names. account "" excludes no requester.
+func (s *Store) claimableTask(ctx context.Context, account string) (openTaskRow, bool) {
 	var t openTaskRow
 	err := s.publicRead(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var generation string
@@ -563,7 +583,7 @@ func (s *Store) openTask(ctx context.Context, account string, standing bool) (op
 			return err
 		}
 		var err error
-		t, err = openTaskTx(ctx, tx, account, standing, s.now().Unix(), generation)
+		t, err = claimableTaskTx(ctx, tx, account, s.now().Unix(), generation)
 		return err
 	})
 	return t, err == nil && t.id != ""

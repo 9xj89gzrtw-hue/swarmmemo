@@ -511,7 +511,7 @@ func (s *Store) flushFunnel(ctx context.Context, now int64) (err error) {
 		}
 	}
 	for _, fl := range follows {
-		for _, c := range NudgeCodes {
+		for _, c := range nudgeFollows() {
 			kind := ""
 			for _, k := range fl.kinds {
 				if slices.Contains(c.Follow, k) {

@@ -212,7 +212,7 @@ func (s *Store) countHome(ctx context.Context, tx *sql.Tx, agent, account string
 		}
 		h.counts["work_verdict"] = len(h.verdicts)
 	}
-	t, err := openTaskTx(ctx, tx, account, false, now, h.generation)
+	t, err := claimableTaskTx(ctx, tx, account, now, h.generation)
 	if err != nil {
 		return h, err
 	}
@@ -470,22 +470,84 @@ func HomeCapabilities() map[string]any {
 	}
 }
 
-// openTaskTx is openTask in a transaction the caller holds.
-func openTaskTx(ctx context.Context, tx *sql.Tx, account string, standing bool, now int64, generation string) (openTaskRow, error) {
-	var t openTaskRow
-	filter := `w.eligibility IN ('','open','first_work') AND NOT EXISTS(SELECT 1 FROM work_standing ws WHERE ws.work_id=w.id)`
-	if standing {
-		filter = `e.room='bounties' AND EXISTS(SELECT 1 FROM work_standing ws WHERE ws.work_id=w.id)`
-	}
-	err := tx.QueryRowContext(ctx, `SELECT w.id,w.title,coalesce((SELECT wr.amount FROM work_rewards wr WHERE wr.work_id=w.id AND wr.state='held'),0),
+// claimableTaskScan bounds the candidates of each kind claimableTaskTx
+// reads: the newest ordinary tasks, then the newest standing tasks.
+const claimableTaskScan = 20
+
+// claimableTaskTx is the one open task account may claim and be paid for
+// now, for home's open_task and the first_work tip: the newest ordinary
+// task, else the newest standing task with a seat free for it. Each is in a
+// public room, its request not hidden nor simulated, open in effect, with
+// credits held or USDC promised, and not the account's own. The account
+// passes the claim's own checks (workClaimCheck: not the requester nor the
+// named reviewer, and the work's eligibility admits it), and on a standing
+// task a seat is open (standingSeatOpen: seats, pool, day_max,
+// results_max, results_until) and its own limit is not reached
+// (standingReaderBlock: a result waiting, per_agent_day). account "" (an
+// unsigned reader) is judged as a key the board has not seen.
+func claimableTaskTx(ctx context.Context, tx *sql.Tx, account string, now int64, generation string) (openTaskRow, error) {
+	facts := &workEligibilityFacts{account: account}
+	for _, standing := range []bool{false, true} {
+		kind := `NOT EXISTS(SELECT 1 FROM work_standing ws WHERE ws.work_id=w.id)`
+		if standing {
+			kind = `EXISTS(SELECT 1 FROM work_standing ws WHERE ws.work_id=w.id)`
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT `+workColumns+`,coalesce((SELECT wr.amount FROM work_rewards wr WHERE wr.work_id=w.id AND wr.state='held'),0),
  coalesce((SELECT wu.amount FROM work_usdc wu WHERE wu.work_id=w.id AND wu.state='promised'),0)
  FROM works w JOIN events e ON e.id=w.id JOIN rooms r ON r.name=e.room
- WHERE e.hidden=0 AND r.visibility='public' AND e.kind<>'simulation' AND w.requester<>? AND (`+workEffectiveSQL+`)='open' AND `+filter+`
+ WHERE e.hidden=0 AND r.visibility='public' AND e.kind<>'simulation' AND w.requester<>? AND (`+workEffectiveSQL+`)='open' AND `+kind+`
  AND (EXISTS(SELECT 1 FROM work_rewards wr WHERE wr.work_id=w.id AND wr.state='held') OR EXISTS(SELECT 1 FROM work_usdc wu WHERE wu.work_id=w.id AND wu.state='promised'))
- ORDER BY w.created_at DESC LIMIT 1`, account, now, generation, now).Scan(&t.id, &t.title, &t.credits, &t.usdc)
-	if err == sql.ErrNoRows {
-		return t, nil
+ ORDER BY w.created_at DESC LIMIT ?`, account, now, generation, now, claimableTaskScan)
+		if err != nil {
+			return openTaskRow{}, err
+		}
+		type candidate struct {
+			w             workRow
+			credits, usdc int64
+		}
+		var cands []candidate
+		for rows.Next() {
+			var c candidate
+			if err = rows.Scan(append(c.w.fields(), &c.credits, &c.usdc)...); err != nil {
+				rows.Close()
+				return openTaskRow{}, err
+			}
+			cands = append(cands, c)
+		}
+		rows.Close()
+		if err = rows.Err(); err != nil {
+			return openTaskRow{}, err
+		}
+		for _, c := range cands {
+			t := openTaskRow{id: c.w.ID, title: c.w.Title, credits: c.credits, usdc: c.usdc}
+			var seats *WorkStanding
+			if standing {
+				if seats, err = openStandingSeats(ctx, tx, c.w.ID, c.w.Deadline, now); err != nil {
+					return openTaskRow{}, err
+				}
+				if seats == nil || !standingSeatOpen(seats) {
+					continue
+				}
+			}
+			ok, _, err := workClaimCheck(ctx, tx, facts, c.w, "open", now)
+			if err != nil {
+				return openTaskRow{}, err
+			}
+			if !ok {
+				continue
+			}
+			if seats != nil {
+				blocked, err := standingReaderBlock(ctx, tx, c.w.ID, account, seats, now)
+				if err != nil {
+					return openTaskRow{}, err
+				}
+				if blocked {
+					continue
+				}
+				t.standingReward(seats.Tiers)
+			}
+			return t, nil
+		}
 	}
-	t.standingTask = standing
-	return t, err
+	return openTaskRow{}, nil
 }

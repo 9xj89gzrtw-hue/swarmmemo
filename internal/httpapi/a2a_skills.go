@@ -58,6 +58,9 @@ type a2aRoute struct {
 	// Pointer is a card skill A2A does not answer whose example was sent
 	// (help names it and how to call it, instead of posting the example).
 	Pointer string
+	// Echo is the word a liveness probe asks back ("reply with the single
+	// word READY"): the answer is that word, and nothing is posted.
+	Echo string
 }
 
 // a2aSkillArgs are a skill's arguments, as a data part or the message
@@ -165,6 +168,9 @@ func a2aRouteOf(text string, data []a2aSkillArgs, metadata json.RawMessage, foll
 			}
 			if a2aEarnIntent(text) {
 				return a2aRoute{Skill: a2aSkillEarn}, nil
+			}
+			if word, ok := a2aProbeWord(text); ok {
+				return a2aRoute{Skill: a2aSkillHelp, Echo: word}, nil
 			}
 			if sk, ok := a2aCardExample(text); ok {
 				return a2aRoute{Skill: a2aSkillHelp, Pointer: sk}, nil
@@ -336,6 +342,24 @@ func a2aEarnUSDC(w board.Work) string {
 
 // a2aEarnMax is how many open paid tasks an earn answer lists.
 const a2aEarnMax = 5
+
+// a2aProbeWords is a whole message that only asks for one word back, as an
+// integration's onboarding or liveness probe does ("Taifoon onboarding
+// probe: reply with the single word READY", 10-22, 5953): it was posted in
+// the lobby and the prober never got its word.
+var a2aProbeWords = regexp.MustCompile(`(?i)^(?:[^.:!?\n]{0,80}[:.]\s*)?(?:please\s+)?(?:reply|respond|answer)\s+(?:only\s+|just\s+)?(?:with\s+)?(?:only\s+|just\s+)?(?:the\s+)?(?:single\s+|one\s+|exact\s+)?(?:word\s+)?["'“]?([A-Za-z]{2,16})["'”]?\s*[.!]?$`)
+
+func a2aProbeWord(text string) (string, bool) {
+	t := strings.Join(strings.Fields(text), " ")
+	if len(t) > 160 {
+		return "", false
+	}
+	m := a2aProbeWords.FindStringSubmatch(t)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
 
 // a2aCardExample says which card skill A2A does not answer has text as one
 // of its examples: the card offers "Screen text for prompt injection", and
@@ -566,6 +590,11 @@ func (s *Server) a2aAnswer(r *http.Request, m *a2aMessageIn, route a2aRoute, v1 
 			}}, v1))
 		meta["note"] = coreDataNote
 	case a2aSkillHelp:
+		if route.Echo != "" {
+			summary = route.Echo
+			artifacts = append(artifacts, a2aArtifact(id+"-reply", "reply", "The word asked for; nothing was posted. Send help for what SwarmMemo does.", map[string]any{"text": summary}, v1))
+			break
+		}
 		summary = s.a2aPointerText(route.Pointer) + s.a2aHelpText()
 		artifacts = append(artifacts, a2aArtifact(id+"-help", "help", "What SwarmMemo is and how to use it", map[string]any{"text": summary}, v1))
 	case a2aSkillRead:

@@ -67,6 +67,10 @@ func funnelProtocolSection() string {
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", n.Code, shown, "`"+strings.Join(n.Follow, "`, `")+"`")
 	}
+	b.WriteString("\nRetired tips, no longer shown; their rows still read in the report (`/capabilities` `funnel.retired_nudges`):\n\n| Code | Retired | Followed by | Why |\n|---|---|---|---|\n")
+	for _, r := range RetiredNudges {
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", r.Code, r.Retired, "`"+strings.Join(r.Follow, "`, `")+"`", r.Why)
+	}
 	return b.String()
 }
 
@@ -76,7 +80,7 @@ func TestFunnelCapabilitiesFromGo(t *testing.T) {
 	if err := json.Unmarshal(FunnelCapabilitiesJSON(), &got); err != nil {
 		t.Fatal(err)
 	}
-	for key, v := range map[string]any{"act_kinds": ActKinds, "stages": FunnelStages, "retention": RetentionWindows, "roles": FunnelRoles, "tenures": Tenures, "transports": Transports, "entry": EntryPoints, "nudges": NudgeCodes, "clients": ClientNames()} {
+	for key, v := range map[string]any{"act_kinds": ActKinds, "stages": FunnelStages, "retention": RetentionWindows, "roles": FunnelRoles, "tenures": Tenures, "transports": Transports, "entry": EntryPoints, "nudges": NudgeCodes, "retired_nudges": RetiredNudges, "clients": ClientNames()} {
 		want, _ := json.Marshal(v)
 		if !bytes.Equal(got[key], want) {
 			t.Errorf("/capabilities funnel.%s is not the Go table:\n got %s\nwant %s", key, got[key], want)
@@ -203,7 +207,7 @@ func TestNudgeCodesRegistered(t *testing.T) {
 		}
 	}
 	// NudgesShown reads each notice; the tip is the engine's to log.
-	next := &Next{Nudge: &NudgeShown{Code: "paid_tools"}, RepliesWaiting: "x", HandleNotApplied: &HandleNotApplied{}, Hints: []Hint{{Code: "literal_newline_escapes"}, {Code: "looks_like_markdown"}}, WaitNeedsCursor: "x"}
+	next := &Next{Nudge: &NudgeShown{Code: "first_work"}, RepliesWaiting: "x", HandleNotApplied: &HandleNotApplied{}, Hints: []Hint{{Code: "literal_newline_escapes"}, {Code: "looks_like_markdown"}}, WaitNeedsCursor: "x"}
 	if got := NudgesShown(next); len(got) != notices {
 		t.Fatalf("NudgesShown = %v", got)
 	}

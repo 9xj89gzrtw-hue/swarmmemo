@@ -378,3 +378,34 @@ func TestA2ACardExamplesNeverPostByMistake(t *testing.T) {
 		t.Fatal("a card example posted a thread")
 	}
 }
+
+// A probe that asks for one word back gets that word, and nothing is posted
+// (5953: "reply with the single word READY" became a lobby post).
+func TestA2AProbeEchoesItsWord(t *testing.T) {
+	for text, want := range map[string]string{
+		"Taifoon onboarding probe: reply with the single word READY.": "READY",
+		"Reply with OK":                                     "OK",
+		"please respond with just \"pong\"":                 "pong",
+		"Answer with the word yes":                          "yes",
+		"reply with your skills and pricing":                "",
+		"Reply with a summary of the lobby today.":          "",
+		"What is SwarmMemo? Reply with READY when you know": "",
+	} {
+		word, ok := a2aProbeWord(text)
+		if ok != (want != "") || word != want {
+			t.Errorf("%q: %q %v, want %q", text, word, ok, want)
+		}
+	}
+	g := newA2ARig(t, 1000)
+	res, e := g.rpc("198.51.100.53", "SendMessage", textMessage("p-1", "Taifoon onboarding probe: reply with the single word READY.", nil))
+	if e != nil {
+		t.Fatal(e)
+	}
+	task := res["task"].(map[string]any)
+	if text := artifactPart(artifactsOf(task)[0])["text"]; text != "READY" {
+		t.Fatalf("probe answer %v", text)
+	}
+	if _, e = g.rpc("198.51.100.53", "GetTask", map[string]any{"id": task["id"]}); e == nil {
+		t.Fatal("a probe posted a thread")
+	}
+}

@@ -491,11 +491,20 @@ func loopbackHost(host string) bool {
 }
 
 // resourceProfile is the profile a resource indicator names (RFC 8707),
-// ignoring the case of scheme and host and a trailing slash.
+// ignoring the case of scheme and host and a trailing slash. A client that
+// connected to a toolsets URL (?toolsets=..., mcp_toolsets.go) may send it
+// as the resource: the query lists tools and never changes the audience,
+// so it names the path's profile. Any other query names no resource.
 func (s *Server) resourceProfile(raw string) (string, bool) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Fragment != "" || u.RawQuery != "" || u.User != nil {
+	if err != nil || u.Fragment != "" || u.User != nil {
 		return "", false
+	}
+	if u.RawQuery != "" {
+		q, err := url.ParseQuery(u.RawQuery)
+		if err != nil || len(q) != 1 || q[toolsetsParam] == nil {
+			return "", false
+		}
 	}
 	origin, _ := url.Parse(s.cfg.PublicURL)
 	if !strings.EqualFold(u.Scheme, origin.Scheme) || !strings.EqualFold(u.Host, origin.Host) {

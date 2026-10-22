@@ -15,7 +15,7 @@ func TestGuessedWriteURLPointsToTheWorkingOne(t *testing.T) {
 	}
 	var body struct {
 		Error struct{ Code string } `json:"error"`
-		Try   string               `json:"try"`
+		Try   string                `json:"try"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Error.Code != "wrong_write_url" || body.Try != "/w/lobby/main?request_id=A-UNIQUE-ID&text=hello+there" {
 		t.Fatalf("%s", w.Body.String())

@@ -86,9 +86,10 @@ func TestNoAllowanceNoteWithTheLedgerOff(t *testing.T) {
 	}
 }
 
-// Near the limit the line comes back (and with it the allowance_today
-// tip); at the limit the refusal says what happened, when it resets and
-// how to get more. An allowance read always carries the line.
+// Near the limit the line comes back, a fact on the write (never a tip:
+// allowance_today is retired); at the limit the refusal says what happened,
+// when it resets and how to get more. An allowance read always carries the
+// line.
 func TestAllowanceLineNearTheLimit(t *testing.T) {
 	if _, _, ok := ledgerTestOverride(); ok {
 		t.Skip("the ledger mode is overridden for the whole suite")
@@ -127,8 +128,8 @@ func TestAllowanceLineNearTheLimit(t *testing.T) {
 		if near && !sawLine {
 			sawLine = true
 			s.Nudge(testContext, c, &res, NudgeEnv{Base: "https://swarmmemo.com", Surface: "receipt", Source: "198.51.100.77"})
-			if nudgeOf(res) != "allowance_today" {
-				t.Fatalf("near the limit, tip %q", nudgeOf(res))
+			if nudgeOf(res) == "allowance_today" {
+				t.Fatal("near the limit, the retired allowance_today tip")
 			}
 		}
 	}

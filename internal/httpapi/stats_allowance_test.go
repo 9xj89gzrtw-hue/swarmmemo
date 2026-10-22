@@ -421,9 +421,9 @@ func TestAgentPageMatchesAllowanceAndTrustAPI(t *testing.T) {
 }
 
 // A write's result says what the caller got today on every HTTP wire:
-// next.allowance in JSON and MCP. A post receipt in text prints it only as
-// its one tip (allowance_today, board/nudges.go); other writes print the
-// line after their answer.
+// next.allowance in JSON and MCP; text prints its line (the store fills it
+// only near the limit) after the answer, a post receipt's included. It is a
+// fact on the write, never a tip.
 func TestFirstWriteCarriesAllowanceLine(t *testing.T) {
 	s, svc := rfc0012Server(allOn)
 	svc.note = &board.AllowanceNote{Line: "Free today: 4 MiB of posting (signed band), 3.9 MiB left, resets 00:00 UTC. More: raise your standing; see /capabilities#allowance.", Resource: "post_bytes", Band: "signed", Entitlement: 4 << 20, Remaining: 4063232, ResetsAt: 1759276800, More: "raise your standing"}
@@ -435,8 +435,8 @@ func TestFirstWriteCarriesAllowanceLine(t *testing.T) {
 	}
 	text := makeRequest(s, "GET", "/w/lobby/main?text=hello", "", "").Body.String()
 	lines := strings.Split(text, "\n")
-	if !strings.HasPrefix(lines[0], "ok ") || strings.Contains(text, svc.note.Line) {
-		t.Fatalf("text post prints the allowance outside its tip:\n%s", text)
+	if !strings.HasPrefix(lines[0], "ok ") || !strings.Contains(text, svc.note.Line+"\n") || strings.Contains(text, "tip allowance_today") {
+		t.Fatalf("text post lacks the allowance line, or shows it as a tip:\n%s", text)
 	}
 	read := getJSON(t, s, "POST", "/v1/command", `{"operation":"allowance.get"}`)
 	if n, _ := read["next"].(map[string]any); n == nil || n["allowance"] == nil {

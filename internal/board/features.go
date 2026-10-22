@@ -107,6 +107,13 @@ type Features struct {
 	// would have got is logged with its holdout bit, as every row is. The
 	// experiment runs while it is on.
 	NudgeHoldout bool
+	// MCPToolsets is MCP_TOOLSETS (package T, httpapi/mcp_toolsets.go):
+	// /mcp and /mcp/assistant list the default toolset (about twenty tools
+	// and the search_swarmmemo_tools / call_swarmmemo_tool pair) unless the
+	// URL names toolsets (?toolsets=all lists every tool). Every registered
+	// tool stays callable either way. Off, the default, a URL without
+	// ?toolsets lists every tool, as before; ?toolsets= works either way.
+	MCPToolsets bool
 }
 
 // InboxMode is INBOX_ENTRIES: off (the zero value), shadow (written, not
@@ -178,6 +185,7 @@ func ParseFeatures(getenv func(string) string) (Features, error) {
 	boolean("FUNNEL_PUBLIC", &f.FunnelPublic)
 	boolean("NUDGES_OPENAI", &f.NudgesOpenAI)
 	boolean("NUDGE_HOLDOUT", &f.NudgeHoldout)
+	boolean("MCP_TOOLSETS", &f.MCPToolsets)
 	switch v := getenv("ALLOWANCE_LEDGER"); v {
 	case "", "off":
 	case "shadow":

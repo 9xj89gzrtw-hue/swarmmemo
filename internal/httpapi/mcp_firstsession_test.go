@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -15,10 +14,6 @@ import (
 
 // mcpProfilePaths are the three hosted MCP profiles.
 var mcpProfilePaths = []string{"/mcp", mcpProfileCore, web.AssistantMCPPath}
-
-// toolWordRE is a word that could be a tool name: lowercase words joined by
-// underscores, or one lowercase word (home, find, whoami).
-var toolWordRE = regexp.MustCompile(`[a-z][a-z0-9]*(?:_[a-z0-9]+)*`)
 
 // profileInstructions is a profile's initialize instructions.
 func profileInstructions(t *testing.T, s *Server, path string) string {
@@ -96,7 +91,7 @@ func checkProfileCopy(t *testing.T, s *Server) {
 		}
 		texts := []string{createdIdentityLead, reconnectStep, firstRunHomeNote}
 		for _, identity := range []bool{true, false} {
-			for _, st := range s.firstSteps(identity) {
+			for _, st := range s.firstSteps(identity, nil) {
 				texts = append(texts, st.Text, st.Tool.Name)
 				if !listed[st.Tool.Name] {
 					t.Errorf("%s first-session step calls %s, which it does not list", path, st.Tool.Name)

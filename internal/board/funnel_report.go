@@ -334,12 +334,14 @@ type FunnelLapsing struct {
 // mixed into the account ones. The holdout bit is recorded per subject, but
 // slice 1 still shows a holdout subject its nudges (FunnelHoldoutPer256).
 type FunnelNudge struct {
-	Code        string `json:"code"`
-	Label       string `json:"label"`
-	Shown       int    `json:"shown"`
-	Followed    Rate   `json:"followed"`
-	HoldoutRows int    `json:"holdout_rows"`
-	HoldoutFol  Rate   `json:"holdout_followed"`
+	Code  string `json:"code"`
+	Label string `json:"label"`
+	// Retired: a RetiredNudges code, listed only when the range has its rows.
+	Retired     bool `json:"retired,omitempty"`
+	Shown       int  `json:"shown"`
+	Followed    Rate `json:"followed"`
+	HoldoutRows int  `json:"holdout_rows"`
+	HoldoutFol  Rate `json:"holdout_followed"`
 	// Network-attributed: shown to anonymous callers, followed from their
 	// network.
 	NetworkShown       int  `json:"network_attributed_shown"`
@@ -950,8 +952,13 @@ func (s *Store) funnelNudges(ctx context.Context, q FunnelQuery, today int64, al
 		return nil, err
 	}
 	var out []FunnelNudge
-	for _, c := range NudgeCodes {
-		n := FunnelNudge{Code: c.Code, Label: c.Label}
+	for i, c := range nudgeFollows() {
+		// A retired code's rows stay readable: listed while the range has any.
+		retired := i >= len(NudgeCodes)
+		if retired && len(byCode[c.Code]) == 0 {
+			continue
+		}
+		n := FunnelNudge{Code: c.Code, Label: c.Label, Retired: retired}
 		var fol, hn, hf, dn, dk, hdn, hdk, nfol, nhf int
 		for _, r := range byCode[c.Code] {
 			switch r.rated {

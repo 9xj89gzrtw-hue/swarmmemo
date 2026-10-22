@@ -1,7 +1,8 @@
 package httpapi
 
 // The /mcp and /mcp/assistant tool lists (names, titles, descriptions,
-// annotations, security schemes) pinned against a golden file, so a change
+// annotations, security schemes), with toolsets off and on, pinned against
+// a golden file, so a change
 // meant for another profile (the core profile, C99) cannot reach them
 // unnoticed. A deliberate change to these profiles regenerates it:
 //
@@ -83,6 +84,13 @@ func TestMCPProfilesPinned(t *testing.T) {
 	got := map[string][]map[string]any{}
 	for _, path := range []string{"/mcp", web.AssistantMCPPath} {
 		got[path] = profileToolList(t, s, path)
+	}
+	// With MCP_TOOLSETS on, a bare URL lists the default toolset
+	// (mcp_toolsets.go); ?toolsets=all lists exactly the keys above
+	// (TestToolsetsByteIdentical).
+	on := withToolsetsFlag(s, true)
+	for _, path := range toolsetProfiles {
+		got[path+" (MCP_TOOLSETS=true)"] = profileToolList(t, on, path)
 	}
 	raw, err := json.MarshalIndent(got, "", " ")
 	if err != nil {

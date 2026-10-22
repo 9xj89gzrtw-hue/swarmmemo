@@ -864,8 +864,8 @@ func (s *Store) allowanceNote(ctx context.Context, tx *sql.Tx, a actor, res *Res
 	}
 	// The line is for a reader near its limit, or one that asked: tools
 	// are free, and the numbers stay in the fields for clients that read
-	// them (owner decision 2026-10-21; the allowance_today tip follows the
-	// line, nudges.go).
+	// them (owner decision 2026-10-21). The line is a fact on the write;
+	// no tip repeats it (allowance_today is retired, funnel.go).
 	line := ""
 	if read || AllowanceNearLimit(b.Remaining, b.Entitlement+b.Incoming) {
 		line = fmt.Sprintf("Free today: %s of posting (%s floor + %s by standing, %s band), %s left; resets 00:00 UTC. Standing raises it: standing.ways.",
@@ -882,7 +882,7 @@ func (s *Store) allowanceNote(ctx context.Context, tx *sql.Tx, a actor, res *Res
 	}
 	// The two allowance reads also name the free credit a signed key gets
 	// (FreeCredit), where a newcomer looks for it; a write's line stays the
-	// fact alone, and the paid_tools tip points at the catalogue (nudges.go).
+	// fact alone, with the catalogue's URL beside it (services).
 	if len(s.config.Features.Services) > 0 && (op == "post" || read) {
 		if read && line != "" {
 			if offer := s.freeCredit(ctx, tx, now); offer != nil {

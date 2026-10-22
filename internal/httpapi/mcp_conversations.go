@@ -239,10 +239,13 @@ func dataJSON(fields map[string]any) string {
 }
 
 // withMCPURLs adds the MCP URLs a new token connects with.
-func (s *Server) withMCPURLs(res board.Result) board.Result {
+// A request that named toolsets gets URLs that name them too, each with
+// the toolsets its profile has (toolsetsQuery).
+func (s *Server) withMCPURLs(ctx context.Context, res board.Result) board.Result {
 	if token, ok := res.Data["token"].(string); ok {
-		res.Data["mcp_url"] = s.cfg.PublicURL + "/mcp/t/" + token
-		res.Data["assistant_mcp_url"] = s.cfg.PublicURL + web.AssistantMCPPath + "/t/" + token
+		sel := toolsetSelectionFrom(ctx)
+		res.Data["mcp_url"] = s.cfg.PublicURL + "/mcp/t/" + token + s.toolsetsQuery("/mcp", sel)
+		res.Data["assistant_mcp_url"] = s.cfg.PublicURL + web.AssistantMCPPath + "/t/" + token + s.toolsetsQuery(web.AssistantMCPPath, sel)
 		res.Data["connect"] = "Reconnect this MCP server with mcp_url (assistant_mcp_url for a personal assistant), or keep the URL and send Authorization: Bearer TOKEN. The URL carries the token: keep it as private as the token."
 	}
 	return res
@@ -424,7 +427,7 @@ func (s *Server) addHostedTools(server *mcp.Server, tool func(string) *mcp.Tool)
 			return nil, R{}, toolError(err)
 		}
 		restateAllowance(&res)
-		return nil, s.withMCPURLs(res), nil
+		return nil, s.withMCPURLs(ctx, res), nil
 	}
 	// as runs fn for the caller's hosted identity.
 	as := func(ctx context.Context, fn func(hc *hostedCaller) (R, error)) (*mcp.CallToolResult, R, error) {
@@ -442,7 +445,7 @@ func (s *Server) addHostedTools(server *mcp.Server, tool func(string) *mcp.Tool)
 		if err != nil || res != nil {
 			return res, out, err
 		}
-		return s.withNextSteps(out) // the first session's next calls (mcp_firstsession.go)
+		return s.withNextSteps(ctx, out) // the first session's next calls (mcp_firstsession.go)
 	})
 	mcp.AddTool(server, tool("recover_identity"), func(ctx context.Context, _ *mcp.CallToolRequest, in recoverIdentityInput) (*mcp.CallToolResult, R, error) {
 		return unsigned(ctx, board.Command{Operation: "hosted.recover", Data: dataJSON(map[string]any{"recovery_code": in.RecoveryCode})})
@@ -663,7 +666,7 @@ func (s *Server) addHostedTools(server *mcp.Server, tool func(string) *mcp.Tool)
 				data["spend_limit"] = limit
 			}
 			res, err := hc.exec(board.Command{Operation: "hosted.token", Data: dataJSON(data)})
-			return s.withMCPURLs(res), err
+			return s.withMCPURLs(ctx, res), err
 		})
 	})
 	// MCP Events subscriptions are listed and cancelled with the webhooks

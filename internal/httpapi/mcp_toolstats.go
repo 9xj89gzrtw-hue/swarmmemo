@@ -120,14 +120,21 @@ func (s *Server) countMCPTools(profile string, registered map[string]bool) mcp.M
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			call, isCall := req.(*mcp.CallToolRequest)
 			isCall = isCall && method == "tools/call"
+			note := &dispatchNote{}
 			if isCall {
-				ctx = withHostedResolution(ctx)
+				ctx = context.WithValue(withHostedResolution(ctx), dispatchNoteKey{}, note)
 			}
 			res, err := next(ctx, method, req)
 			if isCall {
 				name := board.MCPToolOther
-				if call.Params != nil && counted[call.Params.Name] {
+				if call.Params != nil && counted[call.Params.Name] && !note.unknown {
 					name = call.Params.Name
+				}
+				// A call through call_swarmmemo_tool is the tool it called,
+				// counted once more as dispatched (mcp_dispatch.go).
+				dispatched := note.target != "" && counted[note.target]
+				if dispatched {
+					name = note.target
 				}
 				failed := err != nil
 				r, _ := res.(*mcp.CallToolResult)
@@ -138,7 +145,7 @@ func (s *Server) countMCPTools(profile string, registered map[string]bool) mcp.M
 				if failed {
 					code = mcpToolErrorCode(r, err)
 				}
-				s.countMCPTool(ctx, profile, name, code)
+				s.countMCPTool(ctx, profile, name, code, dispatched)
 			}
 			return res, err
 		}
@@ -175,9 +182,10 @@ func mcpToolErrorCode(r *mcp.CallToolResult, err error) string {
 	return be.Code
 }
 
-// countMCPTool records one call, failed when code (its error code) is set.
+// countMCPTool records one call, failed when code (its error code) is set,
+// and dispatched when it came through call_swarmmemo_tool.
 // It never touches storage and never panics into the request.
-func (s *Server) countMCPTool(ctx context.Context, profile, tool, code string) {
+func (s *Server) countMCPTool(ctx context.Context, profile, tool, code string, dispatched bool) {
 	failed := code != ""
 	defer func() { _ = recover() }()
 	peer, _ := ctx.Value(peerContextKey{}).(string)
@@ -211,6 +219,9 @@ func (s *Server) countMCPTool(ctx context.Context, profile, tool, code string) {
 			}
 		}
 		add(board.MCPToolKey(profile, tool, family, "calls"))
+		if dispatched {
+			add(board.MCPToolKey(profile, tool, family, board.MCPToolDispatched))
+		}
 		if failed {
 			add(board.MCPToolKey(profile, tool, family, "errors"))
 			c.addCode(day, profile, tool, code)

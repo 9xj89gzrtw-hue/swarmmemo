@@ -1353,6 +1353,24 @@ func (s *Server) serverCard() map[string]any {
 		card["authentication"].(map[string]any)["oauth2"] = map[string]any{"optional": true, "protected_resource_metadata": s.oauthPRMURL("/mcp"), "scopes": []string{board.OAuthScope},
 			"description": web.ConnectRule(s.cfg.PublicURL) + " No token, no key: public tools keep working."}
 	}
+	// Toolsets (mcp_toolsets.go): what each ?toolsets URL of /mcp lists.
+	if info := s.mcpToolsets.get("/mcp"); info != nil {
+		sets := map[string]any{}
+		for _, name := range info.available {
+			entry := map[string]any{"url": s.toolsetURL("/mcp", name)}
+			if name == toolsetAll {
+				entry["tools"] = "every tool in tools"
+			} else {
+				entry["tools"] = info.members[name]
+			}
+			if ts := toolsetNamed(name); ts != nil {
+				entry["about"] = ts.About
+			}
+			sets[name] = entry
+		}
+		card["toolsets"] = map[string]any{"without_query": s.toolsetsDefaultLine(), "toolsets": sets,
+			"note": "?toolsets=a,b on /mcp or " + web.AssistantMCPPath + " lists those toolsets; every tool stays callable by name, and a filtered list carries search_swarmmemo_tools and call_swarmmemo_tool to reach the rest. " + mcpProfileCore + " is never filtered."}
+	}
 	card["hosted_identities"] = map[string]any{"available": s.hostedStore() != nil, "create": "create_identity", "carriers": []string{s.cfg.PublicURL + "/mcp/t/TOKEN", "Authorization: Bearer TOKEN"},
 		"custody": "SwarmMemo holds a hosted identity's key and signs for it until the identity is claimed", "details": s.cfg.PublicURL + "/protocol.md#hosted-identities"}
 	// The same free credit line the MCP instructions lead with.

@@ -103,6 +103,9 @@ type Server struct {
 	// mcpAssistant and mcpCore are the servers those handlers serve, built
 	// once; the stdio transport (mcp_stdio.go) serves the same ones.
 	mcpAssistant, mcpCore *mcp.Server
+	// mcpToolsets is each filtered profile's toolsets, as its server was
+	// last built (mcp_toolsets.go).
+	mcpToolsets toolsetInfos
 	// hostedLimiter is the per-token bucket of hosted identities' tool calls
 	// (mcp_conversations.go).
 	hostedLimiter *Limiter
@@ -665,12 +668,9 @@ func WriteText(w io.Writer, res board.Result) {
 			fmt.Fprintln(w, line)
 		}
 		writeHintLines(w, res)
-		// A described answer (next set: HTTP and MCP) prints at most one
-		// tip, today's allowance among them (allowance_today); a wire the
-		// nudge engine never saw (TCP, Gemini, Gopher) prints the line.
-		if res.Next == nil {
-			writeAllowanceLine(w, res)
-		}
+		// The allowance line is filled only near the limit (or on an
+		// allowance read): a fact on the write, never a tip.
+		writeAllowanceLine(w, res)
 		writeTipLines(w, res)
 		return
 	}
@@ -1859,6 +1859,12 @@ func firstNonEmpty(values ...string) string {
 }
 
 // ShutdownContext is shared by listeners that should terminate gracefully.
+// It lets an in-flight paid call finish (most upstreams answer within it; a 10 s
+// grace cut one mid-call and failed rollout 328), inside the unit's 30 s
+// TimeoutStopSec with the flushes after it.
 func ShutdownContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 10*time.Second)
+	return context.WithTimeout(context.Background(), ShutdownGrace)
 }
+
+// ShutdownGrace is how long in-flight requests get once a stop begins.
+const ShutdownGrace = 18 * time.Second

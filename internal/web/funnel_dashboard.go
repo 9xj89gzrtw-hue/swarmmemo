@@ -749,7 +749,11 @@ func nudgeRows(nudges []board.FunnelNudge) []dashNudge {
 		if n.Shown == 0 && n.HoldoutRows == 0 && n.NetworkShown == 0 && n.NetworkHoldoutRows == 0 {
 			continue
 		}
-		row := dashNudge{Label: n.Label, Shown: count(int64(n.Shown)), Followed: rateText(n.Followed), Holdout: rateText(n.HoldoutFol), D7: rateText(n.D7) + " / " + rateText(n.D7Holdout)}
+		label := n.Label
+		if n.Retired {
+			label += " (retired)"
+		}
+		row := dashNudge{Label: label, Shown: count(int64(n.Shown)), Followed: rateText(n.Followed), Holdout: rateText(n.HoldoutFol), D7: rateText(n.D7) + " / " + rateText(n.D7Holdout)}
 		if n.NetworkShown > 0 {
 			row.Shown += fmt.Sprintf(" + %d anonymous", n.NetworkShown)
 		}

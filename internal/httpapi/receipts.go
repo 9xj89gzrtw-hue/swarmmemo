@@ -207,6 +207,12 @@ func (s *Server) adviseWith(ctx context.Context, w http.ResponseWriter, c board.
 			env.Identity = "create_identity {}"
 		}
 		n.Nudge(ctx, c, res, env)
+		// The tip's call, as this connection's list can make it
+		// (mcp_toolsets.go): a tool it leaves out goes through
+		// call_swarmmemo_tool.
+		if mcpResult && res.Next != nil && res.Next.Nudge != nil {
+			res.Next.Nudge.How = toolsetViewFrom(ctx).reachHow(res.Next.Nudge.How)
+		}
 	}
 	if notices {
 		s.logNudges(ctx, c, res, source, surface)

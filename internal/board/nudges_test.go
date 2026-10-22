@@ -119,8 +119,7 @@ func TestNudgeCaps(t *testing.T) {
 	if got := post("198.51.100.1", "hello"); got != "sign_for_replies" {
 		t.Fatalf("first anonymous post: %q", got)
 	}
-	// The same network: sign_for_replies waits a week; allowance_today
-	// waits for the limit (tools are free: the line shows near it).
+	// The same network: sign_for_replies waits a week.
 	if got := post("198.51.100.2", "again"); got != "" {
 		t.Fatalf("second post from the network: %q", got)
 	}
@@ -142,13 +141,13 @@ func TestNudgeCaps(t *testing.T) {
 	run(t, s2, signed(alice, Command{Operation: "agent.register"}))
 	sub := s2.nudgeSubjectFor(testContext, keyID(alice), keyID(alice), s2.now().Unix())
 	now := s2.now().Unix()
-	sub.seen = []nudgeSeen{{"paid_tools", now - 10}, {"first_work", now - 20}, {"encrypted_dm", now - 30}}
+	sub.seen = []nudgeSeen{{"rate_worker", now - 10}, {"first_work", now - 20}, {"encrypted_dm", now - 30}}
 	if got := nudgeOf(nudged(t, s2, signed(alice, Command{Operation: "post", Text: "first today", Timestamp: now}), "198.51.100.9")); got != "" {
 		t.Fatalf("a fourth tip in a day: %q", got)
 	}
 	var rows int
 	_ = s.FlushFunnel(testContext)
-	if err := s.db.QueryRow("SELECT count(*) FROM nudge_events WHERE code IN ('sign_for_replies','allowance_today')").Scan(&rows); err != nil || rows != 3 {
+	if err := s.db.QueryRow("SELECT count(*) FROM nudge_events WHERE code='sign_for_replies'").Scan(&rows); err != nil || rows != 3 {
 		t.Fatalf("logged tips: %d %v", rows, err)
 	}
 }
@@ -401,5 +400,221 @@ func TestWakeOnReplyNudge(t *testing.T) {
 	run(t, s, signed(bob, Command{Operation: "post", Text: "yes", ReplyTo: asked.Receipt.ID, RequestID: randomID(), Timestamp: s.now().Unix()}))
 	if got := nudgeOf(nudged(t, s, signed(alice, Command{Operation: "updates.get", Target: keyID(alice), Timestamp: s.now().Unix()}), "198.51.100.30")); got == "wake_on_reply" {
 		t.Fatal("offered to an agent with a wake-up set")
+	}
+}
+
+// firstWorkOf is the first_work tip a signed post of key's gets, with its
+// subject's history cleared so the weekly repeat and the day cap do not
+// hide it; "" when another tip or none is chosen.
+func firstWorkOf(t *testing.T, s *Store, key ed25519.PrivateKey) *NudgeShown {
+	t.Helper()
+	s.nudgeSubjectFor(testContext, keyID(key), keyID(key), s.now().Unix()).seen = []nudgeSeen{{"replies_delivered", s.now().Unix()}}
+	res := nudged(t, s, signed(key, Command{Operation: "post", Text: "what next", RequestID: randomID(), Timestamp: s.now().Unix()}), "198.51.100.41")
+	if nudgeOf(res) != "first_work" {
+		return nil
+	}
+	return res.Next.Nudge
+}
+
+// first_work names a standing task with a seat free for the agent when no
+// ordinary task is open, prefers an ordinary one, and stays silent for the
+// requester itself, a full task (seats or day_max), an agent the rule does
+// not admit, a hidden request, an anonymous caller and an agent whose own
+// result waits on the task. It fires on the agent's own updates read too.
+func TestNudgeFirstWorkStanding(t *testing.T) {
+	s := rewardStore(t)
+	owner, worker, other, third := keyFor(180), keyFor(181), keyFor(182), keyFor(183)
+	mintCredit(t, s, keyID(owner), allowance.Paid, 20000)
+	for _, k := range []ed25519.PrivateKey{owner, worker, other, third} {
+		run(t, s, signed(k, Command{Operation: "agent.register"}))
+	}
+	id := rewardRequest(t, s, owner, "lobby")
+	run(t, s, standingCreate(s, owner, id, map[string]any{"seats": 1, "reward": 300}, 10*86400))
+
+	tip := firstWorkOf(t, s, worker)
+	if tip == nil || !strings.Contains(tip.Text, "300 credits per accepted result") || !strings.Contains(tip.Text, "Standing bug bounty") ||
+		!strings.Contains(tip.Text, "Reply with your result, then claim with it") || !strings.Contains(tip.How, "work claim "+id+" --result RESULT_ID") || len(tip.Text) > NudgeTextBytes {
+		t.Fatalf("standing first_work: %+v", tip)
+	}
+	// Home's open_task is the same task.
+	if items := run(t, s, signed(worker, Command{Operation: "home"})).Data["items"].([]HomeItem); !slices.ContainsFunc(items, func(it HomeItem) bool {
+		return it.Kind == "open_task" && it.Tool.Arguments["message_id"] == id && strings.Contains(it.Text, "per accepted result")
+	}) {
+		t.Fatalf("home open_task: %+v", items)
+	}
+	// The agent's own updates read offers it as well; another's does not.
+	s.nudgeSubjectFor(testContext, keyID(worker), keyID(worker), s.now().Unix()).seen = []nudgeSeen{{"replies_delivered", s.now().Unix()}}
+	if got := nudgeOf(nudged(t, s, signed(worker, Command{Operation: "updates.get", Target: keyID(other)}), "198.51.100.41")); got == "first_work" {
+		t.Fatal("first_work on a read of another agent's updates")
+	}
+	if got := nudgeOf(nudged(t, s, signed(worker, Command{Operation: "updates.get", Target: keyID(worker)}), "198.51.100.41")); got != "first_work" {
+		t.Fatalf("own updates read: %q", got)
+	}
+	// The requester is never offered its own task.
+	if tip := firstWorkOf(t, s, owner); tip != nil {
+		t.Fatalf("offered its own task: %+v", tip)
+	}
+	// An anonymous caller gets no first_work, whatever is open.
+	for i := range 3 {
+		if got := nudgeOf(nudged(t, s, Command{Operation: "post", Text: "anon", RequestID: randomID()}, fmt.Sprintf("192.0.2.%d", 60+i))); got == "first_work" {
+			t.Fatal("first_work to an anonymous caller")
+		}
+	}
+	// An ordinary task comes first.
+	plain := rewardRequest(t, s, owner, "lobby")
+	run(t, s, earnCreate(s, owner, plain, "Check a proof", []string{"verify"}, 50))
+	if tip := firstWorkOf(t, s, worker); tip == nil || !strings.Contains(tip.How, plain) || !strings.Contains(tip.Text, "50 credits:") {
+		t.Fatalf("ordinary task first: %+v", tip)
+	}
+	run(t, s, workCommand(s, owner, Command{Operation: "work.cancel", MessageID: plain, Reason: "done elsewhere"}))
+	if tip := firstWorkOf(t, s, worker); tip == nil || !strings.Contains(tip.How, id) {
+		t.Fatalf("back to the standing task: %+v", tip)
+	}
+	// The one seat taken by another agent's result: nothing to offer, and
+	// that agent's own waiting result keeps the task from it too.
+	_, claim := standingClaim(t, s, other, id, nil)
+	run(t, s, claim)
+	if tip := firstWorkOf(t, s, worker); tip != nil {
+		t.Fatalf("offered a full standing task: %+v", tip)
+	}
+	if _, ok := s.claimableTask(testContext, keyID(other)); ok {
+		t.Fatal("a task offered to the agent whose result waits on it")
+	}
+
+	// day_max: seats free, but today's results taken.
+	daily := rewardRequest(t, s, owner, "lobby")
+	run(t, s, standingCreate(s, owner, daily, map[string]any{"seats": 3, "reward": 100, "day_max": 1}, 10*86400))
+	if tip := firstWorkOf(t, s, worker); tip == nil || !strings.Contains(tip.How, daily) {
+		t.Fatalf("second standing task: %+v", tip)
+	}
+	_, claim = standingClaim(t, s, third, daily, nil)
+	run(t, s, claim)
+	if tip := firstWorkOf(t, s, worker); tip != nil {
+		t.Fatalf("offered a task at its day_max: %+v", tip)
+	}
+
+	// Eligibility: a linked-only standing task is not offered to an
+	// agent without a link.
+	linked := rewardRequest(t, s, owner, "lobby")
+	run(t, s, standingCreate(s, owner, linked, map[string]any{"seats": 2, "reward": 100, "eligibility": "linked"}, 10*86400))
+	if tip := firstWorkOf(t, s, worker); tip != nil {
+		t.Fatalf("offered a task it is not eligible for: %+v", tip)
+	}
+	// Tiers: up to the largest, per accepted result.
+	tiered := rewardRequest(t, s, owner, "lobby")
+	run(t, s, standingCreate(s, owner, tiered, map[string]any{"seats": 2, "tiers": []any{map[string]any{"name": "minor", "credits": 10}, map[string]any{"name": "serious", "credits": 500}}}, 10*86400))
+	if tip := firstWorkOf(t, s, worker); tip == nil || !strings.Contains(tip.Text, "up to 500 credits per accepted result") {
+		t.Fatalf("tiered standing task: %+v", tip)
+	}
+	// A hidden request is never offered.
+	if _, err := s.db.Exec("UPDATE events SET hidden=1 WHERE id=?", tiered); err != nil {
+		t.Fatal(err)
+	}
+	if tip := firstWorkOf(t, s, worker); tip != nil {
+		t.Fatalf("offered a hidden task: %+v", tip)
+	}
+}
+
+// first_work takes its holdout share: a subject in the holdout gets no tip,
+// and the row it would have got is logged with holdout set.
+func TestNudgeFirstWorkHoldout(t *testing.T) {
+	if _, _, ok := ledgerTestOverride(); ok {
+		t.Skip("the ledger mode is overridden for the whole suite")
+	}
+	cfg := rewardConfig()
+	cfg.Features.NudgeHoldout = true
+	s := openTest(t, cfg)
+	t.Cleanup(s.stopServices)
+	setRewardParams(t, s)
+	s.funnel.lastFlush = time.Unix(1<<40, 0) // the test flushes
+	var held ed25519.PrivateKey
+	for n := byte(1); n < 250 && held == nil; n++ {
+		if n != 190 && s.funnelHoldout(keyID(keyFor(n))) {
+			held = keyFor(n)
+		}
+	}
+	owner := keyFor(190)
+	mintCredit(t, s, keyID(owner), allowance.Paid, 5000)
+	run(t, s, signed(owner, Command{Operation: "agent.register"}))
+	run(t, s, signed(held, Command{Operation: "agent.register"}))
+	id := rewardRequest(t, s, owner, "lobby")
+	run(t, s, standingCreate(s, owner, id, map[string]any{"seats": 2, "reward": 300}, 10*86400))
+	s.nudgeSubjectFor(testContext, keyID(held), keyID(held), s.now().Unix()).seen = []nudgeSeen{{"replies_delivered", s.now().Unix()}}
+	if got := nudgeOf(nudged(t, s, signed(held, Command{Operation: "post", Text: "held out", RequestID: randomID()}), "198.51.100.42")); got != "" {
+		t.Fatalf("a holdout subject was shown %q", got)
+	}
+	if err := s.FlushFunnel(testContext); err != nil {
+		t.Fatal(err)
+	}
+	if n := sqlCount(t, s, "SELECT count(*) FROM nudge_events WHERE subject=? AND code='first_work' AND holdout=1", keyID(held)); n != 1 {
+		t.Fatalf("first_work holdout rows: %d", n)
+	}
+}
+
+// The retired tips are out of the catalogue, have no fact, and are never
+// chosen; their rows still read in the funnel report, marked retired, and a
+// follow still marks a row shown before the release.
+func TestNudgeRetiredCodes(t *testing.T) {
+	for _, r := range RetiredNudges {
+		if _, ok := LookupNudge(r.Code); ok {
+			t.Errorf("%s is retired and still in NudgeCodes", r.Code)
+		}
+		if _, ok := nudgeTipFacts[r.Code]; ok {
+			t.Errorf("%s is retired and still has a fact", r.Code)
+		}
+		if r.Label == "" || r.Retired == "" || r.Why == "" || len(r.Follow) == 0 {
+			t.Errorf("%s: incomplete retired row", r.Code)
+		}
+		for _, k := range r.Follow {
+			ActBit(k)
+		}
+	}
+	for _, code := range []string{"standing_bounty", "allowance_today", "paid_tools", "home_first", "wake_on_answer"} {
+		if _, ok := LookupRetiredNudge(code); !ok {
+			t.Errorf("%s is not in RetiredNudges", code)
+		}
+	}
+	// Rows logged before the release: one account's, one network's.
+	s := openTest(t, Config{})
+	s.funnel.lastFlush = time.Unix(1<<40, 0)
+	alice := keyFor(191)
+	run(t, s, signed(alice, Command{Operation: "agent.register"}))
+	run(t, s, signed(alice, Command{Operation: "post", Text: "hello"}))
+	now := s.now().Unix()
+	if _, err := s.db.Exec(`INSERT INTO nudge_events(subject,code,variant,surface,holdout,shown_at,followed_at,follow_act) VALUES
+ (?,'standing_bounty','0','receipt',0,?,?,'work'),(?,'standing_bounty','0','receipt',1,?,0,''),('net:abc','paid_tools','0','receipt',0,?,0,''),(?,'home_first','0','receipt',0,?,0,'')`,
+		keyID(alice), now-100, now-50, keyID(alice), now-90, now-80, keyID(alice), now-10); err != nil {
+		t.Fatal(err)
+	}
+	// A home read within the follow window marks the home_first row.
+	run(t, s, signed(alice, Command{Operation: "home"}))
+	if err := s.FlushFunnel(testContext); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FunnelRecompute(testContext); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.FunnelReport(testContext, FunnelQuery{From: now - 86400, To: now + 86400})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]FunnelNudge{}
+	for _, n := range rep.Nudges {
+		got[n.Code] = n
+	}
+	if n := got["standing_bounty"]; !n.Retired || n.Label != "Standing bounty" || n.Shown != 1 || n.Followed != RateOf(1, 1) || n.HoldoutRows != 1 {
+		t.Fatalf("standing_bounty: %+v", n)
+	}
+	if n := got["paid_tools"]; !n.Retired || n.NetworkShown != 1 {
+		t.Fatalf("paid_tools: %+v", n)
+	}
+	if n := got["home_first"]; !n.Retired || n.Shown != 1 || n.Followed != RateOf(1, 1) {
+		t.Fatalf("home_first, followed by a home read after the release: %+v", n)
+	}
+	if _, ok := got["allowance_today"]; ok {
+		t.Fatal("a retired code with no rows in the range is listed")
+	}
+	if n := got["first_work"]; n.Retired || n.Code != "first_work" {
+		t.Fatalf("first_work: %+v", n)
 	}
 }

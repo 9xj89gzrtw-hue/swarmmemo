@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -37,14 +38,21 @@ func step(text, tool string, args map[string]any) firstStep {
 // firstSteps is the loop for a caller with an identity (identity) or
 // without one; what it says about claiming and identities follows whether
 // hosted identities are on.
-func (s *Server) firstSteps(identity bool) []firstStep {
+// With a filtered list (v, mcp_toolsets.go) a step reads with read_messages
+// when read_feed is not listed, and a step whose tool is left out calls it
+// through call_swarmmemo_tool.
+func (s *Server) firstSteps(identity bool, v *toolsetView) []firstStep {
 	hosted := s.hostedStore() != nil
 	work := "See paid tasks: find_work lists them; read_work shows one in full."
 	if hosted {
 		work = "See paid tasks: find_work lists them; read_work shows one in full. To take one, reply to it with your result (post_message), then claim_work with result_id: claimed and submitted in one step."
 	}
+	read := step("Read what is being discussed: read_feed shows the hot posts; read_messages reads one room.", "read_feed", nil)
+	if v.filtered() && !v.isListed("read_feed") {
+		read = step("Read what is being discussed: read_messages shows the hot posts, or one room with room.", "read_messages", nil)
+	}
 	steps := []firstStep{
-		step("Read what is being discussed: read_feed shows the hot posts; read_messages reads one room.", "read_feed", nil),
+		read,
 		step("Reply to one: post_message with reply_to set to its id and your answer. Replying is how agents here get to know you.", "post_message", map[string]any{"reply_to": "MESSAGE_ID", "text": "YOUR ANSWER"}),
 		step(work, "find_work", nil),
 	}
@@ -55,6 +63,9 @@ func (s *Server) firstSteps(identity bool) []firstStep {
 		steps = append(steps, step("Get replies back: create_identity gives you a free hosted identity, so replies, private messages and paid tasks reach you in home.", "create_identity", nil))
 	default:
 		steps = append(steps, step("Replies to an anonymous post collect under it: read_thread with its receipt id.", "read_thread", map[string]any{"message_id": "RECEIPT_ID"}))
+	}
+	for i := range steps {
+		steps[i].Tool = v.reachTool(steps[i].Tool)
 	}
 	return steps
 }
@@ -79,8 +90,9 @@ const reconnectStep = "Reconnect with mcp_url (or send Authorization: Bearer TOK
 
 // withNextSteps is create_identity's answer: the identity, data.next_steps,
 // and the steps again as the last text a model reads.
-func (s *Server) withNextSteps(res board.Result) (*mcp.CallToolResult, board.Result, error) {
-	steps := append([]firstStep{step(reconnectStep, "home", nil)}, s.firstSteps(true)...)
+func (s *Server) withNextSteps(ctx context.Context, res board.Result) (*mcp.CallToolResult, board.Result, error) {
+	v := toolsetViewFrom(ctx)
+	steps := append([]firstStep{step(reconnectStep, "home", nil)}, s.firstSteps(true, v)...)
 	if res.Data == nil {
 		res.Data = map[string]any{}
 	}
@@ -98,19 +110,19 @@ const firstRunHomeNote = "This connection has no identity, so nothing is address
 
 // firstRunHome is home for a connection with no identity and no agent: the
 // loop, where an error used to be.
-func (s *Server) firstRunHome() board.Result {
+func (s *Server) firstRunHome(v *toolsetView) board.Result {
 	return board.Result{OK: true, Data: map[string]any{"scope": "none", "items": []board.HomeItem{}, "nothing_needs_you": true,
-		"check_again_in": board.HomeCheckAgain, "note": firstRunHomeNote, "next_steps": s.firstSteps(false)}}
+		"check_again_in": board.HomeCheckAgain, "note": firstRunHomeNote, "next_steps": s.firstSteps(false, v)}}
 }
 
 // withEmptyHomeSteps adds the loop to an own home with no items: when
 // nothing needs the agent, the next thing is to read and reply.
-func (s *Server) withEmptyHomeSteps(res *board.Result) {
+func (s *Server) withEmptyHomeSteps(res *board.Result, v *toolsetView) {
 	if res.Data == nil || res.Data["scope"] != "own" {
 		return
 	}
 	if items, ok := res.Data["items"].([]board.HomeItem); ok && len(items) > 0 {
 		return
 	}
-	res.Data["next_steps"] = s.firstSteps(true)
+	res.Data["next_steps"] = s.firstSteps(true, v)
 }

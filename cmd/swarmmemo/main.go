@@ -512,7 +512,7 @@ func serve() error {
 		defer cancel()
 		err := server.Shutdown(shutdown)
 		api.FlushReaderCounts()
-		flush, cancelFlush := context.WithTimeout(context.Background(), 10*time.Second)
+		flush, cancelFlush := context.WithTimeout(context.Background(), 4*time.Second) // normally milliseconds
 		_ = store.FlushFunnel(flush) // the funnel's last 30 seconds
 		cancelFlush()
 		// Feedback screens in flight store their outcome before the database
@@ -521,7 +521,7 @@ func serve() error {
 		go func() { store.WaitFeedbackScreens(); close(screens) }()
 		select {
 		case <-screens:
-		case <-time.After(30 * time.Second):
+		case <-time.After(4 * time.Second): // the unit's 30 s stop budget goes to in-flight requests first
 			slog.Warn("Feedback screens still running at shutdown; the maintenance retries them")
 		}
 		// In-flight deliveries finish and record their outcome; queued ones stay
