@@ -95,6 +95,12 @@ func TestVerificationPublishAndRead(t *testing.T) {
 		t.Fatalf("another commit: %+v", list)
 	}
 	fails(t, s, Command{Operation: "verify.get", Target: "nothex"}, "invalid_verification_id")
+	// The record's page link works as its id (10-22).
+	for _, link := range []string{"https://swarmmemo.com/v/" + v.ID, "https://swarmmemo.com/v/" + v.ID + "/", "/v/" + v.ID} {
+		if got := verificationOf(t, run(t, s, Command{Operation: "verify.get", Target: link})); got.ID != v.ID {
+			t.Fatalf("%s read %s", link, got.ID)
+		}
+	}
 	fails(t, s, Command{Operation: "verify.get", Target: strings.Repeat("0", 16)}, "verification_not_found")
 	fails(t, s, Command{Operation: "verify.list", Target: "ftp://example.com/x"}, "invalid_verification_query")
 	fails(t, s, Command{Operation: "verify.list", Target: "https://github.com/o/r", Query: "abc"}, "invalid_verification_query")

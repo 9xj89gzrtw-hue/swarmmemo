@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -226,6 +227,7 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 			}
 			delete(out, "billing") // our account's balance is not the agent's business
 			bundlerLabelUpstreamReceipts(out, f.payer)
+			bundlerLabelScrubbed(out)
 			if b := canonicalJSON(out); b != nil {
 				// The rows name the tool by its public name, never the
 				// upstream's id.
@@ -283,6 +285,56 @@ func bundlerZero(raw json.RawMessage) bool {
 // BundlerUpstreamNote labels the chain facts a bundler reports in its own
 // per-call receipts: they are its own, not a payment by or to SwarmMemo.
 const BundlerUpstreamNote = "reported by the upstream bundler; not a payment by or to SwarmMemo"
+
+// BundlerScrubbedMarker is the value the upstream bundler puts in place of a
+// field it scrubs from a seller's answer (seen on fields named "token").
+const BundlerScrubbedMarker = "[redacted]"
+
+// BundlerScrubbedNote labels an answer the bundler scrubbed (C504): the
+// listed fields were replaced upstream, not by SwarmMemo, so a hash or a
+// known-answer check of this body differs from the seller's own answer.
+const BundlerScrubbedNote = "the upstream bundler replaced these fields with \"[redacted]\" before SwarmMemo received the answer; the seller's own answer has the values, so a hash of this body will not match it"
+
+// bundlerLabelScrubbed adds upstream_scrubbed {fields, note} to an answer
+// whose results' bodies hold the bundler's scrub marker, naming each field
+// by its path (results.0.body.token), at most 20.
+func bundlerLabelScrubbed(out map[string]json.RawMessage) {
+	var fields []string
+	var walk func(v any, path string)
+	walk = func(v any, path string) {
+		if len(fields) >= 20 {
+			return
+		}
+		switch x := v.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(x))
+			for k := range x {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				walk(x[k], path+"."+k)
+			}
+		case []any:
+			for i, e := range x {
+				walk(e, path+"."+strconv.Itoa(i))
+			}
+		case string:
+			if x == BundlerScrubbedMarker {
+				fields = append(fields, strings.TrimPrefix(path, "."))
+			}
+		}
+	}
+	var results any
+	if json.Unmarshal(out["results"], &results) != nil {
+		return
+	}
+	walk(results, "results")
+	if len(fields) == 0 {
+		return
+	}
+	out["upstream_scrubbed"] = canonicalJSON(map[string]any{"fields": fields, "note": BundlerScrubbedNote})
+}
 
 // BundlerFirstPartyNote is that note on a first-party tool's receipt (C496):
 // the bundler sells the tool itself, so the transaction it reports pays its

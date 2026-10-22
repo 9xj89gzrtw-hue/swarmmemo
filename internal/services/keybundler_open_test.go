@@ -737,6 +737,23 @@ func TestBundlerTxIsLabelledUpstream(t *testing.T) {
 			t.Fatalf("first-party receipt %v", rc)
 		}
 	})
+	t.Run("scrubbed", func(t *testing.T) {
+		// The bundler scrubs some fields of a seller's answer (C504): the
+		// answer names them, so a hash check knows why it differs.
+		out := map[string]json.RawMessage{"results": json.RawMessage(`[{"body":{"mint":"m","token":"[redacted]","inner":{"api_token":"[redacted]","n":1}}}]`)}
+		bundlerLabelScrubbed(out)
+		var got struct {
+			Fields []string `json:"fields"`
+			Note   string   `json:"note"`
+		}
+		if err := json.Unmarshal(out["upstream_scrubbed"], &got); err != nil || strings.Join(got.Fields, ",") != "results.0.body.inner.api_token,results.0.body.token" || got.Note != BundlerScrubbedNote {
+			t.Fatalf("scrubbed %s %v", out["upstream_scrubbed"], err)
+		}
+		clean := map[string]json.RawMessage{"results": json.RawMessage(`[{"body":{"token":"abc"}}]`)}
+		if bundlerLabelScrubbed(clean); clean["upstream_scrubbed"] != nil {
+			t.Fatal("labelled an unscrubbed answer")
+		}
+	})
 	t.Run("relay", func(t *testing.T) {
 		h := newX402Harness(t, &fakeX402{price: 1500, version: 2}, `{}`)
 		out, err := h.call(testSubject, `{"resource":"price","query":{"ids":"bitcoin","vs":"usd"}}`, creditsFor(10000))

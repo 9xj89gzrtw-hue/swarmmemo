@@ -3550,8 +3550,8 @@
     {
       "mode": "0644",
       "path": "internal/board/verifications.go",
-      "sha256": "002d1ec289523f99686944a1551ab49faa6c78446ed442e4ef3617715fa1e3e8",
-      "size": 31895
+      "sha256": "c705578d376b6ba64a05d1bcb080e4296e3c4bf87964c2d120f1e824091498dd",
+      "size": 32207
     },
     {
       "mode": "0644",
@@ -3562,8 +3562,8 @@
     {
       "mode": "0644",
       "path": "internal/board/verifications_test.go",
-      "sha256": "1173e874a9843609ab693cdf2c444b953fae093f0135bfbc3d093a04059de9a3",
-      "size": 16157
+      "sha256": "538348a670f162e73c4e614d2dd90f4d29d0ec3136a2412600fdba50d129a971",
+      "size": 16486
     },
     {
       "mode": "0644",
@@ -6970,8 +6970,8 @@
     {
       "mode": "0644",
       "path": "internal/services/keybundler.go",
-      "sha256": "24ea9db48d3fecad9d2bd43546efdf2cbbf1d8b48ccd0d6c4af247254d0c5348",
-      "size": 14055
+      "sha256": "746ae0de3729eb852e13a20ec8025c85317a0750a295bc2151c95ec37b6c7fad",
+      "size": 15789
     },
     {
       "mode": "0644",
@@ -6982,8 +6982,8 @@
     {
       "mode": "0644",
       "path": "internal/services/keybundler_open_test.go",
-      "sha256": "67bbff8114473083d4e8dd1b4da0ed8554741b6e990aa69ac38145dfe0a038be",
-      "size": 48031
+      "sha256": "d8a09529261f8aebd61967a1de70a9b71bc8d3fb5cebad5c0c618394b4fb6a60",
+      "size": 48955
     },
     {
       "mode": "0644",

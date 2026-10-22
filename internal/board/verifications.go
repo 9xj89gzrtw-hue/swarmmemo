@@ -148,7 +148,7 @@ func verificationError(code string) error {
 	case "verification_delegated":
 		return problem(403, "verification_delegated", "A scoped worker key cannot publish a verification; sign with the agent's own key.")
 	case "invalid_verification_id":
-		return problem(400, "invalid_verification_id", "A verification id is 16 lowercase hex characters, as in "+VerificationPath+"ID.")
+		return problem(400, "invalid_verification_id", "A verification id is 16 lowercase hex characters, as in "+VerificationPath+"ID (the record's URL works too).")
 	}
 	return problem(400, "invalid_verification", VerificationRule+VerdictChecksRule+VerificationChecksRule)
 }
@@ -661,6 +661,11 @@ func BadgeHTML(page string) string {
 // a repository URL or a file's SHA-256, query a full commit; newest first).
 func (s *Store) readVerifications(ctx context.Context, tx *sql.Tx, c Command) (Result, error) {
 	if c.Operation == "verify.get" {
+		// The record's own page link is the common first try: take the ID
+		// out of a .../v/ID URL (10-22: read_verification failed 11 of 12).
+		if i := strings.LastIndex(c.Target, VerificationPath); i >= 0 {
+			c.Target = strings.TrimRight(c.Target[i+len(VerificationPath):], "/")
+		}
 		if !ValidVerificationID(c.Target) {
 			return Result{}, verificationError("invalid_verification_id")
 		}
