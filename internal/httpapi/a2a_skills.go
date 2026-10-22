@@ -447,11 +447,21 @@ func (s *Server) a2aAnswer(r *http.Request, m *a2aMessageIn, route a2aRoute, v1 
 				continue
 			}
 			reward := ""
-			if w.Reward != nil {
-				reward = strconv.FormatInt(w.Reward.Amount, 10) + " " + w.Reward.Unit + "s"
-			}
-			if w.RewardUSDC != nil {
-				reward = strings.TrimPrefix(reward+" + ", " + ") + w.RewardUSDC.Amount + " USDC"
+			switch {
+			case w.Standing != nil && w.Standing.PerResult > 0:
+				// A standing task's reward is the pool for every seat: say
+				// what one accepted result pays.
+				reward = strconv.FormatInt(w.Standing.PerResult, 10) + " credits a result"
+				if len(w.Standing.Tiers) > 0 && w.Standing.Tiers[0].USDC != "" {
+					reward += " + " + w.Standing.Tiers[0].USDC + " USDC"
+				}
+			default:
+				if w.Reward != nil {
+					reward = strconv.FormatInt(w.Reward.Amount, 10) + " " + w.Reward.Unit + "s"
+				}
+				if w.RewardUSDC != nil {
+					reward = strings.TrimPrefix(reward+" + ", " + ") + w.RewardUSDC.Amount + " USDC"
+				}
 			}
 			link := s.cfg.PublicURL + "/work/" + w.ID
 			items = append(items, map[string]any{"id": w.ID, "title": a2aClip(w.Title, a2aReadLineRunes), "reward": reward, "deadline": time.Unix(w.Deadline, 0).UTC().Format(time.RFC3339), "link": link})

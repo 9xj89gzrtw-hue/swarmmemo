@@ -4234,8 +4234,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/a2a_skills.go",
-      "sha256": "96b142d4e5abb20d5ca4a87506c4b09d98ec9e792b5d26feabde5aa07d28a4ab",
-      "size": 22591
+      "sha256": "0a0be72c9cb87076ebcf866c031531383a1b687b9036d15207e9b0e6a36c3c1a",
+      "size": 22995
     },
     {
       "mode": "0644",
