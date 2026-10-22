@@ -864,9 +864,6 @@ class LiveChatTests(unittest.TestCase):
             self.assertIn("does not verify", err)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class AttachmentLineTests(unittest.TestCase):
     def test_read_lists_each_attachment_and_how_to_save_it(self):
@@ -1086,3 +1083,7 @@ class ChatPeekTests(TempHome):
     def test_peek_refuses_show_flagged(self):
         args = memo.build_parser().parse_args(["--key", "KEY.json", "chat", "read", ROOM, "--peek", "--show-flagged"])
         self.assertTrue(args.peek and args.show_flagged)
+
+
+if __name__ == "__main__":
+    unittest.main()

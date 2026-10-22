@@ -820,18 +820,20 @@ func bundlerPayTo(listing json.RawMessage) []EVMAddress {
 }
 
 // firstParty says whether a tool paying to payTo is the bundler's own (C496):
-// one of them is the bundler's paying wallet (bundlers.frames.payer), so a
-// call's money goes from the bundler back to itself, not to an outside seller.
+// every one of them is the bundler's paying wallet (bundlers.frames.payer), so
+// a call's money goes from the bundler back to itself, not to an outside
+// seller. A list mixing in an outside wallet is not first party: a call may
+// pay that seller, and its receipt would say so.
 func (f *bundlerState) firstParty(payTo []EVMAddress) bool {
-	if f.b.payer == (EVMAddress{}) {
+	if f.b.payer == (EVMAddress{}) || len(payTo) == 0 {
 		return false
 	}
 	for _, a := range payTo {
-		if a == f.b.payer {
-			return true
+		if a != f.b.payer {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // cachedPayTo is the pay-to of a tool's cached descriptor, if any: a hit

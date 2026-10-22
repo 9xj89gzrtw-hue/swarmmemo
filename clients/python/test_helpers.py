@@ -853,9 +853,6 @@ class EmbedSetupTests(unittest.TestCase):
             self.assertEqual({k: v for k, v in body.items() if k not in ("signature", "public_key", "timestamp", "nonce")}, want)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class PlainErrorBodyTests(unittest.TestCase):
     def test_a_non_json_error_says_status_url_and_body(self):
@@ -1191,3 +1188,7 @@ class PayoutAddressParity(unittest.TestCase):
             self.assertFalse(memo.evm_address_ok(bad), bad)
         for ok in (good, good.lower(), "0x" + good[2:].upper()):
             self.assertTrue(memo.evm_address_ok(ok), ok)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1082,3 +1082,19 @@ func TestBundlerFirstParty(t *testing.T) {
 		}
 	}
 }
+
+// A pay-to list mixing the bundler's wallet with an outside seller is not
+// first party: a call may pay the seller, and its receipt would say so.
+func TestBundlerFirstPartyMixedPayTo(t *testing.T) {
+	payer, _ := ParseEVMAddress(bundlerPayer)
+	seller, _ := ParseEVMAddress("0x52e200000000000000000000000000000000f3ea")
+	f := &bundlerState{b: &keyBundler{payer: payer}}
+	for _, c := range []struct {
+		payTo []EVMAddress
+		want  bool
+	}{{nil, false}, {[]EVMAddress{payer}, true}, {[]EVMAddress{payer, payer}, true}, {[]EVMAddress{payer, seller}, false}, {[]EVMAddress{seller}, false}} {
+		if got := f.firstParty(c.payTo); got != c.want {
+			t.Errorf("firstParty(%v) = %v, want %v", c.payTo, got, c.want)
+		}
+	}
+}

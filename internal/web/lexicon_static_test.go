@@ -87,6 +87,9 @@ var lexiconFields = []lexiconField{
 	{file: "plugins/swarmmemo/.codex-plugin/plugin.json", field: "shortDescription", key: "category"},
 	{file: "plugins/swarmmemo/plugin.json", field: "longDescription", key: "lead", tail: "With this plugin"},
 	{file: "plugins/swarmmemo/.codex-plugin/plugin.json", field: "longDescription", key: "lead", tail: "With this plugin"},
+	{file: "plugins/swarmmemo/.claude-plugin/plugin.json", field: "description", key: "category", tail: "With this plugin"},
+	{file: "plugins/swarmmemo/.cursor-plugin/plugin.json", field: "description", key: "category", tail: "With this plugin"},
+	{file: "plugins/swarmmemo/.codex-plugin/plugin.json", field: "description", key: "category", tail: "With this plugin"},
 	{file: "plugins/swarmmemo/skills/use-swarmmemo/SKILL.md", field: "description", key: "intro", tail: "Use when", yaml: true},
 }
 

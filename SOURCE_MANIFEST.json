@@ -1,5 +1,5 @@
 {
-  "allowlist_sha256": "53217bb5c6fc7e1d618ae09a180b82818f46f5f5f8b3961ff7d6443d7925ae04",
+  "allowlist_sha256": "ea90e772527f478804b90515bec99e6d863e0d6dc2c6c1eaf57fa3a5d514caaa",
   "files": [
     {
       "mode": "0644",
@@ -34,8 +34,8 @@
     {
       "mode": "0644",
       "path": "CONTRIBUTORS.md",
-      "sha256": "f1a6f44f8cd371110bdd66a17b4e05c63645ba139b817bb7d134995fe3f9bc08",
-      "size": 9264
+      "sha256": "5a754a303ab24c08f963b1254a67e389b4ced024da4d9ed20dbb97ac0480c610",
+      "size": 9434
     },
     {
       "mode": "0644",
@@ -268,8 +268,8 @@
     {
       "mode": "0644",
       "path": "clients/python/test_chat.py",
-      "sha256": "c2745a45ee9800a969e488d9e04dbe53520d7e8fdaeb50ecfcca7dde0f34c5ca",
-      "size": 65756
+      "sha256": "d6a58048c0bee07dca1e2b37318d828c15fd7e1392fadd81ce892a270fb19bd2",
+      "size": 65757
     },
     {
       "mode": "0644",
@@ -310,14 +310,20 @@
     {
       "mode": "0644",
       "path": "clients/python/test_helpers.py",
-      "sha256": "930808717ce2a708102aca060b02a5a060a10b0cea31abbbbd62874ded254018",
-      "size": 77925
+      "sha256": "0d61e7f2fa002ef2a3b847112b0f7d24ef3ae35e5aae71d7418e05b00eb1e7c5",
+      "size": 77926
     },
     {
       "mode": "0644",
       "path": "clients/python/test_link_wallet.py",
       "sha256": "f01310d8b1940370a440021fec69e6bb8cbdce60dbeec748ac617ed9c357f985",
       "size": 21535
+    },
+    {
+      "mode": "0644",
+      "path": "clients/python/test_main_guard.py",
+      "sha256": "0f39c25b156e7e22d564499fbc126c8d965f48c75057697e897dfabe2a2f4b7a",
+      "size": 833
     },
     {
       "mode": "0644",
@@ -6976,14 +6982,14 @@
     {
       "mode": "0644",
       "path": "internal/services/keybundler_open.go",
-      "sha256": "a61cb50a360dbd9a339e0142f5215761df30a7fb1c1950914dd3061dbc08961c",
-      "size": 43728
+      "sha256": "61759d8ae01159fe8517462cd9ad66494fc86241e6ce27294add3588bd823ccf",
+      "size": 43872
     },
     {
       "mode": "0644",
       "path": "internal/services/keybundler_open_test.go",
-      "sha256": "d8a09529261f8aebd61967a1de70a9b71bc8d3fb5cebad5c0c618394b4fb6a60",
-      "size": 48955
+      "sha256": "16c0702a568b667266913bbbbbae3ff5480d0794f8501d7a73874c434c6a6b81",
+      "size": 49669
     },
     {
       "mode": "0644",
@@ -9022,8 +9028,8 @@
     {
       "mode": "0644",
       "path": "internal/web/lexicon_static_test.go",
-      "sha256": "8c59799c92260eaddfcc2a928c7f850be4af196b675183ba7bb68b3705a04d3b",
-      "size": 9031
+      "sha256": "6c565ea033be387503e6973da4676b5b3d176e1eae5ba2a393336d9229a1f53b",
+      "size": 9396
     },
     {
       "mode": "0644",
@@ -9970,8 +9976,8 @@
     {
       "mode": "0644",
       "path": "plugins/swarmmemo/.claude-plugin/plugin.json",
-      "sha256": "97fd6b539ef8c19262af1ba22c41957d191238da7f959b06a5d3c0c5f8cbbc46",
-      "size": 756
+      "sha256": "9162dee6ee7739349e430918c9a15d5940fc71ddabc3c2840e57ef861b9bab2f",
+      "size": 1029
     },
     {
       "mode": "0644",
@@ -9982,8 +9988,8 @@
     {
       "mode": "0644",
       "path": "plugins/swarmmemo/.codex-plugin/plugin.json",
-      "sha256": "70b3f0a23377e038ad0a2153bd9db6bd2526367d3ef3282608fcbae19b58993e",
-      "size": 2583
+      "sha256": "6aba667f355e06f9dac2f3251538c7875be55d0569c4ad919953848e13548950",
+      "size": 2598
     },
     {
       "mode": "0644",
@@ -9994,8 +10000,8 @@
     {
       "mode": "0644",
       "path": "plugins/swarmmemo/.cursor-plugin/plugin.json",
-      "sha256": "0cd18235ce68f5233ac5accfcd680b432ea8e07c153bb64be4a26e4d1ddcdae3",
-      "size": 630
+      "sha256": "1a79910ea910ff34a3b49f173efc07348e4c54c90b36d737d7fdad2d8d328ff3",
+      "size": 645
     },
     {
       "mode": "0644",
@@ -10036,8 +10042,8 @@
     {
       "mode": "0644",
       "path": "plugins/swarmmemo/plugin.json",
-      "sha256": "060d50090990328f5332441e945364c0d9b28ae254552bf98bbb37feb4b267bc",
-      "size": 6199
+      "sha256": "23b673cd813dcb0a64c0ad42225bcf83a98b267b1b83b747b3741fc43abecf30",
+      "size": 6214
     },
     {
       "mode": "0644",
