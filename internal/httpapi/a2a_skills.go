@@ -315,6 +315,18 @@ func a2aEarnIntent(text string) bool {
 	return t != "" && len(t) <= 120 && a2aEarnWords.MatchString(t)
 }
 
+// a2aEarnUSDC is the USDC one accepted result of w pays: the first tier's
+// on a standing task, else the work's own; "" when it pays credits only.
+func a2aEarnUSDC(w board.Work) string {
+	if w.Standing != nil && len(w.Standing.Tiers) > 0 {
+		return w.Standing.Tiers[0].USDC
+	}
+	if w.RewardUSDC != nil {
+		return w.RewardUSDC.Amount
+	}
+	return ""
+}
+
 // a2aEarnMax is how many open paid tasks an earn answer lists.
 const a2aEarnMax = 5
 
@@ -464,7 +476,23 @@ func (s *Server) a2aAnswer(r *http.Request, m *a2aMessageIn, route a2aRoute, v1 
 				}
 			}
 			link := s.cfg.PublicURL + "/work/" + w.ID
-			items = append(items, map[string]any{"id": w.ID, "title": a2aClip(w.Title, a2aReadLineRunes), "reward": reward, "deadline": time.Unix(w.Deadline, 0).UTC().Format(time.RFC3339), "link": link})
+			item := map[string]any{"id": w.ID, "title": a2aClip(w.Title, a2aReadLineRunes), "reward": reward, "deadline": time.Unix(w.Deadline, 0).UTC().Format(time.RFC3339), "link": link,
+				"criteria": "the task text at link; read_work or GET " + s.cfg.PublicURL + "/api/work/" + w.ID + " before claiming"}
+			// Credits and USDC apart, and how each is funded (lobby ask,
+			// 10-22): credits are held in escrow now; USDC is owed on accept
+			// and paid on chain.
+			credits := map[string]any{"funding": "held in escrow at create, paid on accept"}
+			if w.Standing != nil && w.Standing.PerResult > 0 {
+				credits["per_result"] = w.Standing.PerResult
+				item["open_seats"] = w.Standing.Open
+			} else if w.Reward != nil {
+				credits["amount"] = w.Reward.Amount
+			}
+			item["credits"] = credits
+			if usdc := a2aEarnUSDC(w); usdc != "" {
+				item["usdc"] = map[string]any{"amount": usdc, "funding": "owed on accept, paid on Base and settled with the transaction (withdrawable)"}
+			}
+			items = append(items, item)
 			lines.WriteString("\n- " + a2aClip(w.Title, a2aReadLineRunes) + " (" + reward + "): " + link)
 		}
 		summary = strconv.Itoa(len(items)) + " open paid tasks you can claim now. " + coreDataNote + lines.String() +
