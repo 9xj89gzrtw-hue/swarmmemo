@@ -733,6 +733,7 @@ func (x *x402) Work(ctx context.Context, _ *sql.DB, now int64) (int, error) {
 		return 0, nil
 	}
 	x.workBundler(now)
+	x.workLate(now) // unconfirmed settlements, read back once expired (x402_reconcile.go)
 	cc := x.cfg.Catalogue
 	if s := x.cat.snap.Load(); s == nil || now-s.loadedAt >= x402ReloadEvery {
 		_ = x.loadCatalogue(ctx, now) // a failed load keeps the old snapshot

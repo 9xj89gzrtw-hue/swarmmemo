@@ -268,6 +268,10 @@ type Deps struct {
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// X402 is the loaded x402 configuration; nil leaves x402 unconfigured.
 	X402 *X402Config
+	// Chain reads USDC on chain (WORK_USDC_RPC_URL); x402 reads back the
+	// payments whose settlement the seller never confirmed through it. nil
+	// leaves those charged.
+	Chain *USDCChain
 	// Runs is the parsed RUNS_CONFIG; nil leaves runs unconfigured, and every
 	// call is refused as unavailable.
 	Runs *RunsConfig

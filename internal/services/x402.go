@@ -206,6 +206,9 @@ type x402 struct {
 	// reviews summarises each resource's subject (Deps.Reviews); nil while
 	// REVIEWS is off.
 	reviews ReviewSummarizer
+	// late reads back the payments whose settlement the seller never
+	// confirmed (x402_reconcile.go).
+	late lateSettlements
 }
 
 func newX402(d Deps) Provider {
@@ -214,6 +217,7 @@ func newX402(d Deps) Provider {
 		return x // not configured: listed if enabled, but every call is service_unavailable
 	}
 	x.cfg, x.db, x.screener, x.reviews = d.X402, d.DB, d.TextScreener, d.Reviews
+	x.late.chain, x.late.dial = d.Chain, d.Dial
 	x.byID = map[string]*X402Resource{}
 	for i := range x.cfg.Resources {
 		indexResource(&x.cfg.Resources[i])
@@ -544,16 +548,36 @@ func (x *x402) Run(ctx context.Context, tx *sql.Tx, c Call) (Result, error) {
 		// We paid for it: the answer is discarded, but the call is charged,
 		// never refunded (security review 1.20, M1), and the account's
 		// discards today count against it before its next payment.
-		pay.finish("paid", resp.status, p.res.MaxResponseBytes+1, receipt.Transaction, "response_too_large")
+		state, reason := receipt.paidAs("response_too_large")
+		pay.finish(state, resp.status, p.res.MaxResponseBytes+1, receipt.Transaction, reason)
 		return x.discarded(c, p, resp.status, p.res.MaxResponseBytes+1, receipt), nil
 	}
 	res, err := x.result(c, p, resp, receipt)
 	if err != nil {
-		pay.finish("paid", resp.status, len(resp.body), receipt.Transaction, "response_too_large")
+		state, reason := receipt.paidAs("response_too_large")
+		pay.finish(state, resp.status, len(resp.body), receipt.Transaction, reason)
 		return x.discarded(c, p, resp.status, len(resp.body), receipt), nil
 	}
-	pay.finish("paid", resp.status, len(resp.body), receipt.Transaction, "")
+	state, reason := receipt.paidAs("")
+	pay.finish(state, resp.status, len(resp.body), receipt.Transaction, reason)
 	return res, nil
+}
+
+// paidAs is the state and reason a paid call's row ends in: "paid", or
+// "unknown" while the seller answered without confirming a successful
+// settlement (C534). Such a row keeps counting in the caps and the agent
+// stays charged, since the seller can still settle our signature until it
+// expires; reconcileLate reads it back after that. Its reason is
+// x402ReasonUnconfirmed, or reason when there is one (response_too_large
+// keeps counting the account's discards).
+func (r *x402Receipt) paidAs(reason string) (string, string) {
+	if r.SettlementStatus != x402SettlementUnconfirmed {
+		return "paid", reason
+	}
+	if reason == "" {
+		reason = x402ReasonUnconfirmed
+	}
+	return "unknown", reason
 }
 
 // x402Rail is the x402 bundler: it pays each call in USDC from the relay
@@ -624,11 +648,18 @@ func (r x402Rail) Exchange(ctx context.Context, p x402Plan, pay *payment) (x402R
 		pay.finish("unknown", paid.status, len(paid.body), settled.Transaction, "http_status")
 		return x402Response{}, nil, refusal("upstream_failed")
 	}
-	return paid, &x402Receipt{
+	receipt := &x402Receipt{
 		Amount: strconv.FormatInt(choice.Amount, 10), Price: formatUnits(choice.Amount, cfg.Decimals), Asset: cfg.Asset.String(),
 		Network: cfg.Network, PayTo: choice.PayTo.String(), Payer: auth.From.String(), Nonce: nonce,
 		Transaction: settled.Transaction, X402Version: choice.Version,
-	}, nil
+	}
+	if !settled.Success {
+		// An answer, but no successful settlement reported (success false,
+		// or no or a malformed settlement header): the seller still holds a
+		// valid signature, so the charge stands until it expires (C534).
+		receipt.SettlementStatus, receipt.Note = x402SettlementUnconfirmed, X402UnconfirmedNote
+	}
+	return paid, receipt, nil
 }
 
 // reserve records a payment before it is committed, in one statement that
@@ -707,7 +738,23 @@ type x402Receipt struct {
 	Nonce       string `json:"nonce"`
 	Transaction string `json:"transaction,omitempty"`
 	X402Version int    `json:"x402_version,omitempty"` // x402 only
+	// SettlementStatus is "unconfirmed" when the seller answered without
+	// reporting a successful settlement, and Note says what follows.
+	SettlementStatus string `json:"settlement_status,omitempty"`
+	Note             string `json:"note,omitempty"`
 }
+
+// x402SettlementUnconfirmed is a receipt's settlement_status when the seller
+// answered without reporting a successful settlement; such a payment row is
+// "unknown" with reason x402ReasonUnconfirmed until reconcileLate reads it
+// back.
+const (
+	x402SettlementUnconfirmed = "unconfirmed"
+	x402ReasonUnconfirmed     = "settlement_unconfirmed"
+)
+
+// X402UnconfirmedNote is the receipt's note for an unconfirmed settlement.
+const X402UnconfirmedNote = "The API answered but reported no successful settlement of this payment. The charge stands while the signed payment can still be used; if it expires unused on chain, the charge is refunded."
 
 // X402Settlement is what matches a paid relay call to the chain: the
 // network, the EIP-3009 authorization's nonce and, once the upstream

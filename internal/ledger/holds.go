@@ -185,6 +185,66 @@ func (l *Ledger) Refund(ctx context.Context, q allowance.Querier, holdID string,
 	return err
 }
 
+// ReimburseOp is the journal op of a Reimburse's refund lines.
+const ReimburseOp = "reimburse"
+
+// Reimburse pays back, after the fact, everything a settled service hold
+// used: the call was charged, and its provider later learned the charge was
+// for nothing (an x402 payment that expired unused on chain). The units come
+// back as minted lots of the buckets that paid them: paid as a paid lot
+// (topup), earned as earned, and the free allowance and granted credit as
+// granted (a day's free allowance cannot be handed back after its day), each
+// journalled with the hold's id and op ReimburseOp. Granted and earned units
+// are drawn from the day's grant slice like any grant: when it is empty the
+// refusal (global_quota_exhausted) leaves the caller to try again later. A
+// hold is reimbursed at most once: again, it returns 0 and changes nothing.
+// It returns the units paid back.
+func (l *Ledger) Reimburse(ctx context.Context, q allowance.Querier, holdID, reason string, now int64) (int64, error) {
+	h, ok, err := loadHoldRow(ctx, q, holdID)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, fmt.Errorf("%w: hold %s", ErrNotFound, holdID)
+	}
+	if h.Service == ledgerService {
+		return 0, errors.New("ledger: a transfer's hold is settled by the transfer")
+	}
+	if reason == "" || len(reason) > 512 {
+		return 0, errors.New("ledger: reimburse needs a public reason of 1–512 bytes")
+	}
+	var done int
+	if err = q.QueryRowContext(ctx, "SELECT count(*) FROM ledger_entries WHERE account=? AND hold_id=? AND kind IN ('grant','earn','topup') AND op=?", h.Account, holdID, ReimburseOp).Scan(&done); err != nil {
+		return 0, err
+	}
+	if done > 0 {
+		return 0, nil
+	}
+	spent, ok, err := l.HoldSpent(ctx, q, holdID)
+	if err != nil || !ok {
+		return 0, err // held or refunded: nothing was charged
+	}
+	back := map[allowance.Bucket]int64{}
+	for b, n := range spent {
+		switch b {
+		case allowance.Paid, allowance.Earned:
+			back[b] += n
+		default:
+			back[allowance.Granted] += n
+		}
+	}
+	var total int64
+	for _, b := range []allowance.Bucket{allowance.Granted, allowance.Earned, allowance.Paid} {
+		if n := back[b]; n > 0 {
+			if _, err = l.mint(ctx, q, h.Account, h.Resource, b, n, reason, Ref{Service: h.Service, Op: ReimburseOp}, true, holdID, now); err != nil {
+				return 0, err
+			}
+			total += n
+		}
+	}
+	return total, nil
+}
+
 // GetHold reads one hold as it stands; ok is false when there is none.
 func (l *Ledger) GetHold(ctx context.Context, q allowance.Querier, id string) (Hold, bool, error) {
 	return loadHold(ctx, q, id)

@@ -743,7 +743,7 @@ func (l *Ledger) Mint(ctx context.Context, q allowance.Querier, account string, 
 // MintRef is Mint journalled with ref: the service, operation and public id
 // of what the lot pays for (a review reward names its review).
 func (l *Ledger) MintRef(ctx context.Context, q allowance.Querier, account string, r allowance.Resource, b allowance.Bucket, units int64, reason string, ref Ref, now int64) error {
-	_, err := l.mint(ctx, q, account, r, b, units, reason, ref, false, now)
+	_, err := l.mint(ctx, q, account, r, b, units, reason, ref, false, "", now)
 	return err
 }
 
@@ -753,10 +753,12 @@ func (l *Ledger) MintRef(ctx context.Context, q allowance.Querier, account strin
 // never refuses it: past LotsPerAccount it opens a lot of its own. It
 // returns the lot's id.
 func (l *Ledger) TopUp(ctx context.Context, q allowance.Querier, account string, r allowance.Resource, units int64, reason string, ref Ref, now int64) (int64, error) {
-	return l.mint(ctx, q, account, r, allowance.Paid, units, reason, ref, true, now)
+	return l.mint(ctx, q, account, r, allowance.Paid, units, reason, ref, true, "", now)
 }
 
-func (l *Ledger) mint(ctx context.Context, q allowance.Querier, account string, r allowance.Resource, b allowance.Bucket, units int64, reason string, ref Ref, force bool, now int64) (int64, error) {
+// mint issues a lot; hold, when set, is the service hold the lot pays back
+// (Reimburse), journalled with it.
+func (l *Ledger) mint(ctx context.Context, q allowance.Querier, account string, r allowance.Resource, b allowance.Bucket, units int64, reason string, ref Ref, force bool, hold string, now int64) (int64, error) {
 	if units <= 0 || units > maxUnits || !slices.Contains([]allowance.Bucket{allowance.Granted, allowance.Earned, allowance.Paid}, b) {
 		return 0, refuse("invalid_amount")
 	}
@@ -791,7 +793,7 @@ func (l *Ledger) mint(ctx context.Context, q allowance.Querier, account string, 
 		return 0, err
 	}
 	e := o.entry(kind, account, units)
-	e.Bucket, e.LotID, e.Detail, e.Ref = b, id, reason, ref
+	e.Bucket, e.LotID, e.Detail, e.Ref, e.HoldID = b, id, reason, ref, hold
 	if err = journal(ctx, q, e); err != nil {
 		return 0, err
 	}

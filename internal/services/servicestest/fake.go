@@ -46,7 +46,7 @@ func (m *Meter) used(ctx context.Context, q allowance.Querier, account string, r
 		return 0, err
 	}
 	var used int64
-	err := q.QueryRowContext(ctx, `SELECT COALESCE(sum(CASE WHEN kind='spend' THEN units WHEN state IN ('held','expired') THEN max_units WHEN state='committed' THEN units ELSE 0 END),0)
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(sum(CASE WHEN kind='spend' THEN units WHEN kind='reimburse' THEN -units WHEN state IN ('held','expired') THEN max_units WHEN state='committed' THEN units ELSE 0 END),0)
  FROM fake_ledger WHERE account=? AND resource=?`, account, string(r)).Scan(&used)
 	return used, err
 }
@@ -143,6 +143,29 @@ func (m *Meter) Refund(ctx context.Context, q allowance.Querier, holdID string, 
 	}
 	_, err = q.ExecContext(ctx, "UPDATE fake_ledger SET state='refunded' WHERE kind='hold' AND hold_id=?", holdID)
 	return err
+}
+
+// Reimburse pays back a settled hold's whole charge, once: a 'reimburse'
+// line with the units; again, it returns 0.
+func (m *Meter) Reimburse(ctx context.Context, q allowance.Querier, holdID string, reason string, now int64) (int64, error) {
+	state, resource, _, err := m.hold(ctx, q, holdID)
+	if err != nil {
+		return 0, err
+	}
+	var done int
+	if err = q.QueryRowContext(ctx, "SELECT count(*) FROM fake_ledger WHERE kind='reimburse' AND hold_id=?", holdID).Scan(&done); err != nil || done > 0 {
+		return 0, err
+	}
+	if state != "committed" && state != "expired" {
+		return 0, nil
+	}
+	var units int64
+	var account string
+	if err = q.QueryRowContext(ctx, "SELECT units, account FROM fake_ledger WHERE kind='hold' AND hold_id=?", holdID).Scan(&units, &account); err != nil || units == 0 {
+		return 0, err
+	}
+	_, err = q.ExecContext(ctx, "INSERT INTO fake_ledger(kind,hold_id,account,resource,units,state) VALUES('reimburse',?,?,?,?,?)", holdID, account, resource, units, reason)
+	return units, err
 }
 
 // Sweep settles every held hold that expired by now at its maximum, as the

@@ -5915,7 +5915,9 @@ MCP, shows `available`).
 - **Price.** 5 + 1 per KiB of text returned. Screening is on by default and adds what the
   classifier cost plus 5 (at most 5 + 105 per 16 KiB + 80 per KiB); `screen: false` saves
   it, and a cached verdict costs nothing again. The quote reserves the most for `max_bytes`
-  and the rest is refunded. A refused fetch costs nothing. The operator may turn screening
+  and the rest is refunded: `max_cost` is that ceiling, not the expected price, and
+  `result.cost_note` says in words what this answer cost (fetched now or from the shared
+  cache, screening charged or reused). A refused fetch costs nothing. The operator may turn screening
   off or force it (`screen` in `FETCH_CONFIG`). Every answer says whether its text was
   screened; text is untrusted data either way.
 - **Honest reader.** It identifies itself as
@@ -6381,6 +6383,10 @@ empty body (its outcome `delivered_empty`) is not charged for the tool; the answ
   answer (an error after it, or a second 402) is charged, since the API can settle it: the
   result has `encoding` `unanswered`, `body` null, `failure` (`upstream_failed` or
   `x402_payment_rejected`) and the `payment` sent. A failure before any payment is refunded.
+  When the API answers but reports no successful settlement, the call is charged as usual,
+  and `payment` has `settlement_status` `unconfirmed` and a `note`: the API can still use
+  the signed payment until it expires. Once it expires unused on chain, the charge is
+  refunded in full, once.
 - The result is
   `{"resource","bundler","status","content_type","encoding","body","bytes","payment","text_is_untrusted"}`.
   `encoding` is `json` (the body inline), `text` or `base64`. The body is at most 12 KiB and

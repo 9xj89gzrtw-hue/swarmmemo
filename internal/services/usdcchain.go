@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -235,3 +236,86 @@ func topicAddress(topic string) (EVMAddress, bool) {
 
 // ParseUSDC reads a decimal USDC amount ("0.10") into micro-USDC.
 func ParseUSDC(s string) (int64, bool) { return parseUnits(s, 6) }
+
+// EIP-3009's authorizationState(address,bytes32) selector and its
+// AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce)
+// event topic, for reading back an x402 payment we signed.
+var (
+	authorizationStateSelector = keccak256([]byte("authorizationState(address,bytes32)"))
+	authorizationUsedTopic     = keccak256([]byte("AuthorizationUsed(address,bytes32)"))
+)
+
+// usdcLogsBlocks bounds how far back AuthorizationTx looks for the event.
+const usdcLogsBlocks = 5000
+
+// AuthorizationUsed reads the token's authorizationState(authorizer, nonce)
+// at the latest block: whether an EIP-3009 authorization with that nonce has
+// been used (or cancelled) on chain. nonce is 0x-hex of 32 bytes.
+func (c *USDCChain) AuthorizationUsed(ctx context.Context, dial func(ctx context.Context, network, addr string) (net.Conn, error), authorizer EVMAddress, nonce string) (bool, error) {
+	n, ok := hexBytes32(nonce)
+	if !ok {
+		return false, &ChainError{Code: "chain_unavailable", Reason: "malformed nonce"}
+	}
+	data := "0x" + hex.EncodeToString(authorizationStateSelector[:4]) + hex.EncodeToString(wordAddress(authorizer)) + hex.EncodeToString(n[:])
+	var out string
+	if err := c.call(ctx, c.httpClient(dial), "eth_call", []any{map[string]string{"to": c.Asset.String(), "data": data}, "latest"}, &out); err != nil {
+		return false, err
+	}
+	v, ok := hexBig(out)
+	if !ok || len(out) != 66 || v.Cmp(big.NewInt(1)) > 0 {
+		return false, &ChainError{Code: "chain_unavailable", Reason: "malformed result"}
+	}
+	return v.Sign() == 1, nil
+}
+
+// AuthorizationTx is the transaction that used authorizer's nonce, found by
+// its AuthorizationUsed event in the last usdcLogsBlocks blocks; "" when
+// none is found there (best effort: the authorization state is the fact).
+func (c *USDCChain) AuthorizationTx(ctx context.Context, dial func(ctx context.Context, network, addr string) (net.Conn, error), authorizer EVMAddress, nonce string) (string, error) {
+	n, ok := hexBytes32(nonce)
+	if !ok {
+		return "", &ChainError{Code: "chain_unavailable", Reason: "malformed nonce"}
+	}
+	client := c.httpClient(dial)
+	var head string
+	if err := c.call(ctx, client, "eth_blockNumber", []any{}, &head); err != nil {
+		return "", err
+	}
+	h, ok := hexInt(head)
+	if !ok {
+		return "", &ChainError{Code: "chain_unavailable", Reason: "malformed head"}
+	}
+	var logs []struct {
+		Address         string `json:"address"`
+		TransactionHash string `json:"transactionHash"`
+		Removed         bool   `json:"removed"`
+	}
+	filter := map[string]any{"address": c.Asset.String(), "fromBlock": "0x" + strconv.FormatInt(max(h-usdcLogsBlocks, 0), 16), "toBlock": "latest",
+		"topics": []any{"0x" + hex.EncodeToString(authorizationUsedTopic[:]), "0x" + hex.EncodeToString(wordAddress(authorizer)), "0x" + hex.EncodeToString(n[:])}}
+	if err := c.call(ctx, client, "eth_getLogs", []any{filter}, &logs); err != nil {
+		return "", err
+	}
+	for _, l := range logs {
+		addr, ok := ParseEVMAddress(strings.ToLower(l.Address))
+		tx := strings.ToLower(l.TransactionHash)
+		if ok && addr == c.Asset && !l.Removed && ValidTxHash(tx) {
+			return tx, nil
+		}
+	}
+	return "", nil
+}
+
+// hexBytes32 reads 0x-hex of exactly 32 bytes (lowercase, as randomNonce
+// writes a nonce).
+func hexBytes32(s string) ([32]byte, bool) {
+	var out [32]byte
+	if !usdcTxHashRE.MatchString(s) {
+		return out, false
+	}
+	b, err := hex.DecodeString(s[2:])
+	if err != nil {
+		return out, false
+	}
+	copy(out[:], b)
+	return out, true
+}

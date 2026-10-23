@@ -279,6 +279,13 @@ func TestFetchCacheAndAllowance(t *testing.T) {
 	if get(second, "call", "cost") != get(first, "call", "cost") {
 		t.Fatal("a cached page costs the same")
 	}
+	const ceiling = " max_cost is only the ceiling reserved for max_bytes; the rest is refunded."
+	if got := get(first, "result", "cost_note"); got != "Fetched now: cost is 5 + 1 per KiB of text returned."+ceiling {
+		t.Fatalf("remote cost_note: %q", got)
+	}
+	if got := get(second, "result", "cost_note"); got != "Served from the shared cache (a page is kept 10 minutes): cost is 5 + 1 per KiB of text returned."+ceiling {
+		t.Fatalf("cached cost_note: %q", got)
+	}
 	r.now += services.FetchCacheSeconds
 	r.must("alice", noScreen("http://site.test/a"))
 	if s.hit("/a") != 2 {
@@ -527,6 +534,12 @@ func TestFetchScreeningIsOptionalAndPriced(t *testing.T) {
 	again := r.must("bob", map[string]any{"url": "http://site.test/inject"})
 	if r.jev.calls != 1 || get(again, "result", "screened") != true || get(again, "call", "cost") != float64(services.FetchPrice.For(int64(len(text)))) {
 		t.Fatalf("a cached verdict: calls %d %+v", r.jev.calls, get(again, "call"))
+	}
+	if got := get(screened, "result", "cost_note"); got != "Fetched now: cost is 5 + 1 per KiB of text returned, plus what screening cost. max_cost is only the ceiling reserved for max_bytes; the rest is refunded." {
+		t.Fatalf("screened cost_note: %q", got)
+	}
+	if got := get(again, "result", "cost_note"); got != "Served from the shared cache (a page is kept 10 minutes): cost is 5 + 1 per KiB of text returned; the text was screened before, so screening cost nothing again. max_cost is only the ceiling reserved for max_bytes; the rest is refunded." {
+		t.Fatalf("cached verdict cost_note: %q", got)
 	}
 	off := r.must("carol", map[string]any{"url": "http://site.test/inject", "screen": false})
 	if get(off, "result", "screened") != false || get(off, "result", "screen") != "off" {

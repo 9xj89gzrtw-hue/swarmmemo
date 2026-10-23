@@ -47,6 +47,9 @@ type fakeX402 struct {
 	slowPaid time.Duration // delay before answering a paid request
 	bigPaid  int           // bytes of a paid response
 	free     bool          // answer 200 without asking for payment
+	// settle is how a paid answer reports its settlement: "" success,
+	// "false" success false, "none" no settlement header.
+	settle   string
 	nonces   map[string]int
 	paid     int
 	payHdrs  int
@@ -80,7 +83,7 @@ func (f *fakeX402) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		n, _ := r.Body.Read(b)
 		f.lastBody = string(b[:n])
 	}
-	price, version, reject, slow, big, free := f.price, f.version, f.reject, f.slowPaid, f.bigPaid, f.free
+	price, version, reject, slow, big, free, settleMode := f.price, f.version, f.reject, f.slowPaid, f.bigPaid, f.free, f.settle
 	f.mu.Unlock()
 	if free {
 		w.Header().Set("Content-Type", "application/json")
@@ -127,8 +130,14 @@ func (f *fakeX402) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.paid++
 	f.mu.Unlock()
-	settle, _ := json.Marshal(map[string]any{"success": true, "transaction": "0x" + strings.Repeat("ab", 32), "network": "eip155:8453"})
-	w.Header().Set("PAYMENT-RESPONSE", base64.StdEncoding.EncodeToString(settle))
+	switch settleMode {
+	case "":
+		settle, _ := json.Marshal(map[string]any{"success": true, "transaction": "0x" + strings.Repeat("ab", 32), "network": "eip155:8453"})
+		w.Header().Set("PAYMENT-RESPONSE", base64.StdEncoding.EncodeToString(settle))
+	case "false":
+		settle, _ := json.Marshal(map[string]any{"success": false, "errorReason": "unexpected_settle_error", "transaction": "", "network": "eip155:8453"})
+		w.Header().Set("PAYMENT-RESPONSE", base64.StdEncoding.EncodeToString(settle))
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if big > 0 {
 		_, _ = w.Write([]byte(`{"x":"` + strings.Repeat("y", big) + `"}`))

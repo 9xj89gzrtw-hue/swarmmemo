@@ -625,13 +625,14 @@ func (f *fetch) Run(ctx context.Context, _ *sql.Tx, c Call) (Result, error) {
 	used := c.Price.For(int64(len(text)))
 	state := "off"
 	var verdict *TextVerdict
+	screenCharged, screenReused := false, false
 	if f.cfg.screen.Wants(p.screen) {
 		state = "unavailable"
 	}
 	if screen {
 		switch v, n := f.cachedVerdict(key, len(text)); {
 		case v != nil && n == len(text):
-			verdict, state = v, "done" // screened before: it costs nothing again
+			verdict, state, screenReused = v, "done", true // screened before: it costs nothing again
 		default:
 			sv, cost, err := screenOptional(ctx, f.screener, text, "web")
 			if err != nil {
@@ -640,6 +641,7 @@ func (f *fetch) Run(ctx context.Context, _ *sql.Tx, c Call) (Result, error) {
 			}
 			verdict, state = &sv, "done"
 			used += screenSurcharge(len(text), cost)
+			screenCharged = true
 			f.storeVerdict(key, sv, len(text))
 		}
 	}
@@ -650,6 +652,7 @@ func (f *fetch) Run(ctx context.Context, _ *sql.Tx, c Call) (Result, error) {
 		"url": key, "final_url": page.FinalURL, "status": page.Status, "content_type": page.ContentType, "format": page.Format,
 		"bytes": len(text), "page_bytes": page.PageBytes, "truncated": page.Truncated || len(text) < len(page.Text),
 		"fetched_at": page.FetchedAt, "cached": cached, "screened": verdict != nil, "screen": state, "untrusted": true,
+		"cost_note":  fetchCostNote(c.Price, cached, screenCharged, screenReused),
 		"raw_sha256": page.RawSHA256, "raw_bytes": len(page.Raw),
 		"note": UntrustedNote + " The text is in this first answer only and never stored; fetching again within 10 minutes reads the cache.",
 	}
@@ -667,6 +670,27 @@ func (f *fetch) Run(ctx context.Context, _ *sql.Tx, c Call) (Result, error) {
 	}
 	public, _ := json.Marshal(map[string]any{"bytes": len(text), "status": page.Status, "cached": cached, "screened": verdict != nil, "kept": kept != nil})
 	return Result{Body: canonicalJSON(body), Used: used, Public: public, Once: canonicalJSON(once)}, nil
+}
+
+// fetchCostNote says in plain words why this answer cost what it did:
+// fetched now or read from the shared cache, whether screening was charged
+// or reused, and that max_cost was only the ceiling the quote reserved.
+func fetchCostNote(price Price, cached, screenCharged, screenReused bool) string {
+	var b strings.Builder
+	if cached {
+		b.WriteString("Served from the shared cache (a page is kept " + durationText(FetchCacheSeconds) + ")")
+	} else {
+		b.WriteString("Fetched now")
+	}
+	b.WriteString(": cost is " + price.Words() + " of text returned")
+	switch {
+	case screenCharged:
+		b.WriteString(", plus what screening cost")
+	case screenReused:
+		b.WriteString("; the text was screened before, so screening cost nothing again")
+	}
+	b.WriteString(". max_cost is only the ceiling reserved for max_bytes; the rest is refunded.")
+	return b.String()
 }
 
 // keep stores the page's bytes as received as a file in p.room, through the

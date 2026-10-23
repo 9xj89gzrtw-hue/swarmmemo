@@ -721,3 +721,57 @@ func TestLoweredCapAppliesToUnspentEntitlement(t *testing.T) {
 	}
 	checkInvariants(t, h.db, h.p)
 }
+
+// Reimburse pays a committed hold's charge back once, bucket for bucket:
+// paid as paid, the free allowance as granted credit from the grant slice.
+func TestReimburseCommittedHold(t *testing.T) {
+	p := smallParams()
+	p.Resources[allowance.PostBytes].GrantSharePPM = 500_000
+	h := newHarness(t, p)
+	alice := signedSubject("alice")
+	if err := h.do(func(q *sql.Tx) error {
+		return h.l.Mint(ctx, q, "alice", allowance.PostBytes, allowance.Paid, 100, "funding test", h.now)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var hold Hold
+	if err := h.do(func(q *sql.Tx) error {
+		var err error
+		hold, err = h.l.Reserve(ctx, q, alice, allowance.PostBytes, 300, "x", Ref{Service: "x402", Method: "call"}, 60, h.now)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reimburse := func() (int64, error) {
+		var n int64
+		err := h.do(func(q *sql.Tx) error {
+			var err error
+			n, err = h.l.Reimburse(ctx, q, hold.ID, "x402 payment expired unused", h.now)
+			return err
+		})
+		return n, err
+	}
+	if n, err := reimburse(); err != nil || n != 0 {
+		t.Fatalf("an open hold charged nothing yet: %d %v", n, err)
+	}
+	if err := h.do(func(q *sql.Tx) error { _, err := h.l.Commit(ctx, q, hold.ID, 250, h.now); return err }); err != nil {
+		t.Fatal(err)
+	}
+	before := h.balance(alice).Remaining + 250
+	if n, err := reimburse(); err != nil || n != 250 {
+		t.Fatalf("reimburse %d %v", n, err)
+	}
+	if got := h.balance(alice).Remaining; got != before {
+		t.Fatalf("balance %d after the refund, want %d", got, before)
+	}
+	if n := h.count("SELECT coalesce(sum(amount),0) FROM ledger_entries WHERE hold_id=? AND kind='topup' AND op='reimburse'", hold.ID); n != 50 {
+		t.Fatalf("paid part back as paid: %d", n)
+	}
+	if n, err := reimburse(); err != nil || n != 0 {
+		t.Fatalf("a second reimbursement: %d %v", n, err)
+	}
+	if got := h.balance(alice).Remaining; got != before {
+		t.Fatalf("paid back twice: %d", got)
+	}
+	checkInvariants(t, h.db, h.p)
+}

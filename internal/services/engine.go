@@ -36,6 +36,15 @@ type HoldSpender interface {
 
 var _ HoldSpender = (*ledger.Ledger)(nil)
 
+// Reimburser is a Meter that can pay back a settled hold's whole charge
+// after the fact, at most once per hold (0 when it already did); x402 uses
+// it when a charged payment turns out never to have moved.
+type Reimburser interface {
+	Reimburse(ctx context.Context, q allowance.Querier, holdID, reason string, now int64) (int64, error)
+}
+
+var _ Reimburser = (*ledger.Ledger)(nil)
+
 // A call answer's call.paid_from names what paid its cost (C516): the
 // one-call tools are free, charged to the caller's free daily allowance, so
 // a cost met wholly from it says so; credits is any cost that granted,
