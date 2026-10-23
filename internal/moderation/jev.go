@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,40 @@ var (
 	errSpendCap       = errors.New("moderation: jev daily spend cap reached")
 	errJevTextTooLong = errors.New("moderation: text needs more jev chunks than a screen makes")
 )
+
+// jevRefusal is Jev answering a call with a status other than 200, 429 or
+// 5xx: a revoked key (401, 403) or an account out of credits (402) refuses
+// every call until someone acts, so jevChunked raises an alert for it.
+// ErrorType is the body's detail.error_type when it is a short token
+// (billing_error), else empty; nothing else of the body is kept.
+type jevRefusal struct {
+	Status    int
+	ErrorType string
+}
+
+func (r *jevRefusal) Error() string {
+	if r.ErrorType != "" {
+		return fmt.Sprintf("%v: HTTP %d %s", errJevUnavailable, r.Status, r.ErrorType)
+	}
+	return fmt.Sprintf("%v: HTTP %d", errJevUnavailable, r.Status)
+}
+
+func (r *jevRefusal) Unwrap() error { return errJevUnavailable }
+
+var jevErrorTypeRE = regexp.MustCompile(`^[a-z_]{1,40}$`)
+
+// jevErrorType is raw's detail.error_type when it is a short lowercase token.
+func jevErrorType(raw []byte) string {
+	var body struct {
+		Detail struct {
+			ErrorType string `json:"error_type"`
+		} `json:"detail"`
+	}
+	if json.Unmarshal(raw, &body) != nil || !jevErrorTypeRE.MatchString(body.Detail.ErrorType) {
+		return ""
+	}
+	return body.Detail.ErrorType
+}
 
 type netConn = net.Conn
 
@@ -340,6 +375,13 @@ func (e *Engine) jevChunked(ctx context.Context, pol *Policy, text string, now i
 		out, err := e.jev.call(ctx, body, time.Duration(pol.Jev.TimeoutMS)*time.Millisecond, questions)
 		if err != nil {
 			e.settleSpend(ctx, day, -reserved, 0, false, pool) // this chunk's and the rest's
+			// A refusal (out of credits, revoked key) fails every call until
+			// someone acts: say so once a day, not silently (10-23: 402
+			// billing_error took screening down for hours unnoticed).
+			var refused *jevRefusal
+			if errors.As(err, &refused) {
+				e.alertOnce(ctx, Alert{Kind: "jev_refused", Detail: "Jev refused calls (" + refused.Error() + "); every Jev surface falls to on_unavailable and screen calls fail closed until it answers again", At: now}, day*86400)
+			}
 			return r, err
 		}
 		reserved -= estimate
@@ -425,7 +467,7 @@ func (j *jevClient) call(ctx context.Context, body []byte, timeout time.Duration
 			continue
 		}
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("%w: HTTP %d", errJevUnavailable, resp.StatusCode)
+			return nil, &jevRefusal{Status: resp.StatusCode, ErrorType: jevErrorType(raw)}
 		}
 		if rerr != nil || len(raw) > jevResponseBytes {
 			return nil, fmt.Errorf("%w: response unreadable or too large", errJevUnavailable)

@@ -155,7 +155,8 @@ func (s *Server) countMCPTools(profile string, registered map[string]bool) mcp.M
 // mcpToolErrorCode is a failed call's error code: the board.Error a tool's
 // refusal carries (its structured content, structuredToolErrors, or the
 // result's error), else board.MCPToolOther. Only the code is kept, never
-// the message or the arguments.
+// the message or the arguments; an SDK argument refusal is split by kind
+// (mcpArgRefusal).
 func mcpToolErrorCode(r *mcp.CallToolResult, err error) string {
 	var be *board.Error
 	switch {
@@ -168,7 +169,8 @@ func mcpToolErrorCode(r *mcp.CallToolResult, err error) string {
 				be = e
 			case map[string]any:
 				if c, ok := e["code"].(string); ok {
-					be = &board.Error{Code: c}
+					msg, _ := e["message"].(string)
+					be = &board.Error{Code: c, Message: msg}
 				}
 			}
 		}
@@ -179,7 +181,27 @@ func mcpToolErrorCode(r *mcp.CallToolResult, err error) string {
 	if be == nil || !board.ValidMCPToolCode(be.Code) {
 		return board.MCPToolOther
 	}
+	if be.Code == "invalid_request" {
+		return mcpArgRefusal(be.Message)
+	}
 	return be.Code
+}
+
+// mcpArgRefusal is the counted code of an invalid_request: the kind of the
+// SDK's argument refusal (structuredToolErrors), told from its text and
+// never keeping it, so a funnel leak says which fix it needs: an argument
+// the tool does not take, a required one left out, or one of the wrong
+// type. Any other invalid_request stays as it is.
+func mcpArgRefusal(msg string) string {
+	switch {
+	case strings.Contains(msg, "unexpected additional properties"):
+		return "invalid_request_unknown_arg"
+	case strings.Contains(msg, "missing properties"):
+		return "invalid_request_missing_arg"
+	case strings.Contains(msg, " has type "), strings.Contains(msg, "cannot unmarshal"):
+		return "invalid_request_arg_type"
+	}
+	return "invalid_request"
 }
 
 // countMCPTool records one call, failed when code (its error code) is set,

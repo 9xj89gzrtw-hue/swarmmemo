@@ -42,7 +42,8 @@ type fakeJev struct {
 	srv      *httptest.Server
 	mu       sync.Mutex
 	p        map[string]float64
-	status   int // non-zero: answer every request with this status
+	status   int    // non-zero: answer every request with this status
+	errBody  string // the body sent with status, if any
 	requests atomic.Int64
 	tokens   int64
 	lastBody map[string]any
@@ -77,6 +78,7 @@ func newFakeJev(t *testing.T) *fakeJev {
 		}
 		if f.status != 0 {
 			w.WriteHeader(f.status)
+			_, _ = io.WriteString(w, f.errBody)
 			return
 		}
 		answers := map[string]any{}

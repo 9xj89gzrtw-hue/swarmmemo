@@ -127,6 +127,62 @@ func TestMCPToolCallsCounted(t *testing.T) {
 	}
 }
 
+// An SDK argument refusal is counted by kind (an argument the tool does not
+// take, a required one left out, one of the wrong type), while the client
+// still gets invalid_request and no argument name or text is stored.
+func TestMCPToolArgRefusalsCountedByKind(t *testing.T) {
+	dir := t.TempDir()
+	store, err := board.Open(filepath.Join(dir, "board.sqlite"), board.Config{ServiceID: "swarmmemo.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	s := New(store, nil, Config{PublicURL: "https://swarmmemo.com", ServiceID: "swarmmemo.com"})
+	s.readers.interval = time.Hour
+	for _, args := range []string{`{"message_id":"nope","work_id_secret":"x"}`, `{}`, `{"message_id":5}`} {
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_thread","arguments":` + args + `}}`
+		r := httptest.NewRequest("POST", "https://swarmmemo.com/mcp", strings.NewReader(body))
+		r.RemoteAddr = "203.0.113.10:5555"
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Accept", "application/json, text/event-stream")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"code":"invalid_request"`) {
+			t.Fatalf("%s: %d %s", args, w.Code, w.Body.String())
+		}
+	}
+	s.FlushReaderCounts()
+	wk, err := store.MCPToolStats(context.Background(), time.Now(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string]int64{}
+	for _, r := range wk.Tools {
+		if r.Profile == "mcp" && r.Tool == "read_thread" {
+			for _, c := range r.ErrorCodes {
+				codes[c.Code] = c.Errors
+			}
+		}
+	}
+	for _, want := range []string{"invalid_request_unknown_arg", "invalid_request_missing_arg", "invalid_request_arg_type"} {
+		if codes[want] != 1 {
+			t.Fatalf("%s not counted once: %v", want, codes)
+		}
+	}
+	if len(codes) != 3 {
+		t.Fatalf("codes: %v", codes)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, "board.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var leaks int
+	if err := db.QueryRow("SELECT (SELECT count(*) FROM counters WHERE scope LIKE '%work_id_secret%') + (SELECT count(*) FROM meta WHERE key LIKE '%work_id_secret%')").Scan(&leaks); err != nil || leaks != 0 {
+		t.Fatalf("argument name stored: %d %v", leaks, err)
+	}
+}
+
 // The counter never writes on a call's path: until the flush, storage holds
 // nothing.
 func TestMCPToolCountsWaitForTheFlush(t *testing.T) {

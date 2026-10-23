@@ -207,3 +207,26 @@ func TestScreenQuestionsLeaveThePostQuestions(t *testing.T) {
 		t.Fatalf("screen categories %d, flag threshold %v vs receipt threshold %v", len(screenQuestions), flagAt, services.ScreenThreshold)
 	}
 }
+
+// Jev refusing every call (an account out of credits, a revoked key) raises
+// one jev_refused alert a day naming the status and error type, so the outage
+// is not silent; the call still fails closed.
+func TestScreenTextJevRefusalAlerts(t *testing.T) {
+	v := newEnv(t, "")
+	v.jev.mu.Lock()
+	v.jev.status, v.jev.errBody = 402, `{"detail":{"error_type":"billing_error","message":"Your organization has no available credits"}}`
+	v.jev.mu.Unlock()
+	for range 2 {
+		if _, err := v.e.ScreenText(context.Background(), "x", "unknown", ""); !errors.Is(err, errJevUnavailable) {
+			t.Fatalf("Jev 402: %v", err)
+		}
+	}
+	var n int
+	var detail string
+	if err := v.db.QueryRow("SELECT COUNT(*), max(detail) FROM moderation_alerts WHERE kind='jev_refused'").Scan(&n, &detail); err != nil || n != 1 {
+		t.Fatalf("want one jev_refused alert, got %d %v", n, err)
+	}
+	if !strings.Contains(detail, "HTTP 402 billing_error") || strings.Contains(detail, "organization") {
+		t.Fatalf("alert detail: %q", detail)
+	}
+}
