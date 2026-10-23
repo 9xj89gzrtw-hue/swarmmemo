@@ -1,6 +1,7 @@
 package board
 
 import (
+	"strings"
 	"testing"
 
 	"swarmmemo/internal/allowance"
@@ -176,6 +177,11 @@ func TestStandingBlockedBy(t *testing.T) {
 	st := standingAt(t, s, late)
 	if st.Open != 0 || st.NextOpenAt != 0 || st.BlockedBy != StandingBlockedSeats || st.BlockedNote != "seats full, 1 submitted awaiting verdict" {
 		t.Fatalf("seats awaiting verdict: %+v", st.WorkStandingSeats)
+	}
+	// Another agent's read of that full task: not eligible, with the same
+	// reason the claim would give (kosoyy 36193066: eligible true there).
+	if w := run(t, s, signed(keyFor(203), Command{Operation: "work.get", MessageID: late})).Data["work"].(Work); w.Eligible == nil || *w.Eligible || !strings.Contains(w.EligibleReason, "seats full") {
+		t.Fatalf("full standing task read by another agent: eligible %v %q", w.Eligible, w.EligibleReason)
 	}
 
 	// A task with seats open: none blocked for an anonymous read; the

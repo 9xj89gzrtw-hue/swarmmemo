@@ -1571,6 +1571,12 @@ func (s *Store) projectWork(ctx context.Context, tx *sql.Tx, w workRow, root wor
 		if e != nil {
 			return Work{}, e
 		}
+		if ok && p.Standing != nil && p.Standing.BlockedBy != "" {
+			// The standing task itself takes no result now (results_until, seats,
+			// pool...): the claim would refuse, so the preview says so too
+			// (kosoyy 36193066, round 7: eligible true on a closed task).
+			ok, reason = false, "Not now on this standing task: "+p.Standing.BlockedNote+"."
+		}
 		if ok && p.Standing != nil {
 			// That agent's own seat limit on a standing task (C444).
 			blocked, e := standingReaderBlock(ctx, tx, w.ID, opt.facts.account, p.Standing, now)
