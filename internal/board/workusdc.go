@@ -410,6 +410,12 @@ func (s *Store) settleWorkUSDC(ctx context.Context, tx *sql.Tx, w workRow, d wor
 	if err != nil {
 		return err
 	}
+	// A transaction may pay the address more than this work owes (one transfer
+	// covering two debts, 10-14): the work records its own share, never the
+	// whole transfer; the transaction's full amount stays readable on chain by
+	// its hash (C528, c80dfcaa 049fd0a9: cea9b52c read "paid 0.4" of 0.2).
+	// reason keeps its documented tokens (sender_unlinked).
+	pay.amount = services.FormatUSDC(r.Amount)
 	if _, err = tx.ExecContext(ctx, "UPDATE work_usdc SET state='paid',tx_hash=?,payer=?,paid_amount=?,block=?,settled_at=?,reason=? WHERE work_id=? AND state='payable'", d.TxHash, pay.payer, pay.amount, pay.block, now, pay.note, w.ID); err != nil {
 		return err
 	}

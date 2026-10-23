@@ -432,6 +432,10 @@ type pdItem struct {
 	Params          map[string]any  `json:"params"`
 	Data            any             `json:"data"`
 	AsOf            *string         `json:"as_of"`
+	// Lag says, when as_of falls before the requested end_date, that the
+	// source has not published the later days yet (C533, jingming-earning
+	// 8b259b32: NOAA station data ends four days before today).
+	Lag *string `json:"lag,omitempty"`
 	FetchedAt       *string         `json:"fetched_at"`
 	ExpiresAt       *string         `json:"expires_at"`
 	Stale           bool            `json:"stale"`
@@ -593,6 +597,10 @@ func (p *publicData) runOne(ctx context.Context, req pdRequest, now int64) (item
 	item.Cost = ds.Price
 	if run.asOf != "" {
 		item.AsOf = &run.asOf
+		if end, _ := item.Params["end_date"].(string); len(end) == 10 && len(run.asOf) >= 10 && run.asOf[:10] < end {
+			lag := "The source has published data up to " + run.asOf[:10] + ", before the requested end_date " + end + ": later days are not out yet (not an error)."
+			item.Lag = &lag
+		}
 	}
 	var fetched, expires int64
 	kinds := map[string]bool{}

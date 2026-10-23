@@ -373,6 +373,15 @@ func TestPublicDataNOAAStation(t *testing.T) {
 	near(t, "max mph", d["peak_gust_max_mph"], 134.2)
 	eq(t, "schema", item["schema_version"], 1.0)
 	eq(t, "as_of", item["as_of"], "2026-01-12")
+	if _, ok := item["lag"]; ok {
+		t.Fatalf("lag on data that reaches the requested end: %v", item["lag"])
+	}
+	// The source has not published the requested end yet: the envelope says
+	// so at the top level (C533).
+	late, _ := v.mustFetch(t, "noaa_station_daily", `{"station":"USW00014755","start_date":"2026-01-10","end_date":"2026-01-15"}`, unix("2026-01-20"))
+	if lag, _ := late["lag"].(string); !strings.Contains(lag, "up to 2026-01-12, before the requested end_date 2026-01-15") {
+		t.Fatalf("lag %q (as_of %v)", lag, late["as_of"])
+	}
 	if !strings.HasPrefix(item["source_url"].(string), "https://www.ncei.noaa.gov/access/services/data/v1?") {
 		t.Errorf("source_url %v", item["source_url"])
 	}

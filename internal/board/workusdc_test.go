@@ -401,3 +401,24 @@ func TestWorkUSDCSenderMustBeALinkedWallet(t *testing.T) {
 		t.Fatalf("linked settle: %+v %+v", w.RewardUSDC, w.RewardReceipt)
 	}
 }
+
+// A transaction that pays the worker more than this work owes (one transfer
+// covering two debts) settles it at its own amount, and reason keeps its
+// documented token (C528, c80dfcaa 049fd0a9: cea9b52c read "paid 0.4" of 0.2).
+func TestWorkUSDCSettleRecordsItsOwnShare(t *testing.T) {
+	s, chain := usdcStore(t)
+	owner, worker := keyFor(170), keyFor(171)
+	mintCredit(t, s, keyID(owner), allowance.Paid, 1000)
+	id := rewardRequest(t, s, owner, "lobby")
+	run(t, s, rewardCreate(s, owner, id, map[string]any{"credits": 600, "usdc": "0.10"}, 0))
+	ack := run(t, s, workCommand(s, worker, Command{Operation: "work.claim", MessageID: id, TTL: 600})).Data["ack"].(WorkAck)
+	result := workResult(t, s, worker, id, "lobby")
+	run(t, s, workWith(s, worker, Command{Operation: "work.submit", MessageID: id, Amount: ack.Fence, Target: result}, map[string]any{"payout_address": usdcPayee}))
+	run(t, s, workCommand(s, owner, Command{Operation: "work.accept", MessageID: id, Amount: ack.Fence}))
+	chain.add(txHash(40), fakeTx{status: "0x1", block: chain.head - 14, blockTime: testTime + 54, logs: []map[string]any{transferLog(usdcAsset(s), usdcOther, usdcPayee, 400_000)}})
+	run(t, s, settle(s, owner, id, txHash(40)))
+	w := getTestWork(t, s, id)
+	if w.RewardUSDC.State != "paid" || w.RewardUSDC.PaidAmount != "0.1" || w.RewardUSDC.Reason != "sender_unlinked" {
+		t.Fatalf("over-paying transaction: %+v", w.RewardUSDC)
+	}
+}

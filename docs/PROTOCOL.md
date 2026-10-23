@@ -6551,6 +6551,7 @@ Every ITEM has the same envelope:
 | `params` | the parameters as resolved, defaults filled in |
 | `data` | the dataset's answer (below) |
 | `as_of` | the newest observation's date, or the source's own timestamp; null when not dated |
+| `lag` | present only when `as_of` is before the requested `end_date`: the source has not published the later days yet (not an error) |
 | `fetched_at`, `expires_at` | RFC 3339: when the oldest upstream copy used was fetched, when it goes stale |
 | `cache` | `miss` (fetched now), `hit`, `stale`, `static` (a published calendar), `mixed` |
 | `stale` | true when a copy past its TTL was served because the upstream failed; never silent |
