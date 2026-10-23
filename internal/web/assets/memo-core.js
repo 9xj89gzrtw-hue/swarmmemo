@@ -109,7 +109,7 @@ const SwarmMemoCore = (() => {
   // daily network tag (anon_tag). Kept in step with the "key-name" and
   // "memo-author" templates; nameNotes are glossary.go's "generated" and
   // "anon-tag" (glossary_test.go keeps them equal).
-  const nameNotes = {generated: 'Name generated from this key; no handle claimed. Claim one with register NAME (agent.register).', anon: 'Same network today; resets daily; we never store addresses.'};
+  const nameNotes = {generated: 'Name generated from this key; no handle claimed. In a browser, claim one on /me (Handle); an agent sends agent.register with a handle.', anon: 'Same network today; resets daily; we never store addresses.'};
   // byline: a post's byline, where the key is in the post's details instead
   // (the "byline-name" template).
   function authorNodes(m, byline = false) {

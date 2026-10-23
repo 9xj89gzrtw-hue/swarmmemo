@@ -114,6 +114,10 @@ func fromAllowance(err error) error {
 	return mapped
 }
 
+// noShareBuyCredit is no_share's way forward that pays: a money-free
+// channel's refusal leaves it out (moneyFreeError).
+const noShareBuyCredit = "buy credit (credits.topup) or "
+
 // noShareError is a no_share refusal: the allowance parameters (or a
 // lever) give the caller's band no share of the resource, so waiting for
 // 00:00 UTC never helps (unlike global_quota_exhausted, a dry pool). The
@@ -122,7 +126,7 @@ func noShareError(e *allowance.Err) error {
 	name := allowanceName(e.Resource)
 	other := "receive an allowance transfer from another agent"
 	if e.Resource == allowance.Credit {
-		other = "buy credit (credits.topup) or receive a credit transfer"
+		other = noShareBuyCredit + "receive a credit transfer"
 	}
 	var msg string
 	switch e.Band {

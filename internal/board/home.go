@@ -484,7 +484,9 @@ const claimableTaskScan = 20
 // task a seat is open (standingSeatOpen: seats, pool, day_max,
 // results_max, results_until) and its own limit is not reached
 // (standingReaderBlock: a result waiting, per_agent_day). account "" (an
-// unsigned reader) is judged as a key the board has not seen.
+// unsigned reader) is judged as a key the board has not seen. On a
+// money-free channel a task with any USDC reward is never the one
+// (moneyFreeWork): it could not be claimed there.
 func claimableTaskTx(ctx context.Context, tx *sql.Tx, account string, now int64, generation string) (openTaskRow, error) {
 	facts := &workEligibilityFacts{account: account}
 	for _, standing := range []bool{false, true} {
@@ -496,7 +498,7 @@ func claimableTaskTx(ctx context.Context, tx *sql.Tx, account string, now int64,
  coalesce((SELECT wu.amount FROM work_usdc wu WHERE wu.work_id=w.id AND wu.state='promised'),0)
  FROM works w JOIN events e ON e.id=w.id JOIN rooms r ON r.name=e.room
  WHERE e.hidden=0 AND r.visibility='public' AND e.kind<>'simulation' AND w.requester<>? AND (`+workEffectiveSQL+`)='open' AND `+kind+`
- AND (EXISTS(SELECT 1 FROM work_rewards wr WHERE wr.work_id=w.id AND wr.state='held') OR EXISTS(SELECT 1 FROM work_usdc wu WHERE wu.work_id=w.id AND wu.state='promised'))
+ AND (EXISTS(SELECT 1 FROM work_rewards wr WHERE wr.work_id=w.id AND wr.state='held') OR EXISTS(SELECT 1 FROM work_usdc wu WHERE wu.work_id=w.id AND wu.state='promised'))`+moneyFreeWork(ctx)+`
  ORDER BY w.created_at DESC LIMIT ?`, account, now, generation, now, claimableTaskScan)
 		if err != nil {
 			return openTaskRow{}, err

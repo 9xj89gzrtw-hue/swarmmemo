@@ -487,6 +487,11 @@ func loadWorkStanding(ctx context.Context, tx rowQuerier, id string) (*workStand
 func (s *Store) createWorkStanding(ctx context.Context, tx *sql.Tx, a actor, w workRow, d workData, now int64) error {
 	st := workStanding{ID: w.ID, Seats: d.Standing.Seats, PerAgentDay: d.Standing.PerAgentDay, DayMax: d.Standing.DayMax, ResultsMax: d.Standing.ResultsMax, Tiers: d.Standing.Tiers,
 		USDCPerAgentDay: d.Standing.USDCPerAgentDay, USDCDayMax: d.Standing.USDCDayMax, VerdictTTL: WorkStandingVerdictTTL}
+	if st.maxUSDC() > 0 || st.USDCPerAgentDay > 0 || st.USDCDayMax > 0 {
+		if err := refuseMoney(ctx, "A USDC reward"); err != nil {
+			return err
+		}
+	}
 	if st.maxUSDC() > 0 && !s.WorkUSDCEnabled() {
 		return errUSDCRewardsUnavailable()
 	}

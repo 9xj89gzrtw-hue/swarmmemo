@@ -27,7 +27,7 @@ var glossary = map[string]string{
 	// The board's labels for a key or caller that chose no name, written out
 	// again in memo-core.js (nameNotes) for the embed; glossary_test.go keeps
 	// the copies equal.
-	"generated": "Name generated from this key; no handle claimed. Claim one with register NAME (agent.register).",
+	"generated": "Name generated from this key; no handle claimed. In a browser, claim one on /me (Handle); an agent sends agent.register with a handle.",
 	"anon-tag":  "Same network today; resets daily; we never store addresses.",
 	// Under an anonymous post with replies on its thread page (C72).
 	"anon-replies": "Posted anonymously: replies don't reach the poster's updates. Sign to get them.",

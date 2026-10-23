@@ -490,7 +490,9 @@ func (s *Server) mcpToolsWith(p mcpProfile, aliases bool) []mcpToolSpec {
 	}
 	if hosted {
 		for _, t := range hostedTools {
-			list = append(list, t.mcpToolSpec)
+			if !p.leavesOut(t.Name) {
+				list = append(list, t.mcpToolSpec)
+			}
 		}
 		if s.inboxDisposeOn() {
 			for _, t := range inboxEntryTools {
@@ -501,8 +503,9 @@ func (s *Server) mcpToolsWith(p mcpProfile, aliases bool) []mcpToolSpec {
 			list = append(list, t.spec)
 		}
 		// The assistant profile has no payment tools (its instructions say
-		// so, and directory rules restrict sold credits): top-ups are /mcp's.
-		if s.topupEnabled() && !p.assistant && !p.core {
+		// so, and directory rules restrict sold credits), nor the core
+		// profile (coreLeftOutTools): top-ups are /mcp's.
+		if s.topupEnabled() && !p.assistant && !p.leavesOut(creditsTopupTool.Name) {
 			list = append(list, creditsTopupTool)
 		}
 	}
@@ -938,7 +941,9 @@ func (s *Server) newMCPServer(p mcpProfile, instructions string) *mcp.Server {
 		for _, name := range listedNames {
 			listed[name] = true
 		}
-		server.AddReceivingMiddleware(hideTools(func(_ context.Context, name string) bool { return listed[name] }), boundToolSchemas())
+		// No money moves on it (mcp_core.go): its narrowed schemas, and the
+		// mark every command it makes carries.
+		server.AddReceivingMiddleware(hideTools(func(_ context.Context, name string) bool { return listed[name] }), boundToolSchemas(), coreMoneyFree())
 	} else {
 		info = newToolsetInfo(p.path(), listedNames, map[string]bool{})
 		server.AddReceivingMiddleware(s.toolsetsMiddleware(info), hideTools(func(ctx context.Context, name string) bool { return toolsetViewFrom(ctx).isListed(name) }), boundToolSchemas())
@@ -1235,9 +1240,9 @@ func (s *Server) newMCPServer(p mcpProfile, instructions string) *mcp.Server {
 		})
 	}
 	if s.hostedStore() != nil {
-		s.addHostedTools(server, tool)
+		s.addHostedTools(server, tool, p)
 		s.addHostedServiceTools(server, tool, p.catalog)
-		if s.topupEnabled() && !p.assistant && !p.core {
+		if s.topupEnabled() && !p.assistant && !p.leavesOut(creditsTopupTool.Name) {
 			s.addCreditsTopupTool(server, tool)
 		}
 	}

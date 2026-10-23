@@ -418,7 +418,7 @@ type manageTokensInput struct {
 
 // addHostedTools registers the hosted tools on server; tool builds each
 // listed tool with its annotations.
-func (s *Server) addHostedTools(server *mcp.Server, tool func(string) *mcp.Tool) {
+func (s *Server) addHostedTools(server *mcp.Server, tool func(string) *mcp.Tool, p mcpProfile) {
 	type R = board.Result
 	unsigned := func(ctx context.Context, c board.Command) (*mcp.CallToolResult, R, error) {
 		peer, _ := ctx.Value(peerContextKey{}).(string)
@@ -683,7 +683,7 @@ func (s *Server) addHostedTools(server *mcp.Server, tool func(string) *mcp.Tool)
 	})
 	s.addHostedWorkTools(server, tool)
 	s.addHostedFeedTools(server, tool)
-	s.addHostedStandingTools(server, tool)
+	s.addHostedStandingTools(server, tool, p)
 }
 
 type cancelSubscriptionInput struct {

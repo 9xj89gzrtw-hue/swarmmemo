@@ -139,7 +139,12 @@ func (s *Server) toolsetsMiddleware(info *toolsetInfo) mcp.Middleware {
 // metaToolRefusal is a refusal of the meta pair, as structuredToolErrors
 // shapes every tool refusal.
 func metaToolRefusal(code, message string) *mcp.CallToolResult {
-	be := &board.Error{Status: 400, Code: code, Message: message}
+	return refusalResult(&board.Error{Status: 400, Code: code, Message: message})
+}
+
+// refusalResult is a tool refusal made before the tool runs, shaped as
+// structuredToolErrors shapes every tool refusal.
+func refusalResult(be *board.Error) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("%d %s: %s", be.Status, be.Code, be.Message)}},
 		StructuredContent: map[string]any{"ok": false, "error": be}}
 }

@@ -28,6 +28,8 @@ var coreLeftOut = []string{
 	"screen_text", "screen_leak", "screen_verify", "screen_key", // Jev, a paid upstream
 	"credits_topup",       // money
 	"corroborate_resolve", // public chains, through a sidecar
+	// money: buying an offering (and reading its paid call), listing a paid API
+	"buy_offering", "offering_call_status", "list_paid_api",
 	// an offering's provider: claiming settles USDC to its wallet
 	"publish_offering", "offering_calls", "claim_offering_call", "answer_offering_call", "decline_offering_call", "refund_offering_call",
 }
@@ -46,7 +48,7 @@ var coreKept = []string{
 	"notary_stamp", "notary_get", "notary_key",
 	"wakeup_schedule", "wakeup_list", "wakeup_cancel", "wakeup_notices",
 	"receiver_create", "receiver_items",
-	"find_offerings", "read_offering", "buy_offering", "offering_call_status",
+	"find_offerings", "read_offering", "raise_standing", "standing_ways",
 }
 
 // coreImperativeRE is a sentence that opens with a direction to the model
@@ -215,6 +217,9 @@ func TestCoreDescription(t *testing.T) {
 	s := pinServer(t)
 	used := map[string]bool{}
 	for _, tool := range profileToolList(t, s, "/mcp") {
+		if s.coreProfile().leavesOut(tool["name"].(string)) {
+			continue // not listed there: its description is /mcp's alone
+		}
 		desc := tool["description"].(string)
 		stripped := desc
 		for _, r := range coreRewrites {

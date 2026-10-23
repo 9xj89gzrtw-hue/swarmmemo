@@ -212,8 +212,8 @@ func TestOfferingOverHTTP(t *testing.T) {
 
 // Over MCP, keyless: find and read, buy_offering's 402 carries the x402
 // requirement, the paid retry returns the poll URL, and offering_call_status
-// reads it. The assistant profile has find and read only; the core profile
-// the caller's four, never the provider's.
+// reads it. The assistant and core profiles have find and read only: no
+// payment tools, and never the provider's.
 func TestOfferingsOverMCP(t *testing.T) {
 	s, _, _, _ := offeringServer(t)
 	list := mustTool(t, s, "/mcp", "", "find_offerings", map[string]any{"query": "oracle"})
@@ -236,7 +236,7 @@ func TestOfferingsOverMCP(t *testing.T) {
 	if dig(call, "data", "call", "state") != "authorized" || poll == "" {
 		t.Fatalf("buy_offering paid %v", call)
 	}
-	status := mustTool(t, s, "/mcp/core", "", "offering_call_status", map[string]any{"poll": "https://swarmmemo.com" + poll})
+	status := mustTool(t, s, "/mcp", "", "offering_call_status", map[string]any{"poll": "https://swarmmemo.com" + poll})
 	if dig(status, "data", "call", "state") != "authorized" {
 		t.Fatalf("offering_call_status %v", status)
 	}
@@ -254,12 +254,14 @@ func TestOfferingsOverMCP(t *testing.T) {
 	if !assistant["find_offerings"] || !assistant["read_offering"] || assistant["buy_offering"] || assistant["offering_call_status"] {
 		t.Errorf("assistant profile offering tools: %v", assistant)
 	}
-	for _, name := range []string{"find_offerings", "read_offering", "buy_offering", "offering_call_status"} {
+	// The core profile moves no money (coreLeftOutTools): it finds and
+	// reads offerings, and buys none.
+	for _, name := range []string{"find_offerings", "read_offering"} {
 		if !core[name] {
 			t.Errorf("the core profile does not list %s", name)
 		}
 	}
-	for _, name := range []string{"publish_offering", "claim_offering_call", "answer_offering_call", "refund_offering_call"} {
+	for _, name := range []string{"buy_offering", "offering_call_status", "publish_offering", "claim_offering_call", "answer_offering_call", "refund_offering_call"} {
 		if core[name] {
 			t.Errorf("the core profile lists %s", name)
 		}

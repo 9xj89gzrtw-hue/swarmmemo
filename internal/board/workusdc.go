@@ -203,6 +203,9 @@ func (s *Store) promiseWorkUSDC(ctx context.Context, tx *sql.Tx, a actor, w work
 	if amount == 0 {
 		return nil
 	}
+	if err := refuseMoney(ctx, "A USDC reward"); err != nil {
+		return err
+	}
 	if !s.WorkUSDCEnabled() {
 		return errUSDCRewardsUnavailable()
 	}
@@ -255,6 +258,11 @@ func (s *Store) setWorkPayTo(ctx context.Context, tx *sql.Tx, op string, w workR
 		_, err = tx.ExecContext(ctx, "UPDATE work_usdc SET pay_to='',pay_to_source='',worker='' WHERE work_id=?", w.ID)
 		return err
 	}
+	// A worker is paid this reward in USDC: claimed and submitted where
+	// money moves.
+	if err = refuseMoney(ctx, "This task's USDC reward"); err != nil {
+		return err
+	}
 	address, source := d.PayoutAddress, "data"
 	if op == "work.claim" {
 		// A new attempt: what an earlier worker named is not this one's.
@@ -284,6 +292,10 @@ func (s *Store) setWorkPayTo(ctx context.Context, tx *sql.Tx, op string, w workR
 func oweWorkUSDC(ctx context.Context, tx *sql.Tx, w workRow, now int64) error {
 	r, err := loadWorkUSDC(ctx, tx, w.ID)
 	if err != nil || r == nil || r.State != "promised" {
+		return err
+	}
+	// The accept would owe the worker USDC.
+	if err = refuseMoney(ctx, "Accepting a task with a USDC reward"); err != nil {
 		return err
 	}
 	if r.PayTo == "" {

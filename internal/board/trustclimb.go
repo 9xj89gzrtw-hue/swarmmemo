@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -158,7 +159,11 @@ func climbOf(p trust.Params, cents int64, ways []StandingWay, holds climbHolds) 
 		return c
 	}
 	gap := c.Target.GapCents
-	c.PayCents = gap
+	// Paying SwarmMemo is a route only where the ways list it (a
+	// money-free channel's do not: climbWays).
+	if slices.ContainsFunc(ways, func(w StandingWay) bool { return w.Kind == "money" }) {
+		c.PayCents = gap
+	}
 	var proofWays, freeProofs []StandingWay
 	var amounts, freeAmounts []climbAmount
 	for _, w := range ways {
@@ -394,5 +399,5 @@ func (s *Store) climbFor(ctx context.Context, q *sql.Tx, view *trust.StandingVie
 	if err != nil {
 		return Climb{}, err
 	}
-	return climbOf(p, view.StandingCents, ways, holds), nil
+	return climbOf(p, view.StandingCents, climbWays(ctx, ways), holds), nil
 }

@@ -878,7 +878,7 @@ func (s *Store) standingWays(ctx context.Context, q *sql.Tx, id, account string,
 	if score != nil {
 		world = score.Parts.World
 	}
-	return ways, view, climbHoldsOf(links[id], ways, world), nil
+	return moneyFreeWays(ctx, ways), view, climbHoldsOf(links[id], ways, world), nil
 }
 
 func (w *StandingWay) setAmounts(p trust.Params, assessed int64, counted map[string]int64) {

@@ -121,7 +121,7 @@ func (in listPaidAPIInput) command() (board.Command, error) {
 	return board.Command{}, &board.Error{Status: 400, Code: "invalid_request", Message: "action is submit or withdraw."}
 }
 
-func (s *Server) addHostedStandingTools(server *mcp.Server, tool func(string) *mcp.Tool) {
+func (s *Server) addHostedStandingTools(server *mcp.Server, tool func(string) *mcp.Tool, p mcpProfile) {
 	type R = board.Result
 	mcp.AddTool(server, tool("raise_standing"), func(ctx context.Context, _ *mcp.CallToolRequest, in raiseStandingInput) (*mcp.CallToolResult, R, error) {
 		hc, err := s.hostedCaller(ctx)
@@ -141,6 +141,9 @@ func (s *Server) addHostedStandingTools(server *mcp.Server, tool func(string) *m
 		}
 		return nil, res, nil
 	})
+	if p.leavesOut("list_paid_api") {
+		return
+	}
 	mcp.AddTool(server, tool("list_paid_api"), func(ctx context.Context, _ *mcp.CallToolRequest, in listPaidAPIInput) (*mcp.CallToolResult, R, error) {
 		c, err := in.command()
 		if err != nil {

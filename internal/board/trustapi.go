@@ -115,13 +115,13 @@ func (s *Store) standingBreakdown(ctx context.Context, q *sql.Tx, target, caller
 		return nil, err
 	}
 	var next []StandingWay
-	for _, w := range ways {
+	for _, w := range climbWays(ctx, ways) {
 		if w.State == "none" || w.State == "lapsed" {
 			next = append(next, w)
 		}
 	}
 	sort.SliceStable(next, func(i, j int) bool { return wayMax(next[i]) > wayMax(next[j]) })
-	climb := climbOf(p, view.StandingCents, ways, holds)
+	climb := climbOf(p, view.StandingCents, climbWays(ctx, ways), holds)
 	penalties, _, err := trust.PenaltyLog(ctx, q, 0, 5, account, now)
 	if err != nil {
 		return nil, err

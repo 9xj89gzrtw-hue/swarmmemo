@@ -228,6 +228,10 @@ func TestMCPToolInputTypesMatchListed(t *testing.T) {
 				listed = append(listed, k)
 			}
 			want := toolInputs(t, name)
+			if n := coreNarrowingOf(name); n != nil && path == mcpProfileCore {
+				// The core profile takes the money arguments out (mcp_core.go).
+				want = slices.DeleteFunc(want, func(arg string) bool { return slices.Contains(n.args, arg) })
+			}
 			sort.Strings(listed)
 			sort.Strings(want)
 			if !slices.Equal(listed, want) {

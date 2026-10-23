@@ -817,6 +817,7 @@ func (s *Store) Execute(ctx context.Context, cmd Command, source string) (Result
 		}
 	}
 	res, err := s.executeCommand(ctx, cmd, source)
+	err = moneyFreeError(ctx, err)
 	if err == nil && unsignedCall {
 		stampRequestID(&res, cmd.RequestID, generated)
 	}
@@ -827,6 +828,10 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 	var empty Result
 	// The channel policy every transport also applies (RFC0013 §7).
 	if err := WirePermitted(wireFrom(ctx), cmd); err != nil {
+		return empty, err
+	}
+	// A money-free channel's refusals (moneyfree.go).
+	if err := moneyPermitted(ctx, cmd); err != nil {
 		return empty, err
 	}
 	if cmd.PrivateRead != nil && (!validPrivateReadContext(cmd.PrivateRead) || cmd.Delegation != nil) {

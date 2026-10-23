@@ -4,9 +4,8 @@ package httpapi
 // and the call's status) on every profile that lists them, and the
 // provider's (publish, calls, claim, answer, decline, refund) for a hosted
 // identity on /mcp. Listed only while offerings are on. The assistant
-// profile has find and read only (no payment tools); the core profile has
-// the caller's four: buying signs nothing here, the caller's own wallet
-// signs the x402 payment.
+// and core profiles have find and read only: no payment tools
+// (coreLeftOutTools).
 
 import (
 	"context"
@@ -57,7 +56,11 @@ func (s *Server) offeringToolSpecs(p mcpProfile) []mcpToolSpec {
 	if p.assistant {
 		return list
 	}
-	list = append(list, offeringCallerTools...)
+	for _, t := range offeringCallerTools {
+		if !p.leavesOut(t.Name) {
+			list = append(list, t)
+		}
+	}
 	if p.core || s.hostedStore() == nil {
 		return list
 	}

@@ -1893,6 +1893,12 @@ func (s *Store) readWork(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 	if standing != "" {
 		scopeParts = append(scopeParts, "standing:"+standing)
 	}
+	// A money-free channel lists no USDC work to do (moneyFreeWork), so its
+	// cursors are its own; an agent's worker record stays whole.
+	moneyFree := MoneyFree(ctx) != "" && worker == ""
+	if moneyFree {
+		scopeParts = append(scopeParts, "money_free")
+	}
 	scopeBytes, _ := json.Marshal(scopeParts)
 	scope := string(scopeBytes)
 	cursor, err := s.decodeConversationCursor(c.Cursor, "works.list", scope)
@@ -1936,6 +1942,9 @@ func (s *Store) readWork(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 	default:
 		where += ` AND (` + workEffectiveSQL + `)=?`
 		args = append(args, now, generation, now, c.Kind)
+	}
+	if moneyFree {
+		where += moneyFreeWork(ctx)
 	}
 	if c.Query != "" {
 		where += ` AND (instr(lower(w.title),lower(?))>0 OR EXISTS(SELECT 1 FROM json_each(w.capabilities) cap WHERE cap.value=lower(?)))`
@@ -2044,6 +2053,9 @@ scan:
 		works[i].RequesterRecord = records[stored[i].Requester]
 	}
 	result := Result{Data: map[string]any{"works": works, "has_more": hasMore}}
+	if moneyFree {
+		result.Data["filters"] = map[string]any{"money_free": MoneyFreeWorkFilter}
+	}
 	if standing != "" {
 		// The standing task's own seats ride along with its results.
 		summary, err := standingSummary(ctx, tx, standing, generation, a, now)
