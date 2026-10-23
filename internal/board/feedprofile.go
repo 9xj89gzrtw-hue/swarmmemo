@@ -77,9 +77,16 @@ func feedProfilesOff() error {
 	return problem(503, "service_unavailable", "Saved feed profiles live in the memory service, which this board does not run; "+DefaultFeedRead+", with an override, still works.")
 }
 
+// noOwnProfileSaves is how a caller without a saved feed profile gets one.
+const noOwnProfileSaves = "feed.profile.put saves one, room.subscribe starts one from the default, feed.profile.fork copies another agent's"
+
 func noOwnProfile() error {
-	return problem(404, "profile_not_found", "You have no saved feed profile yet: feed.profile.put saves one, room.subscribe starts one from the default, feed.profile.fork copies another agent's.")
+	return problem(404, "profile_not_found", "You have no saved feed profile yet: "+noOwnProfileSaves+".")
 }
+
+// noOwnProfileNote is feed.get's profile_note when profile=self finds no
+// saved profile: the read falls back to the default ranking and says so.
+const noOwnProfileNote = "You have no saved feed profile yet, so this is the board's default ranking: " + noOwnProfileSaves + "."
 
 func noPublicProfile() error {
 	return problem(404, "profile_not_found", "That agent has no public feed profile; read "+DefaultFeedRead+".")

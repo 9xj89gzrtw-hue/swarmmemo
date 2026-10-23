@@ -966,6 +966,7 @@ func (s *Store) readFeed(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 	source := "default"
 	var saved *savedFeedProfile
 	var skipped []string
+	var selfNote string
 	switch {
 	case req.profile == "self":
 		if !a.signed {
@@ -973,7 +974,13 @@ func (s *Store) readFeed(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 		}
 		source = "self"
 		if saved, err = s.ownFeedProfile(ctx, tx, a); err != nil {
-			return Result{}, err
+			var be *Error
+			if !errors.As(err, &be) || be.Code != "profile_not_found" {
+				return Result{}, err
+			}
+			// No saved profile yet: the board's default ranking, which is
+			// where a saved one starts, rather than a refusal on a first read.
+			saved, err, source, selfNote = nil, nil, "default", noOwnProfileNote
 		}
 	case req.agent != "":
 		source = "agent"
@@ -1060,6 +1067,9 @@ func (s *Store) readFeed(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 		"sort": "feed", "profile": profile, "profile_source": source, "overridden": req.override != nil,
 		"profile_hash": f.hash, "ranking_version": FeedRankingVersion,
 		"offset": offset, "next_offset": pg.next, "has_more": pg.hasMore, "warming": append([]string{}, rr.warming...),
+	}
+	if selfNote != "" {
+		data["profile_note"] = selfNote
 	}
 	if saved != nil {
 		data["profile_agent"], data["profile_revision"], data["profile_visibility"] = saved.agent, saved.revision, saved.visibility

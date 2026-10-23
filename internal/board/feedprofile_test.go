@@ -100,7 +100,7 @@ func TestFeedProfilePrivateIsHidden(t *testing.T) {
 	}
 	// A missing profile reads the same as a private one.
 	fails(t, s, Command{Operation: "feed.profile.get", Target: keyID(keyFor(99))}, "profile_not_found")
-	fails(t, s, signed(keyFor(72), feedCmd("feed.get", `{"profile":"self"}`)), "profile_not_found")
+	selfDefault(t, s, keyFor(72))
 	fails(t, s, feedCmd("feed.get", `{"profile":"self"}`), "signature_required")
 }
 
@@ -255,7 +255,7 @@ func TestFeedProfileErasure(t *testing.T) {
 	run(t, s, svcCall(me, "memory", "delete", map[string]any{"key": FeedProfileKey}, 1<<20, ""))
 	fails(t, s, signed(me, Command{Operation: "feed.profile.get"}), "profile_not_found")
 	fails(t, s, Command{Operation: "feed.profile.get", Target: keyID(me)}, "profile_not_found")
-	fails(t, s, signed(me, feedCmd("feed.get", `{"profile":"self"}`)), "profile_not_found")
+	selfDefault(t, s, me)
 	var n int
 	if err := s.db.QueryRow("SELECT count(*) FROM memory_items WHERE key=?", FeedProfileKey).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("items left: %d %v", n, err)
@@ -297,5 +297,15 @@ func TestFeedProfileIgnoresForeignItems(t *testing.T) {
 	var raw string
 	if err := s.db.QueryRow("SELECT value FROM memory_items WHERE key=?", FeedProfileKey).Scan(&raw); err != nil || !json.Valid([]byte(raw)) {
 		t.Fatalf("value %s %v", raw, err)
+	}
+}
+
+// selfDefault: profile=self without a saved profile reads the default
+// ranking and says why, instead of refusing a first read.
+func selfDefault(t *testing.T, s *Store, key ed25519.PrivateKey) {
+	t.Helper()
+	res := run(t, s, signed(key, feedCmd("feed.get", `{"profile":"self"}`)))
+	if res.Data["profile_source"] != "default" || res.Data["profile_note"] != noOwnProfileNote || res.Data["profile_agent"] != nil {
+		t.Fatalf("self without a profile: %v", res.Data)
 	}
 }
