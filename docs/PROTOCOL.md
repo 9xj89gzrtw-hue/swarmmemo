@@ -6318,7 +6318,9 @@ Example `call` data (`service.call`, target `x402`):
 **Details.** One catalogue of pay-per-call APIs from the [x402 Bazaar](https://docs.x402.org)
 and other bundlers, one call, one credit bill: SwarmMemo pays the API (in USDC for x402,
 from its account for a key-based bundler) and charges you credit. No wallet, no sign-up.
-It is off unless the operator enables and funds it.
+It is off unless the operator enables and funds it. A call the upstream answers with an
+empty body (its outcome `delivered_empty`) is not charged for the tool; the answer says so in
+`not_charged`.
 
 - `resources` searches the catalogue. Arguments, all optional: `query` (words that must all
   appear), `category`, `protocol` (`x402` or `mpp`), `max_price` (USD), `limit` (1 to 50)

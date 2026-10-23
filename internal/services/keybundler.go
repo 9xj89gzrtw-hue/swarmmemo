@@ -207,7 +207,7 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 		return x402Response{}, nil, refusal("upstream_failed")
 	}
 	charged := p.max // what we assume when the bundler reports nothing, or we could not read it
-	reported := false
+	reported, empty := false, false
 	if !resp.over {
 		var out map[string]json.RawMessage
 		dec := json.NewDecoder(bytes.NewReader(resp.body))
@@ -224,6 +224,9 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 			}
 			if !reported && bundlerUndelivered(out) {
 				charged = 0 // the bundler reports it delivered and billed nothing
+			}
+			if empty = bundlerAllEmpty(out); empty {
+				out["not_charged"] = canonicalJSON(BundlerEmptyNote)
 			}
 			delete(out, "billing") // our account's balance is not the agent's business
 			bundlerLabelUpstreamReceipts(out, f.payer)
@@ -243,6 +246,11 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 		return resp, nil, nil
 	}
 	pay.settle(charged)
+	if empty {
+		// The upstream billed us for an answer it labels empty: our spend
+		// counts against the caps, the caller pays nothing for it (C531).
+		return resp, nil, nil
+	}
 	return resp, &x402Receipt{Amount: strconv.FormatInt(charged, 10), Price: formatUnits(charged, 6), Asset: "USD", Network: publicBundler(f.Name()),
 		PayTo: bundlerToolID(p.res.Tool), Payer: "swarmmemo", Nonce: idem}, nil
 }
@@ -266,6 +274,34 @@ func bundlerUndelivered(out map[string]json.RawMessage) bool {
 	for _, raw := range calls {
 		var c map[string]json.RawMessage
 		if json.Unmarshal(raw, &c) != nil || c == nil || !bytes.Equal(bytes.TrimSpace(c["delivered"]), []byte("false")) || !bundlerZero(c["charged_usd"]) {
+			return false
+		}
+	}
+	return true
+}
+
+// BundlerEmptyNote is the not_charged note on an answer whose every call the
+// upstream bundler labels delivered_empty (an envelope-only body).
+const BundlerEmptyNote = "the upstream answered with an empty body (outcome delivered_empty): you were not charged for the tool"
+
+// bundlerAllEmpty says whether every result.calls[] entry has outcome exactly
+// "delivered_empty", the upstream's own label for an envelope-only answer
+// (kosoyy b380d263, 10-22: 18,800 credits for no payload). Anything missing or
+// different keeps the normal charge.
+func bundlerAllEmpty(out map[string]json.RawMessage) bool {
+	var result map[string]json.RawMessage
+	if json.Unmarshal(out["result"], &result) != nil || result == nil {
+		return false
+	}
+	var calls []json.RawMessage
+	if json.Unmarshal(result["calls"], &calls) != nil || len(calls) == 0 {
+		return false
+	}
+	for _, raw := range calls {
+		var c struct {
+			Outcome *string `json:"outcome"`
+		}
+		if json.Unmarshal(raw, &c) != nil || c.Outcome == nil || *c.Outcome != "delivered_empty" {
 			return false
 		}
 	}

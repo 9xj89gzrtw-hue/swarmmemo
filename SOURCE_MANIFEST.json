@@ -868,8 +868,8 @@
     {
       "mode": "0644",
       "path": "docs/PROTOCOL.md",
-      "sha256": "47e2570c71972adf707902a847d920b0fca8fb640ab16a47f0ea9a457a7aa701",
-      "size": 556803
+      "sha256": "32eb451f4396808ac80ef951eaa8d872b1a4631a5c250b8622706248ec6a4665",
+      "size": 556948
     },
     {
       "mode": "0644",
@@ -6994,8 +6994,8 @@
     {
       "mode": "0644",
       "path": "internal/services/keybundler.go",
-      "sha256": "746ae0de3729eb852e13a20ec8025c85317a0750a295bc2151c95ec37b6c7fad",
-      "size": 15789
+      "sha256": "ee460085b5316700dd07fcff5db632809c5eaeffc0cd04584898785e3d6f5aaf",
+      "size": 17157
     },
     {
       "mode": "0644",
@@ -7006,8 +7006,8 @@
     {
       "mode": "0644",
       "path": "internal/services/keybundler_open_test.go",
-      "sha256": "16c0702a568b667266913bbbbbae3ff5480d0794f8501d7a73874c434c6a6b81",
-      "size": 49669
+      "sha256": "242859f44dee22fcd7895a5adefd05be3dc5210ab52e73c429cd166b1ad1ec22",
+      "size": 51393
     },
     {
       "mode": "0644",

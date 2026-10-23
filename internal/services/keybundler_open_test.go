@@ -1098,3 +1098,40 @@ func TestBundlerFirstPartyMixedPayTo(t *testing.T) {
 		}
 	}
 }
+
+// An answer whose every call the upstream labels delivered_empty costs the
+// caller only the call's base, says so, and still settles our upstream spend
+// (C531, kosoyy b380d263). A call with any other outcome keeps its charge.
+func TestBundlerDeliveredEmptyNotCharged(t *testing.T) {
+	h, api := newBundlerHarness(t, "", "")
+	if _, err := h.bundlerRead(testSubject, "tools_search", `{"query":"weather"}`); err != nil {
+		t.Fatal(err)
+	}
+	quote := creditsFor(bundlerCost(2000))
+	empty := `{"result":{"calls":[{"id":"` + toolOK + `","body":{},"charged_usd":0.002,"delivered":true,"outcome":"delivered_empty","refundable":false}],"delivered":1,"requested":1},"billing":{"charged_credits":2.8}}`
+	api.invokeBody = empty
+	before := h.charged()
+	out, err := h.call(testSubject, `{"resource":"tool:`+toolOK+`","body":{}}`, quote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := h.charged() - before; got != creditsFor(0) {
+		t.Fatalf("charged %d for an empty answer, want only the base %d", got, creditsFor(0))
+	}
+	if raw, _ := json.Marshal(resultOf(out)); !strings.Contains(string(raw), "not charged") {
+		t.Fatalf("result %s, want the not_charged note", raw)
+	}
+	var state string
+	_ = h.db.QueryRow("SELECT state FROM x402_payments ORDER BY rowid DESC LIMIT 1").Scan(&state)
+	if state == "failed" {
+		t.Fatal("our upstream spend on an empty answer must still be settled")
+	}
+	api.invokeBody = strings.Replace(empty, `"outcome":"delivered_empty"`, `"outcome":"delivered"`, 1)
+	before = h.charged()
+	if _, err := h.call(testSubject, `{"resource":"tool:`+toolOK+`","body":{"n":2}}`, quote); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.charged() - before; got == creditsFor(0) {
+		t.Fatal("a delivered answer was not charged")
+	}
+}
