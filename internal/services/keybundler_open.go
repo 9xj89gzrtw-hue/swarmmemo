@@ -17,11 +17,12 @@ package services
 // own vetting flag, which a call needs: a tool no search has returned in 30
 // days is unknown.
 //
-// Calling a tool. The quote is the board's price at min(max_price, the
-// caller's max_cost); nothing upstream is asked inside the transaction. The
-// admission check (in the transaction, a read of frames_tools) refuses an
-// unknown tool, a tool the bundler has not vetted (unless allow_unvetted) and a
-// denied category. After commit, before any money moves, the tool's
+// Calling a tool. The quote is the board's price at min(MaxCost, the
+// caller's max_cost), MaxCost being max_price plus the bundler's fees;
+// nothing upstream is asked inside the transaction. The admission check (in
+// the transaction, a read of frames_tools) refuses an unknown tool, a tool
+// neither the bundler nor the operator vetted (unless allow_unvetted;
+// keybundler_vet.go) and a denied category. After commit, before any money moves, the tool's
 // descriptor (its host, against the operator's denylist) and a probe (live,
 // payable, its price against max_price and the caller's ceiling) decide;
 // then the call goes through keyBundler.Exchange exactly as an allowlisted
@@ -41,6 +42,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,7 +133,11 @@ CREATE INDEX IF NOT EXISTS frames_tools_seen ON frames_tools(seen_at);
 // BundlerOpen is the open bundler catalogue's validated configuration.
 // Amounts are micro-USD.
 type BundlerOpen struct {
-	MaxPrice  int64 // the most one call may pay
+	MaxPrice int64 // the most a callable tool may be priced (its listed price)
+	// MaxCost is the most one call may pay, derived (never configured):
+	// bundlerCost(MaxPrice), the price plus the bundler's fees, at most
+	// caps.per_call. A tool priced at most MaxPrice fits it (C570).
+	MaxCost   int64
 	OpenDaily int64 // all open bundler calls, per UTC day
 	ToolDaily int64 // one tool, per UTC day
 	// AllowUnvetted makes tools the bundler has not vetted callable too.
@@ -177,6 +183,7 @@ func (c *X402Config) parseBundlerOpen(f *x402KeyBundlerFile) (*BundlerOpen, erro
 	if o.MaxPrice, err = amount("max_price", f.MaxPrice, "0.02", 1, c.PerCall); err != nil {
 		return nil, err
 	}
+	o.MaxCost = min(bundlerCost(o.MaxPrice), c.PerCall)
 	if o.OpenDaily, err = amount("open_daily", f.OpenDaily, "1", o.MaxPrice, c.GlobalDaily); err != nil {
 		return nil, err
 	}
@@ -477,6 +484,9 @@ type bundlerHit struct {
 	Schema                 json.RawMessage
 	SchemaCut              bool
 	PayTo                  []EVMAddress // where the listing says payments go (bundlerPayTo)
+	// Method and URL are the endpoint the listing invokes, when it says
+	// (invocation); catalogueMatch matches them to the catalogue's.
+	Method, URL string
 }
 
 type bundlerSearchPage struct {
@@ -499,6 +509,10 @@ type bundlerHitWire struct {
 	Payment              struct {
 		PriceHint json.RawMessage `json:"price_hint"`
 	} `json:"payment"`
+	Invocation struct {
+		Method string `json:"method"`
+		URL    string `json:"url"`
+	} `json:"invocation"`
 }
 
 // parseBundlerSearchPage reads the bundler's search answer, keeping valid hits.
@@ -536,6 +550,7 @@ func parseBundlerSearchPage(raw []byte) (bundlerSearchPage, error) {
 		}
 		hit.Schema, hit.SchemaCut = bundlerSchemaOf(h.InputSchema)
 		hit.PayTo = bundlerPayTo(rawHit)
+		hit.Method, hit.URL = strings.ToUpper(h.Invocation.Method), h.Invocation.URL
 		page.hits = append(page.hits, hit)
 	}
 	return page, nil
@@ -587,19 +602,26 @@ func bundlerToolRow(ctx context.Context, q allowance.Querier, tool string, now i
 	return t, now-seen <= bundlerToolStale, nil
 }
 
-// whyNot says why a tool is not callable now ("" when it is): the bundler has not
-// vetted it, its category or host is denied, or what a call of it costs
-// (bundlerCost of its price) is over the cap.
+// whyNot says why a tool is not callable now ("" when it is): neither the
+// bundler nor the operator vetted it, its category or host is denied, or it
+// is priced over max_price (or its cost, bundlerCost of the price, over the
+// derived MaxCost).
 func (f *bundlerState) whyNot(vetted bool, category, host string, price int64, priced bool) string {
 	switch {
 	case !vetted && !f.cfg.AllowUnvetted:
 		return "tool_unvetted"
 	case f.denied(category, host):
 		return "tool_denied"
-	case priced && bundlerCost(price) > f.cfg.MaxPrice:
+	case priced && f.overCap(price):
 		return "tool_price_over_cap"
 	}
 	return ""
+}
+
+// overCap says whether a tool priced price is over the cap: max_price, or
+// (with caps.per_call below it) what a call of it costs.
+func (f *bundlerState) overCap(price int64) bool {
+	return price > f.cfg.MaxPrice || bundlerCost(price) > f.cfg.MaxCost
 }
 
 // denied applies the operator's denylist to a tool's category and host.
@@ -709,6 +731,12 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 	}
 	verdicts := x.verdictsFor(ctx, texts)
 	hosts := x.bundlerHosts(ctx, page.hits)
+	via := x.catalogueMatches(ctx, page.hits)
+	ids := make([]string, len(page.hits))
+	for i, h := range page.hits {
+		ids[i] = h.ID
+	}
+	vets, _ := toolVets(ctx, x.db, ids...) // a failed read only shows the bundler's flags
 	hits, later := []any{}, []any{}
 	for _, h := range page.hits {
 		status := screenStatus(h.Description, verdicts)
@@ -716,12 +744,29 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 		if status == summaryWithheld {
 			desc = ""
 		}
-		why := f.whyNot(h.Vetted, h.Category, hosts[h.ID], h.Price, h.Priced)
+		host := hosts[h.ID]
+		if u, err := url.Parse(h.URL); host == "" && err == nil {
+			host = strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+		}
+		v, has := vets[h.ID]
+		byOperator := has && !neverVetted(h.Category) && v.holds(host, h.Method, h.Price, h.Priced)
+		vetted := h.Vetted || byOperator
+		why := f.whyNot(vetted, h.Category, hosts[h.ID], h.Price, h.Priced)
 		if why == "" && h.Live != nil && !*h.Live {
 			why = "tool_unavailable"
 		}
 		e := map[string]any{"id": bundlerToolID(h.ID), "title": h.Title, "description": desc, "description_truncated": h.Truncated, "summary_status": status,
-			"capabilities": h.Capabilities, "category": h.Category, "vetted": h.Vetted, "callable": why == "", "max_cost": price.For(f.cfg.MaxPrice)}
+			"capabilities": h.Capabilities, "category": h.Category, "vetted": vetted, "max_cost": price.For(f.cfg.MaxCost)}
+		if byOperator {
+			e["vetted_by"], e["bundler_vetted"] = "operator", h.Vetted
+		}
+		if res := via[h.ID]; res != nil {
+			// C566: the same endpoint is a vetted catalogue resource, bought
+			// with x402 call by its id; vetted stays the tool index's flag.
+			e["callable_via"] = map[string]any{"method": "call", "resource": res.ID, "note": catalogueViaNote}
+			why = ""
+		}
+		e["callable"] = why == ""
 		if why != "" {
 			e["why_not"] = why
 		}
@@ -756,6 +801,94 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 		// Titles, descriptions and schemas are the bundler's listings' text.
 		"text_is_untrusted": true,
 	}), nil
+}
+
+// catalogueViaNote says which index each of a hit's flags comes from.
+const catalogueViaNote = "vetted is the tool index's flag; callable counts the catalogue: call this endpoint as service.call x402 call with this resource, not the tool id."
+
+// catalogueViaFetches bounds the descriptors one search reads to learn a
+// candidate hit's endpoint.
+const catalogueViaFetches = 3
+
+// catalogueMatches maps each hit that is the same endpoint as a vetted,
+// callable catalogue resource (method and URL; pay_to too when the listing
+// names one) to that resource. A hit whose listing leaves its endpoint out
+// is a candidate when its id names the resource's slug (bazaar.SLUG); its
+// descriptor (cached, at most catalogueViaFetches read per search) confirms
+// it. The catalogue is the in-memory snapshot: no database. Runs after
+// commit.
+func (x *x402) catalogueMatches(ctx context.Context, hits []bundlerHit) map[string]*X402Resource {
+	out := map[string]*X402Resource{}
+	bySlug := map[string][]*X402Resource{}
+	x.vettedEndpoints(func(r *X402Resource) {
+		if s := x402Slug(r.URL); s != "" {
+			bySlug[s] = append(bySlug[s], r)
+		}
+	})
+	if len(bySlug) == 0 {
+		return out
+	}
+	fetches := 0
+	for _, h := range hits {
+		_, slug, _ := strings.Cut(bundlerPublicTool(h.ID), ".")
+		cands := bySlug[slug]
+		if len(cands) == 0 {
+			continue
+		}
+		method, u, payTo := h.Method, h.URL, h.PayTo
+		if u == "" {
+			x.fr.mu.Lock()
+			d, ok := x.fr.descriptors.get(h.ID, time.Now())
+			x.fr.mu.Unlock()
+			if !ok && fetches < catalogueViaFetches {
+				fetches++
+				d, _ = x.bundlerDescriptorOf(ctx, h.ID)
+			}
+			method, u = d.method, d.url
+			if len(payTo) == 0 {
+				payTo = d.payTo
+			}
+		}
+		for _, r := range cands {
+			if sameEndpoint(r, method, u, payTo) {
+				out[h.ID] = r
+				break
+			}
+		}
+	}
+	return out
+}
+
+// vettedEndpoints calls fn with every catalogue resource the call method
+// sells by URL: the pinned x402 ones, and the open ones that are callable
+// (vetted, not denied, not demoted).
+func (x *x402) vettedEndpoints(fn func(*X402Resource)) {
+	for i := range x.cfg.Resources {
+		if r := &x.cfg.Resources[i]; (r.Bundler == "" || r.Bundler == X402Bundler) && r.URL != "" {
+			fn(r)
+		}
+	}
+	if snap := x.cat.snap.Load(); snap != nil {
+		for _, r := range snap.open {
+			if x.callable(r) {
+				fn(r)
+			}
+		}
+	}
+}
+
+// sameEndpoint says whether r is the endpoint method and rawURL name
+// (canonical URLs, a trailing slash aside), paid to one of payTo when that
+// is known.
+func sameEndpoint(r *X402Resource, method, rawURL string, payTo []EVMAddress) bool {
+	if method == "" || method != r.Method {
+		return false
+	}
+	a, b := canonicalX402URL(r.URL), canonicalX402URL(rawURL)
+	if a == "" || strings.TrimSuffix(a, "/") != strings.TrimSuffix(b, "/") {
+		return false
+	}
+	return len(payTo) == 0 || slices.Contains(payTo, r.PayTo)
 }
 
 // bundlerHosts are the hosts frames_tools knows for the hits (a call reads a
@@ -850,7 +983,7 @@ func (f *bundlerState) cachedPayTo(tool string) []EVMAddress {
 func (x *x402) bundlerSummary(price Price) map[string]any {
 	cu := func(n int64) string { return formatUnits(n, 6) }
 	f := x.fr.cfg
-	return map[string]any{"enabled": true, "max_price": cu(f.MaxPrice), "max_cost": price.For(f.MaxPrice), "open_daily": cu(f.OpenDaily), "tool_daily": cu(f.ToolDaily),
+	return map[string]any{"enabled": true, "max_price": cu(f.MaxPrice), "max_cost": price.For(f.MaxCost), "open_daily": cu(f.OpenDaily), "tool_daily": cu(f.ToolDaily),
 		"allow_unvetted": f.AllowUnvetted, "without_key": f.Anonymous, "note": BundlerNote}
 }
 
@@ -883,6 +1016,7 @@ type bundlerDescriptor struct {
 	price              int64
 	priced             bool
 	payTo              []EVMAddress
+	method, url        string // the endpoint it invokes
 }
 
 func (x *x402) bundlerDescriptorOf(ctx context.Context, tool string) (bundlerDescriptor, error) {
@@ -903,6 +1037,7 @@ func (x *x402) bundlerDescriptorOf(ctx context.Context, tool string) (bundlerDes
 		Description  string   `json:"description"`
 		Capabilities []string `json:"capabilities"`
 		Invocation   struct {
+			Method       string          `json:"method"`
 			URL          string          `json:"url"`
 			ParamsSchema json.RawMessage `json:"params_schema"`
 		} `json:"invocation"`
@@ -930,6 +1065,7 @@ func (x *x402) bundlerDescriptorOf(ctx context.Context, tool string) (bundlerDes
 	d.schema, _ = bundlerSchemaOf(w.Invocation.ParamsSchema)
 	d.price, d.priced = bundlerPrice(w.Payment.PriceHint)
 	d.payTo = bundlerPayTo(raw)
+	d.method, d.url = strings.ToUpper(w.Invocation.Method), w.Invocation.URL
 	f.mu.Lock()
 	f.descriptors.put(tool, d, time.Now(), bundlerDescriptorTTL)
 	f.mu.Unlock()
@@ -1007,7 +1143,7 @@ func (x *x402) bundlerToolRead(ctx context.Context, tool string, row bundlerTool
 		desc = ""
 	}
 	out := map[string]any{"id": bundlerToolID(tool), "title": d.title, "description": desc, "summary_status": status, "capabilities": d.capabilities,
-		"category": d.category, "host": d.host, "live": p.live, "payable": p.payable, "max_cost": price.For(x.fr.cfg.MaxPrice),
+		"category": d.category, "host": d.host, "live": p.live, "payable": p.payable, "max_cost": price.For(x.fr.cfg.MaxCost),
 		"tools": x.bundlerSummary(price), "call": bundlerCallNote, "text_is_untrusted": true}
 	if x.fr.firstParty(d.payTo) {
 		out["first_party"] = true
@@ -1027,8 +1163,13 @@ func (x *x402) bundlerToolRead(ctx context.Context, tool string, row bundlerTool
 	}
 	var why string
 	if known {
-		out["vetted"] = row.vetted
-		why = x.fr.whyNot(row.vetted, d.category, d.host, priceNow, priced)
+		vetted := row.vetted
+		if x.liveVet(ctx, tool, d, priceNow, priced) {
+			vetted = true
+			out["vetted_by"], out["bundler_vetted"] = "operator", row.vetted
+		}
+		out["vetted"] = vetted
+		why = x.fr.whyNot(vetted, d.category, d.host, priceNow, priced)
 	} else {
 		// The bundler's vetting flag comes with search hits: a tool no recent
 		// search returned cannot be called until one does.
@@ -1048,7 +1189,7 @@ func (x *x402) bundlerToolRead(ctx context.Context, tool string, row bundlerTool
 // Calls.
 
 // bundlerPlan is the plan of a call to the open bundler tool id names: priced
-// at min(max_price, what the caller's max_cost covers). Pure.
+// at min(MaxCost, what the caller's max_cost covers). Pure.
 func (x *x402) bundlerPlan(c Call, tool string, a x402Args) (x402Plan, error) {
 	if !x.fr.b.Ready() {
 		return x402Plan{}, refusal("service_unavailable")
@@ -1061,7 +1202,7 @@ func (x *x402) bundlerPlan(c Call, tool string, a x402Args) (x402Plan, error) {
 	case len(a.Body) > 0 && !isObject(a.Body):
 		return x402Plan{}, badArg("body is a JSON object of the tool's inputs.")
 	}
-	limit := affordable(c.Price, c.MaxCost, min(x.fr.cfg.MaxPrice, x.cfg.PerCall))
+	limit := affordable(c.Price, c.MaxCost, x.fr.cfg.MaxCost)
 	if limit <= 0 {
 		return x402Plan{}, refusal("price_exceeds_max")
 	}
@@ -1102,17 +1243,19 @@ func affordable(price Price, maxCost, limit int64) int64 {
 }
 
 // bundlerAdmit refuses, in the command's transaction, a call to a tool no
-// recent search returned, one the bundler has not vetted (unless the config allows
-// it) and one whose category or known host is denied.
+// recent search returned, one neither the bundler nor the operator vetted
+// (unless the config allows it) and one whose category or known host is
+// denied.
 func (x *x402) bundlerAdmit(ctx context.Context, q allowance.Querier, name string, now int64) error {
-	_, row, known, err := bundlerLookup(ctx, q, name, now)
+	tool, row, known, err := bundlerLookup(ctx, q, name, now)
 	if err != nil {
 		return err
 	}
 	if !known {
 		return refusal("x402_unknown_resource")
 	}
-	if why := x.fr.whyNot(row.vetted, row.category, row.host, 0, false); why != "" {
+	vetted := row.vetted || !neverVetted(row.category) && operatorVetted(ctx, q, tool, row.host)
+	if why := x.fr.whyNot(vetted, row.category, row.host, 0, false); why != "" {
 		return refusal(why)
 	}
 	return nil
@@ -1137,7 +1280,11 @@ func (x *x402) bundlerGate(ctx context.Context, c Call, p *x402Plan) error {
 	if err != nil {
 		return err
 	}
-	if why := x.fr.whyNot(row.vetted, row.category, d.host, 0, false); why != "" {
+	// An operator vet (keybundler_vet.go) stands in for the bundler's flag
+	// while it holds for the live descriptor and price, checked below once
+	// the probe has the price.
+	byOperator := !row.vetted && !x.fr.cfg.AllowUnvetted && operatorVetted(ctx, x.db, tool, d.host)
+	if why := x.fr.whyNot(row.vetted || byOperator, row.category, d.host, 0, false); why != "" {
 		return refusal(why)
 	}
 	if x.fr.denied(d.category, "") {
@@ -1152,11 +1299,14 @@ func (x *x402) bundlerGate(ctx context.Context, c Call, p *x402Plan) error {
 	if !priced {
 		priceNow, priced = d.price, d.priced
 	}
+	if byOperator && !x.liveVet(ctx, tool, d, priceNow, priced) {
+		return refusal("tool_unvetted")
+	}
 	cost := bundlerCost(priceNow)
 	switch {
 	case !pr.live || !pr.payable:
 		return refusal("tool_unavailable")
-	case priced && cost > x.fr.cfg.MaxPrice:
+	case priced && x.fr.overCap(priceNow):
 		return refusal("tool_price_over_cap")
 	case priced && cost > p.max:
 		return refusal("price_exceeds_max")

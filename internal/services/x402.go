@@ -296,7 +296,7 @@ func (x *x402) Describe() Descriptor {
 	if x.fr != nil && x.fr.cfg.Anonymous {
 		// Without a key: bundler tools only (CheckAnonymous).
 		call.Anonymous, call.AnonymousLabel = true, "SwarmMemo tools"
-		call.AnonymousNote = "tool: resources only, at most " + formatUnits(x.fr.cfg.MaxPrice, 6) + " USD a call"
+		call.AnonymousNote = "tool: resources only, at most " + formatUnits(x.fr.cfg.MaxCost, 6) + " USD a call, fees included"
 		call.AnonymousRate = AnonRate{CallerPerMinute: 2, CallerPerDay: 20, AllPerMinute: 10, AllPerDay: 500}
 	}
 	return Descriptor{

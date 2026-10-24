@@ -54,4 +54,15 @@ VALUES('api-example-com-search-0123456789abcdef','x402','https://api.example.com
 	if !x402VetCommand([]string{"vet", "x"}) || x402VetCommand([]string{"check"}) {
 		t.Fatal("x402VetCommand")
 	}
+	// A bundler tool: vetting reads its live descriptor, so it needs the
+	// x402 config; unvetting needs only the database.
+	if !x402VetsTool([]string{"vet", "tool:mpp.weather"}) || x402VetsTool([]string{"unvet", "tool:mpp.weather"}) || x402VetsTool([]string{"vet", "api-x"}) {
+		t.Fatal("x402VetsTool")
+	}
+	if _, err = run("vet", "tool:mpp.weather"); err == nil || !strings.Contains(err.Error(), "X402_CONFIG") {
+		t.Fatalf("tool vet without the config: %v", err)
+	}
+	if _, err = run("unvet", "tool:mpp.weather"); err == nil || !strings.Contains(err.Error(), "no operator vet") {
+		t.Fatalf("unvet of an unvetted tool: %v", err)
+	}
 }

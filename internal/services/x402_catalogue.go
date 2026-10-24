@@ -780,7 +780,7 @@ func (x *x402) pruneStats(ctx context.Context, day int64) {
 // queryAll runs one query and copies its rows into memory with scan,
 // closing them before it returns: the one connection is held only while the
 // rows are read.
-func queryAll[T any](ctx context.Context, db *sql.DB, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
+func queryAll[T any](ctx context.Context, db allowance.Querier, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

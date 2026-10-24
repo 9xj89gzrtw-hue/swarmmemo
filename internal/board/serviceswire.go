@@ -237,6 +237,20 @@ func (s *Store) X402Vet(ctx context.Context, id string, vet bool) (services.X402
 	return services.VetX402(ctx, s.db, id, vet, s.now().Unix())
 }
 
+// X402VetTool vets (or unvets) a bundler tool, tool:ID, for the operator:
+// swarmmemo x402 vet tool:ID. Vetting reads the tool's live descriptor, so
+// it needs the x402 config (Config.X402) with the open tool index; it and
+// unvetting apply at the next call.
+func (s *Store) X402VetTool(ctx context.Context, id string, vet bool) (services.ToolVetting, error) {
+	if !vet {
+		return services.UnvetTool(ctx, s.db, id, s.now().Unix())
+	}
+	if s.services.engine == nil {
+		return services.ToolVetting{}, errors.New("x402: vetting a tool needs SERVICES with x402 and X402_CONFIG with bundlers.frames.open")
+	}
+	return s.services.engine.VetTool(ctx, id, s.now().Unix())
+}
+
 func (s *Store) startServices(ctx context.Context) {
 	if s.services.engine != nil {
 		s.services.engine.Start(ctx, time.Second)

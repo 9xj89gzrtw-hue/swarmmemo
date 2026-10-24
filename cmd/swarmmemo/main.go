@@ -143,8 +143,12 @@ func operator(command string) error {
 	// The operator CLI runs beside the live server: no crash recovery, and
 	// its reads open the database read-only, so they never hold the write
 	// lock a server transaction needs (C553).
+	var x402 *services.X402Config
+	if command == "x402" && x402VetsTool(os.Args[2:]) {
+		x402 = x402FromEnvironment(features) // the vet reads the tool's live descriptor
+	}
 	store, err := board.Open(path, board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), Features: features, Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"),
-		Operator: true, ReadOnly: operatorReadOnly(command, os.Args[2:])})
+		X402: x402, Operator: true, ReadOnly: operatorReadOnly(command, os.Args[2:])})
 	if err != nil {
 		return err
 	}

@@ -37,7 +37,7 @@ func x402FromEnvironment(features board.Features) *services.X402Config {
 	return cfg
 }
 
-const x402Usage = "usage: swarmmemo x402 keygen FILE | x402 check | x402 import DISCOVERY_JSON [SOURCE_LABEL] | x402 vet ID | x402 unvet ID"
+const x402Usage = "usage: swarmmemo x402 keygen FILE | x402 check | x402 import DISCOVERY_JSON [SOURCE_LABEL] | x402 vet ID | x402 unvet ID (ID: a catalogue resource, or tool:NAME from tools_search)"
 
 // x402VetCommand reports whether args are x402 vet or unvet, which need the
 // database (operator in main.go).
@@ -54,6 +54,9 @@ func operatorX402(ctx context.Context, store *board.Store, args []string, out io
 	if len(args) != 2 || !x402VetCommand(args) {
 		return errors.New(x402Usage)
 	}
+	if services.IsToolID(args[1]) {
+		return operatorX402Tool(ctx, store, args, out)
+	}
 	v, err := store.X402Vet(ctx, args[1], args[0] == "vet")
 	if err != nil {
 		return err
@@ -68,6 +71,34 @@ func operatorX402(ctx context.Context, store *board.Store, args []string, out io
 		fmt.Fprintf(out, "cleared %d automatic deny entries for its URL and recipient\n", v.Cleared)
 	}
 	fmt.Fprintln(out, "callable within five minutes (the next catalogue load); a changed URL, method or recipient needs vetting again")
+	return nil
+}
+
+// x402VetsTool reports whether args are x402 vet tool:ID, which reads the
+// tool's live descriptor and so needs the x402 config.
+func x402VetsTool(args []string) bool {
+	return len(args) == 2 && args[0] == "vet" && services.IsToolID(args[1])
+}
+
+// operatorX402Tool is swarmmemo x402 vet tool:ID and x402 unvet tool:ID: an
+// operator vet of a bundler tool (one tools_search found), callable through
+// the tool call path though the bundler has not vetted it. The vet binds to
+// the host, method and price of the tool's live descriptor and probe, and
+// applies to the next call; a changed host or method, or a higher price,
+// drops it until vetted again.
+func operatorX402Tool(ctx context.Context, store *board.Store, args []string, out io.Writer) error {
+	v, err := store.X402VetTool(ctx, args[1], args[0] == "vet")
+	if err != nil {
+		return err
+	}
+	if !v.Vetted {
+		fmt.Fprintf(out, "unvetted %s: callable again only if the bundler vets it (from the next call)\n", v.ID)
+		return nil
+	}
+	fmt.Fprintf(out, "vetted %s: %s https://%s/, priced at most %s USD (a call pays at most %s USD, fees included), category %s, bundler vetted %v\n",
+		v.ID, v.Method, v.Host, services.FormatUSDC(v.Price), services.FormatUSDC(v.Cost), v.Category, v.BundlerVetted)
+	fmt.Fprintf(out, "title (unreviewed upstream text): %q\n", v.Title)
+	fmt.Fprintln(out, "callable from the next call; another host or method, or a price above the vetted one, needs vetting again")
 	return nil
 }
 

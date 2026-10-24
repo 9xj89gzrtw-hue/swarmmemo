@@ -269,7 +269,7 @@ func (e *Engine) ToolMaxCost(prices Prices) int64 {
 	if !ok {
 		price = DefaultPrices()["x402.call"]
 	}
-	return price.For(x.fr.cfg.MaxPrice)
+	return price.For(x.fr.cfg.MaxCost)
 }
 
 // ToolMaxCostNow is ToolMaxCost at the price table q reads now, for a wire
@@ -443,6 +443,7 @@ func catalogueTools(raw json.RawMessage) ([]toolHit, bool) {
 			Callable    bool            `json:"callable"`
 			WhyNot      string          `json:"why_not"`
 			FirstParty  bool            `json:"first_party"`
+			CallableVia json.RawMessage `json:"callable_via"`
 			Cost        *int64          `json:"cost"`
 			MaxCost     int64           `json:"max_cost"`
 			Schema      json.RawMessage `json:"input_schema"`
@@ -472,6 +473,10 @@ func catalogueTools(raw json.RawMessage) ([]toolHit, bool) {
 		if h.FirstParty {
 			entry["first_party"] = true
 		}
+		if len(h.CallableVia) > 0 {
+			// C566: bought through the catalogue's resource, not this id.
+			entry["callable_via"] = h.CallableVia
+		}
 		if len(h.Schema) > 0 {
 			entry["input_schema"] = h.Schema
 		}
@@ -485,7 +490,7 @@ func catalogueTools(raw json.RawMessage) ([]toolHit, bool) {
 			}
 			entry["args"] = summary
 		}
-		if h.MaxCost > 0 {
+		if h.MaxCost > 0 && len(h.CallableVia) == 0 {
 			entry["example"] = map[string]any{"id": h.ID, "args": exampleArgs(args), "max_cost": h.MaxCost}
 		}
 		// The catalogue's own order is its relevance: first hit just under a

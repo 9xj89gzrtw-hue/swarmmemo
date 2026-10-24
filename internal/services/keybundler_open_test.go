@@ -358,7 +358,7 @@ func TestBundlerSearch(t *testing.T) {
 	ok := hits["tool:"+toolOK]
 	desc := ok["description"].(string)
 	if ok["callable"] != true || ok["vetted"] != true || ok["price_usd"] != "0.002" || ok["cost"] != float64(creditsFor(8000)) ||
-		ok["max_cost"] != float64(creditsFor(20000)) || ok["summary_status"] != "unscreened" || strings.ContainsAny(desc, "‮\u0007") ||
+		ok["max_cost"] != float64(creditsFor(bundlerCost(20000))) || ok["summary_status"] != "unscreened" || strings.ContainsAny(desc, "‮\u0007") ||
 		fmt.Sprint(ok["capabilities"]) != "[weather forecast badcap]" || fmt.Sprint(ok["input_schema"]) == "" {
 		t.Fatalf("vetted hit %v", ok)
 	}
@@ -1157,5 +1157,92 @@ func TestBundlerDeliveredEmptyNotCharged(t *testing.T) {
 	}
 	if got := h.charged() - before; got == creditsFor(0) {
 		t.Fatal("a delivered answer was not charged")
+	}
+}
+
+// TestBundlerCallableVia (C566): a tool index hit that is the same endpoint
+// (method, URL, pay_to) as a vetted catalogue resource says it is bought
+// through that resource: callable_via, callable, no why_not, while vetted
+// stays the bundler's. Its descriptor gives the endpoint when the hit does
+// not. A hit at another endpoint, or another method, is unchanged.
+func TestBundlerCallableVia(t *testing.T) {
+	h, api := newBundlerHarness(t, "", "")
+	const (
+		preflight = "bazaar.humanmirror-fr-api-x402-safe-preflight"
+		inline    = "bazaar.humanmirror-fr-api-x402-inline"
+		other     = "bazaar.humanmirror-fr-api-x402-other"
+		wrongVerb = "bazaar.humanmirror-fr-api-x402-get"
+	)
+	api.hits = `[{"id":"` + preflight + `","title":"Safe preflight","description":"Preflight","payment":{"price_hint":"0.001"},"unvetted":true},
+ {"id":"` + inline + `","title":"Inline","description":"Inline","payment":{"price_hint":"0.001","pay_to":"` + testPayTo + `"},"unvetted":true,
+  "invocation":{"method":"post","url":"https://HumanMirror.fr/api/x402/inline"}},
+ {"id":"` + other + `","title":"Other","description":"Other","payment":{"price_hint":"0.001"},"unvetted":true},
+ {"id":"` + wrongVerb + `","title":"Get","description":"Get","payment":{"price_hint":"0.001"},"unvetted":true,
+  "invocation":{"method":"GET","url":"https://humanmirror.fr/api/x402/get/"}}]`
+	api.tools[preflight] = `{"id":"` + preflight + `","title":"Safe preflight","description":"Preflight","invocation":{"method":"POST","url":"https://humanmirror.fr/api/x402/safe-preflight"},"signals":{"host":"humanmirror.fr"}}`
+	api.tools[other] = `{"id":"` + other + `","title":"Other","description":"Other","invocation":{"method":"POST","url":"https://humanmirror.fr/api/x402/elsewhere/"},"signals":{"host":"humanmirror.fr"}}`
+	h.fake.extra["/v1/tools/"+preflight], h.fake.extra["/v1/tools/"+other] = api, api
+	m, _ := h.engine.Registry().Lookup("x402")
+	x := m.(*x402)
+	payTo, _ := ParseEVMAddress(testPayTo)
+	s := &x402Snapshot{byID: map[string]*X402Resource{}, stats: map[string]callStats{}, categories: map[string]int{}}
+	for _, r := range []*X402Resource{
+		{ID: "humanmirror-fr-api-x402-safe-preflight-856fd83c5c524337", URL: "https://humanmirror.fr/api/x402/safe-preflight/", Method: "POST", Vetted: true},
+		{ID: "humanmirror-fr-api-x402-inline-0000000000000001", URL: "https://humanmirror.fr/api/x402/inline", Method: "POST", Vetted: true},
+		{ID: "humanmirror-fr-api-x402-other-0000000000000002", URL: "https://humanmirror.fr/api/x402/other", Method: "POST", Vetted: true},
+		{ID: "humanmirror-fr-api-x402-get-0000000000000003", URL: "https://humanmirror.fr/api/x402/get/", Method: "POST", Vetted: true},
+	} {
+		r.PayTo, r.Bundler, r.Open, r.MaxAmount = payTo, X402Bundler, true, 1000
+		indexResource(r)
+		s.byID[r.ID], s.open = r, append(s.open, r)
+	}
+	x.cat.snap.Store(s)
+	page, err := h.bundlerRead(testSubject, "tools_search", `{"query":"preflight"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits := hitsByID(page)
+	for id, want := range map[string]string{preflight: "humanmirror-fr-api-x402-safe-preflight-856fd83c5c524337", inline: "humanmirror-fr-api-x402-inline-0000000000000001"} {
+		hit := hits["tool:"+id]
+		via, _ := hit["callable_via"].(map[string]any)
+		if via["method"] != "call" || via["resource"] != want || via["note"] == "" || hit["callable"] != true || hit["why_not"] != nil || hit["vetted"] != false {
+			t.Errorf("%s: %v", id, hit)
+		}
+	}
+	for _, id := range []string{other, wrongVerb} {
+		hit := hits["tool:"+id]
+		if hit["callable_via"] != nil || hit["callable"] != false || hit["why_not"] != "tool_unvetted" {
+			t.Errorf("%s changed: %v", id, hit)
+		}
+	}
+	if _, _, get, _ := api.count(); get != 2 {
+		t.Errorf("descriptors read: %d, want 2 (the hits without an endpoint)", get)
+	}
+	if page["callable"] != float64(2) {
+		t.Errorf("callable = %v, want 2", page["callable"])
+	}
+	// An unvetted (or denied) catalogue resource lends nothing.
+	s.byID["humanmirror-fr-api-x402-safe-preflight-856fd83c5c524337"].Vetted = false
+	api.hits = strings.Replace(api.hits, "Safe preflight", "Safe preflight again", 1) // a new search, not the cache
+	page, err = h.bundlerRead(testSubject, "tools_search", `{"query":"preflight check"}`)
+	if err != nil || hitsByID(page)["tool:"+preflight]["callable_via"] != nil {
+		t.Fatalf("an unvetted resource: %v %v", hitsByID(page)["tool:"+preflight], err)
+	}
+	s.byID["humanmirror-fr-api-x402-safe-preflight-856fd83c5c524337"].Vetted = true
+	// Find passes callable_via through, without the tool-id example.
+	page, _ = h.bundlerRead(testSubject, "tools_search", `{"query":"preflight"}`)
+	raw, _ := json.Marshal(page)
+	unified, _ := catalogueTools(raw)
+	found := 0
+	for _, hit := range unified {
+		if hit.entry["callable_via"] != nil {
+			found++
+			if hit.entry["example"] != nil || hit.entry["callable"] != true {
+				t.Errorf("unified hit: %v", hit.entry)
+			}
+		}
+	}
+	if found != 2 {
+		t.Fatalf("unified tools search: %d hits with callable_via, want 2", found)
 	}
 }
