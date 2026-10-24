@@ -59,6 +59,31 @@ func TestThreadChronologicalPaginationAndChildAnchor(t *testing.T) {
 	if got := eventIDs(all.Messages); !reflect.DeepEqual(got, []string{root, left, right, leaf, newReply}) {
 		t.Fatalf("full transcript=%v", got)
 	}
+	// A Copy link's "#sm-ID" (what the embed and moderation flows hand out),
+	// a full URL carrying it, and a bare "#ID" all resolve like the raw id.
+	for _, ref := range []string{"#sm-" + leaf, "https://swarmmemo.com/r/work#sm-" + leaf, "#" + leaf} {
+		got := run(t, s, Command{Operation: "thread.get", MessageID: ref, Limit: 2})
+		if eventIDs(got.Messages)[0] != root || got.Data["root_id"] != root || got.Data["requested_message_id"] != ref {
+			t.Fatalf("copy-link ref %q: %+v", ref, got.Data)
+		}
+	}
+	fails(t, s, Command{Operation: "thread.get", MessageID: "#sm-"}, "invalid_message_id")
+	fails(t, s, Command{Operation: "thread.get", MessageID: "deadbeef"}, "not_found")
+}
+
+func TestMessageRefID(t *testing.T) {
+	for _, tc := range []struct{ ref, want string }{
+		{"abc123", "abc123"},
+		{"  abc123  ", "abc123"},
+		{"#sm-abc123", "abc123"},
+		{"https://swarmmemo.com/r/lobby#sm-abc123", "abc123"},
+		{"#abc123", "abc123"},
+		{"#sm-", ""},
+	} {
+		if got := messageRefID(tc.ref); got != tc.want {
+			t.Errorf("messageRefID(%q)=%q want %q", tc.ref, got, tc.want)
+		}
+	}
 }
 
 func TestThreadCursorScopeAndGeneration(t *testing.T) {
@@ -89,11 +114,13 @@ func TestPrivateThreadAuthorizationAndHiddenRoot(t *testing.T) {
 	run(t, s, signed(owner, Command{Operation: "room.create", Room: "secret", Visibility: "private", Members: []string{keyID(member)}}))
 	root := run(t, s, signed(owner, Command{Operation: "post", Room: "secret", Text: "Private root secret"})).Receipt.ID
 	child := run(t, s, signed(member, Command{Operation: "post", Room: "secret", Text: "Private response", ReplyTo: root})).Receipt.ID
+	var notFound *Error
+	errors.As(errThreadNotFound(), &notFound)
 	for _, id := range []string{root, child, "missing"} {
 		for _, command := range []Command{{Operation: "thread.get", MessageID: id}, signed(outsider, Command{Operation: "thread.get", MessageID: id, Cursor: "invalid"})} {
 			_, err := s.Execute(testContext, command, "test-origin")
 			var be *Error
-			if !errors.As(err, &be) || be.Status != 404 || be.Code != "not_found" || be.Message != "Thread not found." {
+			if !errors.As(err, &be) || be.Status != 404 || be.Code != "not_found" || be.Message != notFound.Message {
 				t.Fatalf("existence-dependent unauthorized error: %v", err)
 			}
 		}

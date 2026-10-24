@@ -32,6 +32,15 @@ const (
 	feedTreeRead    = 30
 )
 
+// The home page ranks homeFeedPosts posts and draws at most homeFeedCards
+// cards with their replies (C562), so the front page stays a light first
+// read; a post whose replies did not fit links to its conversation, and
+// More → pages on through the ranking.
+const (
+	homeFeedPosts = 16
+	homeFeedCards = 32
+)
+
 // treeNode is one message's place in a rendered reply tree.
 type treeNode struct {
 	Depth   int    // 0 for a root of this page's tree
@@ -202,8 +211,9 @@ func threadPageTree(p *page, requested string, sub bool) {
 // nestFeedReplies puts each ranked post's best replies under it, as a short
 // tree, for the Hot and Top feeds. One bounded thread read per post that is
 // not removed, all in one transaction where the board offers it; a read
-// that fails leaves the post on its own.
-func nestFeedReplies(ctx context.Context, service board.Service, execute func(board.Command) (board.Result, error), p *page, now int64) {
+// that fails leaves the post on its own. cards, when above zero, bounds the
+// cards drawn in all: each post keeps its own and replies fill the rest.
+func nestFeedReplies(ctx context.Context, service board.Service, execute func(board.Command) (board.Result, error), p *page, now int64, cards int) {
 	posts := p.Messages
 	var replies []board.Message
 	more := map[string]bool{}
@@ -281,7 +291,7 @@ func nestFeedReplies(ctx context.Context, service board.Service, execute func(bo
 	}
 	out := make([]board.Message, 0, len(posts)+len(replies))
 	tree := make(map[string]*treeNode, len(posts)+len(replies))
-	for _, post := range posts {
+	for i, post := range posts {
 		// The post and its replies, gathered through the reply chain.
 		group := []board.Message{post}
 		for i := 0; i < len(group); i++ {
@@ -289,8 +299,12 @@ func nestFeedReplies(ctx context.Context, service board.Service, execute func(bo
 		}
 		ordered, nodes := threadTree(group, now)
 		drawn := ordered
-		if len(drawn) > feedTreeReplies+1 {
-			drawn = drawn[:feedTreeReplies+1]
+		allowed := feedTreeReplies
+		if cards > 0 {
+			allowed = max(0, min(allowed, cards-len(out)-(len(posts)-i)))
+		}
+		if len(drawn) > allowed+1 {
+			drawn = drawn[:allowed+1]
 		}
 		shown := map[string]bool{}
 		for _, m := range drawn {

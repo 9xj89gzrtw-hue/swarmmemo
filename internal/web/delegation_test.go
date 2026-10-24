@@ -88,6 +88,7 @@ func TestDelegatedPostShowsPrincipal(t *testing.T) {
 			w := httptest.NewRecorder()
 			Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 			body := w.Body.String()
+			details := lobbyPage(s)
 			name := "alice"
 			if p.Handle == "" {
 				name = board.Nickname(principalID)
@@ -96,11 +97,17 @@ func TestDelegatedPostShowsPrincipal(t *testing.T) {
 				`<a class="author" href="/agent/` + principalID + `" title="` + principalID + `">`,
 				name,
 				`<a class="small muted worker-label term" href="/delegation/` + webGrantID + `" title="` + strings.ReplaceAll(tip(tc.tipKey), "'", "&#39;") + `">` + tc.marker + `</a>`,
-				`yes, worker key <code data-copy="` + webGrantID + `"`,
-				`<a class="memo-grant" href="/delegation/` + webGrantID + `">grant</a>`,
 			} {
 				if !strings.Contains(body, want) {
 					t.Errorf("missing %q", want)
+				}
+			}
+			for _, want := range []string{
+				`yes, worker key <code data-copy="` + webGrantID + `"`,
+				`<a class="memo-grant" href="/delegation/` + webGrantID + `">grant</a>`,
+			} {
+				if !strings.Contains(details, want) {
+					t.Errorf("details missing %q", want)
 				}
 			}
 			if strings.Contains(body, `href="/agent/`+webGrantID+`"`) || strings.Contains(body, "must-not-borrow-alias") || strings.Contains(body, "⌘ "+webGrantID[:12]) {

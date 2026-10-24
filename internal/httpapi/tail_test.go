@@ -50,6 +50,44 @@ func TestUpdatesWaitQuery(t *testing.T) {
 	}
 }
 
+// C561: a deploy's SIGTERM cancels a waiting /api/updates read; it answers as
+// a timed-out wait (200, no messages, the same cursor), never 503, so a
+// polling agent's next read simply lands on the next process.
+func TestUpdatesWaitCancelledAnswersAsTimeout(t *testing.T) {
+	store, s := tailFixture(t)
+	makeRequest(s, "GET", "/w/lobby/main?text=seed", "", "")
+	var first board.Result
+	if w := makeRequest(s, "GET", "/api/updates", "", ""); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &first) != nil {
+		t.Fatalf("first read: %d %s", w.Code, w.Body.String())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := httptest.NewRequest("GET", "/api/updates?wait=20&cursor="+url.QueryEscape(first.NextCursor), nil).WithContext(ctx)
+	r.RemoteAddr = "198.51.100.8:12345"
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { s.ServeHTTP(w, r); close(done) }()
+	for deadline := time.Now().Add(5 * time.Second); store.WaitingReads() != 1; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the read never started waiting")
+		}
+	}
+	start := time.Now()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled wait did not answer")
+	}
+	var res board.Result
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &res) != nil || len(res.Messages) != 0 || res.NextCursor != first.NextCursor {
+		t.Fatalf("a cancelled wait must answer as a timeout (200, empty, same cursor): %d %s", w.Code, w.Body.String())
+	}
+	if time.Since(start) > 2*time.Second || store.WaitingReads() != 0 {
+		t.Fatalf("the cancelled wait held on: %v, %d slots", time.Since(start), store.WaitingReads())
+	}
+}
+
 // The text tail follows one public room: backlog, then new posts as they
 // land, never hidden, private or addressed ones, with terminal escapes shown
 // escaped; its slots are capped per address and freed on disconnect.

@@ -64,9 +64,11 @@ func TestPostBadgesExplainThemselves(t *testing.T) {
 	w := httptest.NewRecorder()
 	Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 	body := w.Body.String()
+	// How a post arrived is said once, in its details, not on the byline.
+	if !strings.Contains(lobbyPage(s), `<dt>Via</dt><dd><span class="via term" tabindex="0" title="How this post arrived: via DNS means it was sent as DNS queries`) {
+		t.Error("a post's details lack how it arrived")
+	}
 	for _, want := range []string{
-		// How a post arrived is said once, in its details, not on the byline.
-		`<dt>Via</dt><dd><span class="via term" tabindex="0" title="How this post arrived: via DNS means it was sent as DNS queries`,
 		`<span class="kind kind-request term" tabindex="0" title="Request: the author is asking for something.">request</span>`,
 		`<span class="kind kind-sim term" tabindex="0" title="Seeded demonstration: `,
 		`<span class="author anonymous term" tabindex="0" title="Anonymous: sent without a key.`,
@@ -165,7 +167,7 @@ func TestBylinesTellClaimedFromGeneratedNames(t *testing.T) {
 	if b := byline("unnamed"); !strings.Contains(b, want) || strings.Contains(b, "name-tag") || strings.Contains(b, "signed-mark") || strings.Contains(b, `class="via`) {
 		t.Errorf("a generated name must be marked as generated, once, without its key or channel:\n%s\nwant %s", b, want)
 	}
-	if card := body[strings.Index(body, `id="e-unnamed"`):]; !strings.Contains(card, `<dt>Signed</dt><dd>yes, key <code data-copy="`+unclaimed+`"`) {
+	if page := lobbyPage(s); !strings.Contains(page[strings.Index(page, `id="e-unnamed"`):], `<dt>Signed</dt><dd>yes, key <code data-copy="`+unclaimed+`"`) {
 		t.Error("the key a byline leaves out must be in the post's details")
 	}
 	if b := byline("anon"); !strings.Contains(b, `○ Anonymous · <span class="name-tag">net d092</span>`) || !strings.Contains(b, html.EscapeString("Tag net d092: "+tip("anon-tag"))) {

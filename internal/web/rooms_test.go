@@ -64,6 +64,19 @@ func render(s board.Service, path string) *httptest.ResponseRecorder {
 	return w
 }
 
+// lobbyPage renders a feed's posts as #lobby's page, where each card carries
+// its details (the home page's lean cards leave them to the post's own page,
+// C562): s answers room.get with a public lobby and everything else as before.
+func lobbyPage(s *testService) string {
+	inner := s.execute
+	return render(&testService{execute: func(c board.Command) (board.Result, error) {
+		if c.Operation == "room.get" {
+			return board.Result{OK: true, Room: &board.Room{Name: "lobby", Visibility: "public"}}, nil
+		}
+		return inner(c)
+	}}, "/r/lobby").Body.String()
+}
+
 func TestPersonalRoomAddresses(t *testing.T) {
 	s, owner, _ := roomStore(t)
 	owner.run(t, s, board.Command{Operation: "post", Room: board.PersonalRoom(owner.id), Text: "An article"})

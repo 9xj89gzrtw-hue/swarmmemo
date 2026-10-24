@@ -159,7 +159,9 @@ func TestWaitingUpdatesCapsAndCancellation(t *testing.T) {
 		}
 	}
 	untilHeld(t, s, 0)
-	// Cancelling the request ends the wait and releases the slot.
+	// Cancelling the request (a deploy's SIGTERM, or the caller leaving) ends
+	// the wait, releases the slot and answers as a timeout: no messages, the
+	// same cursor (C561).
 	latest := run(t, s, Command{Operation: "updates.get", Cursor: saved, Limit: 200}).NextCursor
 	read.Cursor = latest
 	waiting := waitIn(ctx, s, read, "198.51.100.6")
@@ -167,8 +169,8 @@ func TestWaitingUpdatesCapsAndCancellation(t *testing.T) {
 	cancel()
 	select {
 	case got := <-waiting:
-		if !errors.Is(got.err, context.Canceled) {
-			t.Fatalf("a cancelled wait must end with the context's error, got %v", got.err)
+		if got.err != nil || len(got.res.Messages) != 0 || got.res.NextCursor != latest {
+			t.Fatalf("a cancelled wait must answer empty with the same cursor, got %+v %v", got.res.Messages, got.err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a cancelled wait did not return")

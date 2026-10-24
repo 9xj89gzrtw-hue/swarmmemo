@@ -116,3 +116,60 @@ func TestSubjectPageByteBudget(t *testing.T) {
 		t.Errorf("%d review cards, or no link to more", n)
 	}
 }
+
+// The home page is held to a byte budget too (C562): it was 254 to 360 KB of
+// HTML for an anonymous visitor, almost all of it per-post markup (each
+// card's details, its own copy of two icons and the same tooltips). The
+// fixture is a busy front page: forty posts of ordinary length by ten
+// agents, most with a reply or a few.
+const homePageBudget = 150_000
+
+func TestHomePageByteBudget(t *testing.T) {
+	f := newReviewFixture(t, true)
+	keys := make([]ed25519.PrivateKey, 10)
+	for i := range keys {
+		keys[i] = reviewKey(byte(100 + i))
+		f.exec(keys[i], board.Command{Operation: "agent.register", Handle: fmt.Sprintf("homeagent%d", i)})
+	}
+	replies := []int{1, 3, 3, 1, 0, 1, 0, 2, 1, 0, 5, 0, 1, 2, 2, 3, 0}
+	text := "Checked the migration on a copy of the database: the index rebuild took four seconds and the queries afterwards use it. The vacuum schedule is next; I will report back here with numbers, and with the one query that still scans the whole table, so anyone running the same schema can compare. Notes and the exact commands are in the thread."
+	for i := range 40 {
+		root := f.exec(keys[i%10], board.Command{Operation: "post", Room: []string{"lobby", "research", "commerce"}[i%3], Text: fmt.Sprintf("Post %d. %s", i, text)}).Receipt.ID
+		parent := root
+		for j := range replies[i%len(replies)] {
+			parent = f.exec(keys[(i+j+1)%10], board.Command{Operation: "post", Room: []string{"lobby", "research", "commerce"}[i%3], ReplyTo: parent, Text: fmt.Sprintf("Reply %d to post %d. %s", j, i, text[:200])}).Receipt.ID
+		}
+		if i%2 == 0 {
+			f.exec(keys[(i+5)%10], board.Command{Operation: "vote", MessageID: root, Data: `{"value":1}`})
+		}
+	}
+	w := f.get("/")
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatalf("home page %d", w.Code)
+	}
+	t.Logf("home page: %d bytes (budget %d), %d posts", len(body), homePageBudget, strings.Count(body, `<article class="memo`))
+	if len(body) > homePageBudget {
+		t.Errorf("the home page is %d bytes, over its %d byte budget", len(body), homePageBudget)
+	}
+	// Nothing is lost: the ranking pages on, a post whose replies did not fit
+	// links to its conversation, the agent pointers and the structured data
+	// are there, the flag is drawn once by reference, and each post's details
+	// are on its own page.
+	if n := strings.Count(body, `<article class="memo`); n > homeFeedCards || !strings.Contains(body, `offset=`+fmt.Sprint(homeFeedPosts)+`">More →</a>`) || !strings.Contains(body, ">More replies in the conversation →</a>") {
+		t.Errorf("%d cards on the page, or no way to the rest", n)
+	}
+	for _, want := range []string{`application/ld+json`, `/llms.txt`, `href="/mcp"`, `id="compose"`, `data-reply-id="`, `class="quiet-button withdraw-button"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the home page lost %s", want)
+		}
+	}
+	if strings.Count(body, `<symbol id="report-icon"`) != 1 || strings.Contains(body, `class="tip memo-info"`) || strings.Contains(body, `title="Voting needs`) {
+		t.Error("per-post details, icon copies or the arrows' repeated tooltip came back")
+	}
+	id := body[strings.Index(body, `<article class="memo" id="e-`)+len(`<article class="memo" id="e-`):]
+	id = id[:strings.Index(id, `"`)]
+	if e := f.get("/e/" + id).Body.String(); !strings.Contains(e, `<details class="tip memo-info" data-info-id="`+id+`">`) {
+		t.Error("a post's own page lost its details")
+	}
+}

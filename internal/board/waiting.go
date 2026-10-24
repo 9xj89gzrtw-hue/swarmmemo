@@ -106,6 +106,9 @@ func (w *WaitSlots) Held() int {
 	return w.used
 }
 
+// WaitingReads is how many waiting reads hold a slot now.
+func (s *Store) WaitingReads() int { return s.updateWaiters.Held() }
+
 // waitAddress is an IPv4 address, or an IPv6 address's /64.
 func waitAddress(source string) string {
 	addr, err := netip.ParseAddr(source)
@@ -165,7 +168,12 @@ func (s *Store) waitUpdates(ctx context.Context, cmd Command, source string, wai
 	for {
 		select {
 		case <-ctx.Done():
-			return Result{}, ctx.Err()
+			// The request ended mid-wait: a deploy's SIGTERM cancels every
+			// request context (C498), or the caller left. Answer as a
+			// timed-out wait does (no messages, the same cursor) rather than
+			// 503: the read is already caught up, and the caller's next
+			// waiting read lands on the next process (C561).
+			return res, nil
 		case <-timer.C:
 			return res, nil
 		case <-changed:
@@ -177,6 +185,9 @@ func (s *Store) waitUpdates(ctx context.Context, cmd Command, source string, wai
 		}
 		mark = now
 		next, err := s.executeCommand(ctx, cmd, source)
+		if err != nil && ctx.Err() != nil {
+			return res, nil // ended mid re-read: the caught-up answer stands
+		}
 		if err != nil || !caughtUp(cmd, next) {
 			return next, err
 		}

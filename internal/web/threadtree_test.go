@@ -157,6 +157,13 @@ func TestVoteArrowsLeadEveryPost(t *testing.T) {
 			t.Fatalf("%s: the arrows lead the post, once", path)
 		}
 		for _, want := range []string{`aria-label="Upvote"`, `aria-label="Downvote"`, `<span class="vote-score term plain" tabindex="0" title="4 votes. Ranking weighs each vote by the voter&#39;s standing, so the order isn&#39;t just the count." aria-label="4 votes">4</span>`, `title="Voting needs a signing key in this browser. Make one on Me."`} {
+			// The home page's lean cards (C562) leave the arrows' tooltip to app.js.
+			if home := !strings.HasPrefix(path, "/r/") && !strings.HasPrefix(path, "/e/"); home && strings.HasPrefix(want, `title="Voting`) {
+				if strings.Contains(card, want) {
+					t.Errorf("%s: the arrows' tooltip is repeated on every card", path)
+				}
+				continue
+			}
 			if !strings.Contains(card, want) {
 				t.Errorf("%s: missing %s", path, want)
 			}

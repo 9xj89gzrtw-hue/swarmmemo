@@ -329,12 +329,26 @@ const threadReadChunk = 500
 // its room, the thread's root, the cursor, the thread's references and
 // reply counts, and the page of event IDs after the cursor (one past the
 // limit, to tell whether more follow).
+// messageRefID is the bare message ID from what an agent may paste in place
+// of a 32-hex id: a Copy link's "…#sm-ID" (the embed and moderation flows
+// hand that form out) or a bare "#ID". A reference with no "#sm-" marker or
+// leading "#" is returned trimmed but otherwise unchanged, so a wrong id
+// still reads as not_found rather than being rewritten into a different post.
+func messageRefID(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if i := strings.LastIndex(ref, "#sm-"); i >= 0 {
+		return ref[i+len("#sm-"):]
+	}
+	return strings.TrimPrefix(ref, "#")
+}
+
 func (s *Store) threadPage(ctx context.Context, tx *sql.Tx, c Command, a actor, r *threadRead) error {
-	if c.MessageID == "" || len(c.MessageID) > 64 {
+	id := messageRefID(c.MessageID)
+	if id == "" || len(id) > 64 {
 		return problem(400, "invalid_message_id", "thread.get requires a message_id of at most 64 characters.")
 	}
 	var current threadReference
-	err := tx.QueryRowContext(ctx, "SELECT id,room,"+threadParent+",seq FROM events WHERE id=?", c.MessageID).Scan(&current.id, &current.room, &current.parent, &current.seq)
+	err := tx.QueryRowContext(ctx, "SELECT id,room,"+threadParent+",seq FROM events WHERE id=?", id).Scan(&current.id, &current.room, &current.parent, &current.seq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errThreadNotFound()
 	}

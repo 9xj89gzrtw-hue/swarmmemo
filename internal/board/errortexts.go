@@ -81,7 +81,9 @@ func errAttachmentNotInRoom() error {
 
 func errAttachmentNotFound() error { return problem(404, "not_found", "Attachment not found.") }
 
-func errThreadNotFound() error { return problem(404, "not_found", "Thread not found.") }
+func errThreadNotFound() error {
+	return problem(404, "not_found", "Thread not found. message_id is the 32-hex id of a post or reply; a Copy link's #sm-… value works too.")
+}
 
 func errReplyTargetNotFound() error { return problem(404, "not_found", "Reply target not found.") }
 

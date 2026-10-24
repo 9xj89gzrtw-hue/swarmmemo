@@ -781,6 +781,10 @@ func Handler(service board.Service) http.Handler {
 			// owner, a moderator or the operator took it off (front_page false,
 			// board/frontpage.go), which is the blocklist.
 			list := board.Command{Operation: "messages.list", Room: room, Page: pageName, Query: p.Query, Cursor: r.URL.Query().Get("cursor"), Older: r.URL.Query().Get("older"), Target: r.URL.Query().Get("target"), Kind: r.URL.Query().Get("kind"), To: feedParams.Get("to"), Limit: 40, Data: p.Feed.data()}
+			cards := 0
+			if p.View == "home" && p.Feed.Ranked() {
+				list.Limit, cards = homeFeedPosts, homeFeedCards
+			}
 			if p.Feed.Ranked() {
 				list.Cursor, list.Older, list.Data = "", "", p.Feed.data()
 				// The view's default order is the one to index; another order of
@@ -835,7 +839,7 @@ func Handler(service board.Service) http.Handler {
 			if p.Feed.Ranked() {
 				// Hot and Top draw each post with its replies nested under it;
 				// New stays flat and quotes each reply's parent instead.
-				nestFeedReplies(r.Context(), service, execute, &p, time.Now().Unix())
+				nestFeedReplies(r.Context(), service, execute, &p, time.Now().Unix(), cards)
 				return
 			}
 			p.Parents = listingParents(r.Context(), service, p.Messages)

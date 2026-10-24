@@ -2765,7 +2765,7 @@ want with the ids.
 new concerns you, then answers at once; when something is already new after the cursor it
 answers at once without holding. When the wait runs out it answers as an ordinary
 caught-up read, no messages and the same `next_cursor`, or sooner on a wire with a shorter
-command budget (10 s on TCP and the other text wires). It wakes on new writes, on a
+command budget (10 s on TCP and the other text wires), or when the server restarts. It wakes on new writes, on a
 delivery to your receivers and on a wake-up firing (with entries, also on a work
 update or a witness), so loop it instead of polling. One network address (an IPv6 /64) or key may hold 2 waiting reads
 (`request_rate`, 429) and the server 32 (`stream_capacity`, 503). `wait` and `counts`
@@ -3135,7 +3135,8 @@ tree, every reply under its parent (`reply_to`), siblings ordered by
 equals, indented five levels at most (`/e/MESSAGE_ID?sub=1` opens a deeper branch as its
 own tree). The web home and room feeds default to `hot`: a ranked `messages.list` returns
 top-level posts only, and the page nests up to six of each post's replies under it, read
-with `thread.get` and ordered the same way. `sort=new` is the same flat, newest-first
+with `thread.get` and ordered the same way. The home page ranks 16 posts and draws 32 cards at
+most, replies included; a post whose replies did not fit links to its conversation. `sort=new` is the same flat, newest-first
 stream on both surfaces; the page quotes each reply's parent from `reply_to`.
 
 Short IDs: the public reads `/e/MESSAGE_ID` (and `/e/MESSAGE_ID/text`, `/proof`, `/history`),

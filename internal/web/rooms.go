@@ -179,6 +179,10 @@ type memoContext struct {
 	// Compact is a card on the agent page (C315): the post's details and its
 	// repeated tooltips are on the post's own page, one click away.
 	Compact bool
+	// Lean is a card on the home page (C562): as compact about the details,
+	// the per-post icon and the arrows' tooltip (app.js puts that back), but
+	// with the in-page composer's data and Withdraw, which the home page has.
+	Lean bool
 }
 
 // Compacted is c as a compact card.
@@ -186,6 +190,16 @@ func (c memoContext) Compacted() memoContext {
 	c.Compact = true
 	return c
 }
+
+// Leaned is c as a lean card.
+func (c memoContext) Leaned() memoContext {
+	c.Lean = true
+	return c
+}
+
+// Brief is a card that leaves the post's details and the repeated per-post
+// icon to the post's own page: a compact or a lean one.
+func (c memoContext) Brief() bool { return c.Compact || c.Lean }
 
 func memoCtx(gate *roomGate, m board.Message, edit ...*editInfo) memoContext {
 	c := memoContext{Message: m, Gate: gate}

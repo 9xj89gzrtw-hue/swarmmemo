@@ -1899,7 +1899,7 @@
   function upgradeVotes(root = document) {
     const seen = votesSeen();
     for (const box of root.querySelectorAll('.votes[data-vote-id]')) {
-      for (const old of box.querySelectorAll('.vote-button')) {const fresh = voteArrow(Number(old.dataset.vote)); if (fresh.tagName !== old.tagName) old.replaceWith(fresh);}
+      for (const old of box.querySelectorAll('.vote-button')) {const fresh = voteArrow(Number(old.dataset.vote)); if (fresh.tagName !== old.tagName) old.replaceWith(fresh); else if (!old.title) old.title = fresh.title;}
       showVoted(box, Number(seen[box.dataset.voteId]) || 0);
     }
   }
