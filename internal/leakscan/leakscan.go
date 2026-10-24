@@ -66,6 +66,11 @@ func Action(category string, overrides map[string]string) string {
 // above threshold, holds; "warn" when all of them only warn; "pass" when
 // there are none. scores may be nil (patterns only).
 func Verdict(findings []Finding, scores map[string]float64, threshold float64, overrides map[string]string) string {
+	// Scan stops at MaxFindings, so a full list may have dropped a finding
+	// that holds (a key after 256 warning-only emails): fail closed.
+	if len(findings) >= MaxFindings {
+		return Hold
+	}
 	verdict := "pass"
 	found := func(category string) {
 		if Action(category, overrides) == Hold {

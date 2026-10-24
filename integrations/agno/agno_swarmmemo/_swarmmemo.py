@@ -3669,6 +3669,15 @@ def leak_scan(text):
             for rule, start, end in leak_spans(text)]
 
 
+def leak_verdict(found, overrides=None):
+    """internal/leakscan.Verdict over leak_scan findings (patterns only): hold
+    when one holds or the scan stopped at its bound, warn when all warn."""
+    if len(found) >= LEAK_MAX_FINDINGS:
+        return "hold"
+    actions = [leak_action(f["category"], overrides) for f in found]
+    return "hold" if "hold" in actions else "warn" if actions else "pass"
+
+
 class ChatStop(Exception):
     """A chat command's refusal: its message and exit code (2 wait timed out,
     3 outbound held, 4 inbound withheld, 5 the conversation is closed or full,
@@ -3766,6 +3775,8 @@ def scan_secrets(text, extra=(), allow=(), own_key=None, actions=None):
     an allow pattern finds is exempt. A line holds when any finding on it
     does, by the table and your actions."""
     spans = [(leak_label(rule), start, end, leak_action(rule["category"], actions)) for rule, start, end in leak_spans(text)]
+    if len(spans) >= LEAK_MAX_FINDINGS:   # the scan stopped at its bound and may have dropped a key: hold, as leakscan.Verdict does
+        spans.append(("too many findings to check them all", 0, 1, "hold"))
     spans += [("your extra pattern", *m.span(), "hold") for rx in extra for m in re.finditer(rx, text)]
     if own_key:
         spans += [("your SwarmMemo key", *m.span(), "hold") for m in re.finditer(re.escape(own_key), text)]

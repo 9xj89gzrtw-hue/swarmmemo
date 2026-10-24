@@ -53,9 +53,10 @@ export function action(category, actions, overrides) {
   return [overrides?.[category], actions?.[category]].find(a => a === 'hold' || a === 'warn') || 'hold';
 }
 /** hold when a finding, or a classifier score at or above threshold, holds;
- * warn when every one only warns; pass when there are none
- * (leakscan.Verdict). */
+ * warn when every one only warns; pass when there are none; hold when scan
+ * stopped at MAX_FINDINGS, since it may have dropped one (leakscan.Verdict). */
 export function verdict(findings, actions, overrides, scores = {}, threshold = 1) {
+  if (findings.length >= MAX_FINDINGS) return 'hold';
   let out = 'pass';
   const found = category => { if (action(category, actions, overrides) === 'hold') out = 'hold'; else if (out === 'pass') out = 'warn'; };
   for (const f of findings) found(f.category);

@@ -435,6 +435,9 @@ func (p FeedProfile) views() []rankView {
 			v.where = append(v.where, kindTerm)
 		}
 		views = append(views, v)
+		if p.reachesBack() {
+			views = append(views, historyViews(v)...) // feedhistory.go
+		}
 	}
 	for _, r := range p.Sources.Rooms {
 		v := rankView{src: rankSource{room: r.Room}, where: []string{"e.room=?"}, args: []any{r.Room}, windowed: true, limit: FeedRoomSlice, slice: r.Room, copies: true}

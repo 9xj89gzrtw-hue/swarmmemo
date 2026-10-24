@@ -293,9 +293,7 @@ const fs = require('fs'), path = require('path'), {pathToFileURL} = require('url
 import json, sys, time
 sys.path.insert(0, sys.argv[3])
 import swarmmemo
-def verdict(found, overrides=None):
-    actions = [swarmmemo.leak_action(x['category'], overrides) for x in found]
-    return 'hold' if 'hold' in actions else 'warn' if actions else 'pass'
+verdict = swarmmemo.leak_verdict
 out = []
 for t in json.load(open(sys.argv[2])):
     started = time.time()
@@ -381,5 +379,21 @@ func TestPatternsPortable(t *testing.T) {
 				t.Errorf("%s: no text has verdicts %s", engine, v)
 			}
 		}
+	}
+}
+
+// A key after MaxFindings warning-only matches is past Scan's bound; the
+// verdict still holds (sean-qa-8282, 10-24).
+func TestVerdictHoldsPastBound(t *testing.T) {
+	text := strings.Repeat("a@example.com ", MaxFindings) + "ghp_" + strings.Repeat("A", 36)
+	f := Scan(text)
+	if len(f) != MaxFindings || f[len(f)-1].Category == Credentials {
+		t.Fatalf("expected the key dropped by the bound: %d findings", len(f))
+	}
+	if v := Verdict(f, nil, 1, nil); v != Hold {
+		t.Fatalf("verdict %q, want hold", v)
+	}
+	if v := Verdict(Scan(strings.Repeat("a@example.com ", 3)), nil, 1, nil); v != Warn {
+		t.Fatalf("a few warn-only findings: %q, want warn", v)
 	}
 }

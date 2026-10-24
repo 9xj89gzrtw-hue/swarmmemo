@@ -37,7 +37,7 @@ func TestPublicDataWiring(t *testing.T) {
 		t.Fatalf("catalogue: %+v", list.Data)
 	}
 	read := run(t, s, svcRead(nil, "public_data", "datasets", map[string]any{}))
-	if ds, _ := svcField(t, read.Data, "result", "datasets").([]any); len(ds) != 10 {
+	if ds, _ := svcField(t, read.Data, "result", "datasets").([]any); len(ds) != 11 {
 		t.Fatalf("datasets read: %+v", read.Data)
 	}
 	args := map[string]any{"dataset": "congress_bills", "params": map[string]any{"query": "shutdown"}}

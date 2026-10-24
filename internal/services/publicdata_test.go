@@ -188,6 +188,20 @@ func pdRoutes(v *pdEnv) map[string]func(r *http.Request) (string, int) {
 			}
 			return "", 404
 		},
+		"datasets-server.huggingface.co": func(r *http.Request) (string, int) {
+			q := r.URL.Query()
+			if r.URL.Path != "/filter" || q.Get("dataset") != "lmarena-ai/leaderboard-dataset" || q.Get("split") != "latest" {
+				return "", 404
+			}
+			where := strings.ToLower(q.Get("where"))
+			for term, file := range map[string]string{"kimi": "arena_text_kimi.json", "moonshot": "arena_text_moonshot.json", "nosuchmodel": "arena_text_none.json",
+				"flaky": "arena_error_200.json"} {
+				if strings.Contains(where, "'%"+term+"%'") {
+					return file, 200
+				}
+			}
+			return "arena_text_overall.json", 200
+		},
 		"www.clevelandfed.org": func(r *http.Request) (string, int) {
 			return "cleveland_" + strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/-/media/files/webcharts/inflationnowcasting/nowcast_"), ".json") + ".json", 200
 		},
@@ -805,6 +819,70 @@ func TestPublicDataNowcasts(t *testing.T) {
 
 // --- the framework ---------------------------------------------------------------
 
+func TestPublicDataArenaLeaderboard(t *testing.T) {
+	v := newPDEnv(t, false)
+	now := unix("2026-10-24")
+	item, d := v.mustFetch(t, "ai_model_leaderboard", `{}`, now)
+	eq(t, "board", d["board"], "text")
+	eq(t, "subset", d["subset"], "text_style_control")
+	eq(t, "category", d["category"], "overall")
+	eq(t, "count", d["count"], 25.0)
+	eq(t, "total", d["total_models_on_board"], 418.0)
+	eq(t, "matched", d["matched_entries"], 418.0)
+	m0 := at(d, "models", 0)
+	eq(t, "rank 1", at(m0, "rank"), 1.0)
+	eq(t, "model", at(m0, "model"), "Gemini 4 Argon (High)")
+	eq(t, "org", at(m0, "org"), "google")
+	eq(t, "license", at(m0, "license"), "Proprietary")
+	near(t, "score", at(m0, "score"), 1517.2)
+	eq(t, "ci", at(m0, "ci"), []any{1510.6, 1523.8})
+	eq(t, "votes", at(m0, "votes"), 10083.0)
+	eq(t, "rank order", at(d, "models", 24, "rank"), 25.0)
+	eq(t, "as_of", item["as_of"], "2026-10-22")
+	eq(t, "publish date", d["leaderboard_publish_date"], "2026-10-22")
+	eq(t, "freshness", item["freshness"] != nil, true)
+	eq(t, "untrusted", item["text_is_untrusted"], true)
+	eq(t, "licence", item["licence"], "CC BY 4.0")
+	urls, _ := v.fakes["datasets-server.huggingface.co"].seen()
+	if len(urls) != 1 || !strings.Contains(urls[0], "config=text_style_control") || !strings.Contains(urls[0], "orderby=%22rank%22") ||
+		!strings.Contains(urls[0], "where=%22category%22%3D%27overall%27") {
+		t.Errorf("request %v", urls)
+	}
+	if !strings.HasPrefix(item["source_url"].(string), "https://datasets-server.huggingface.co/filter?") {
+		t.Errorf("source_url %v", item["source_url"])
+	}
+
+	// A model filter searches the whole board: rank 18 is beyond the head.
+	_, d = v.mustFetch(t, "ai_model_leaderboard", `{"model":"Kimi","limit":3}`, now)
+	eq(t, "matched", d["matched_entries"], 7.0)
+	eq(t, "total still the board", d["total_models_on_board"], 418.0)
+	eq(t, "count", d["count"], 3.0)
+	eq(t, "kimi rank", at(d, "models", 0, "rank"), 18.0)
+	eq(t, "kimi", at(d, "models", 0, "model"), "Kimi K3 (Max)")
+	_, d = v.mustFetch(t, "ai_model_leaderboard", `{"organization":"moonshot","board":"Chat"}`, now)
+	eq(t, "alias", d["board"], "text")
+	eq(t, "org rows", d["count"], 7.0)
+	urls, _ = v.fakes["datasets-server.huggingface.co"].seen()
+	if !strings.Contains(urls[len(urls)-1], "%22organization%22+ILIKE+%27%25moonshot%25%27") {
+		t.Errorf("org request %s", urls[len(urls)-1])
+	}
+	_, d = v.mustFetch(t, "ai_model_leaderboard", `{"model":"nosuchmodel"}`, now)
+	eq(t, "none", d["count"], 0.0)
+	eq(t, "none models", d["models"], []any{})
+	if !strings.Contains(d["note"].(string), "not be rated yet") {
+		t.Errorf("no-match note %v", d["note"])
+	}
+	// The board page is cached: four calls, one board fetch and three filters.
+	if n := v.fakes["datasets-server.huggingface.co"].count(); n != 4 {
+		t.Errorf("%d upstream requests, want 4", n)
+	}
+	// The viewer sometimes answers an error with HTTP 200: that is a failure
+	// (refunded), never an empty board.
+	if _, err := v.fetch(t, "ai_model_leaderboard", `{"model":"flaky"}`, now); code(err) != "upstream_failed" {
+		t.Errorf("an error body with 200: %v", err)
+	}
+}
+
 func TestPublicDataParamValidation(t *testing.T) {
 	now := unix("2026-09-29")
 	bad := []string{
@@ -844,6 +922,11 @@ func TestPublicDataParamValidation(t *testing.T) {
 		`{"dataset":"cb_policy_rates","params":{"bank":"Central Bank of Narnia"}}`,
 		`{"dataset":"cb_policy_rates","params":{"bank":"ECB","what":"market_pricing"}}`,
 		`{"dataset":"us_nowcasts","params":{"measure":"vibes"}}`,
+		`{"dataset":"ai_model_leaderboard","params":{"board":"music"}}`,
+		`{"dataset":"ai_model_leaderboard","params":{"model":"x' OR 1=1 --"}}`,
+		`{"dataset":"ai_model_leaderboard","params":{"model":"100%"}}`,
+		`{"dataset":"ai_model_leaderboard","params":{"organization":"open_ai"}}`,
+		`{"dataset":"ai_model_leaderboard","params":{"limit":101}}`,
 	}
 	for _, b := range bad {
 		if _, _, err := services.PublicDataParseForTest("fetch", json.RawMessage(b), now); code(err) != "invalid_service_data" {
@@ -1050,7 +1133,7 @@ func TestPublicDataCatalogue(t *testing.T) {
 	v := newPDEnv(t, false)
 	cat := services.PublicDataDatasetsForTest(v.cfg)
 	list := cat["datasets"].([]any)
-	if len(list) != 10 {
+	if len(list) != 11 {
 		t.Fatalf("%d datasets", len(list))
 	}
 	avail := map[string]bool{}
@@ -1109,7 +1192,7 @@ func TestPublicDataCatalogue(t *testing.T) {
 	}
 	c, _ := v.e.Catalogue(context.Background(), v.db, 1000)
 	raw, _ = json.Marshal(c)
-	if !strings.Contains(string(raw), `"datasets_available":7`) {
+	if !strings.Contains(string(raw), `"datasets_available":8`) {
 		t.Errorf("services.list: %s", raw)
 	}
 }
@@ -1152,6 +1235,7 @@ func FuzzPublicDataParams(f *testing.F) {
 		`{"dataset":"fred_release_calendar","params":{"release":"FOMC","days_ahead":30}}`,
 		`{"dataset":"cb_policy_rates","params":{"bank":"the Bank of England (BoE)","what":"policy rate"}}`,
 		`{"dataset":"us_nowcasts","params":{"measure":"prices"}}`,
+		`{"dataset":"ai_model_leaderboard","params":{"board":"code","model":"claude opus","organization":"anthropic","limit":5}}`,
 		`{"requests":[{"dataset":"sea_ice_extent"},{"dataset":"us_nowcasts"}]}`,
 	} {
 		f.Add(s, s[2] == 'r')

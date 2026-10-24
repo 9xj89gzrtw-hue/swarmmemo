@@ -496,6 +496,31 @@ func (src rankSource) sql(ctx context.Context, tx *sql.Tx, after int64, n int) (
 	return "SELECT seq FROM (SELECT seq FROM events WHERE seq>? ORDER BY seq DESC LIMIT ?)", []any{after, n}, nil
 }
 
+// rangeSQL is sql over the sequences after lo and at most hi: a walk that
+// starts in the past (a feed's history band, feedHistory), on the same index.
+func (src rankSource) rangeSQL(ctx context.Context, tx *sql.Tx, lo, hi int64, n int) (string, []any, error) {
+	const roomWalk = "SELECT seq FROM (SELECT seq FROM events INDEXED BY events_reply WHERE reply_to='' AND room=? AND seq>? AND seq<=? ORDER BY seq DESC LIMIT ?)"
+	switch {
+	case src.room != "":
+		return roomWalk, []any{src.room, lo, hi, n}, nil
+	case src.front:
+		q := "SELECT seq FROM (SELECT seq FROM events INDEXED BY events_front_top1 WHERE " + rankableTerms + " AND " + frontNameTerms("room") + " AND seq>? AND seq<=? ORDER BY seq DESC LIMIT ?)"
+		args := []any{lo, hi, n}
+		rooms, err := frontOnRooms(ctx, tx)
+		if err != nil {
+			return "", nil, err
+		}
+		for _, room := range rooms {
+			q += " UNION ALL " + roomWalk
+			args = append(args, room, lo, hi, n)
+		}
+		return q, args, nil
+	case src.all:
+		return "SELECT seq FROM (SELECT seq FROM events INDEXED BY events_top1 WHERE " + rankableTerms + " AND seq>? AND seq<=? ORDER BY seq DESC LIMIT ?)", []any{lo, hi, n}, nil
+	}
+	return "SELECT seq FROM (SELECT seq FROM events WHERE seq>? AND seq<=? ORDER BY seq DESC LIMIT ?)", []any{lo, hi, n}, nil
+}
+
 // seqAtOrBefore is (about) the newest event created at or before t: events
 // are appended in time order, so it bisects seq, one primary-key probe per
 // step. Callers keep their own created_at test; this only bounds an index walk.
@@ -603,10 +628,17 @@ type rankView struct {
 	// copies folds copies into their earliest post (feedcopies.go): ranked
 	// views across rooms. It is the ranking's, not the candidates'.
 	copies bool
+	// band, when set, reads an age band of the past instead of the newest
+	// posts (feedHistory); limit is then its strata's total.
+	band feedBand
 }
 
 func (v rankView) key() string {
-	return fmt.Sprintf("%+v\x00%s\x00%q\x00%t\x00%d\x00%t", v.src, strings.Join(v.where, " AND "), v.args, v.windowed, v.limit, v.scored)
+	k := fmt.Sprintf("%+v\x00%s\x00%q\x00%t\x00%d\x00%t", v.src, strings.Join(v.where, " AND "), v.args, v.windowed, v.limit, v.scored)
+	if v.band.strata > 0 {
+		k += fmt.Sprintf("\x00band %+v", v.band)
+	}
+	return k
 }
 
 // rankRead is one read's clock: the newest event and the seasoned-voter
@@ -701,7 +733,8 @@ func (s *Store) candidates(ctx context.Context, tx *sql.Tx, v rankView, rd *rank
 	if ok && (clock.Sub(cached.at) < 0 || clock.Sub(cached.at) >= RankCacheTTL) {
 		ok = false
 	}
-	if ok && cached.head == rd.top {
+	if ok && (cached.head == rd.top || v.band.strata > 0) {
+		// A history band holds no post made since: nothing to merge.
 		return cached, candWarm, nil
 	}
 	if !ok && !cold {
@@ -766,9 +799,14 @@ func (s *Store) candidates(ctx context.Context, tx *sql.Tx, v rankView, rd *rank
 		// Only what arrived since the cached inputs; their posts keep theirs.
 		after = cached.head
 	}
+	if v.band.strata > 0 {
+		if err := s.bandCandidates(ctx, tx, v, rd, cond, args, collect); err != nil {
+			return candEntry{}, 0, err
+		}
+	}
 	// The walk reads twice the view's limit in entries, and all RankScanRows
 	// only when those leave the candidates short and there are more to read.
-	for n := 2 * v.limit; ; n = RankScanRows {
+	for n := 2 * v.limit; v.band.strata == 0; n = RankScanRows {
 		source, sargs, err := v.src.sql(ctx, tx, after, n)
 		if err != nil {
 			return candEntry{}, 0, err

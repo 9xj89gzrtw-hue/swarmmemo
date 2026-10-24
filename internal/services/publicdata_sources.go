@@ -22,7 +22,7 @@ import (
 
 var pdCatalogue = []*pdDataset{
 	dsNOAAStation, dsSeaIce, dsRecalls, dsCongressBills, dsFECTotals, dsCryptoPrice,
-	dsFREDSeries, dsFREDReleases, dsCBPolicy, dsNowcasts,
+	dsFREDSeries, dsFREDReleases, dsCBPolicy, dsNowcasts, dsArenaLeaderboard,
 }
 
 var pdByID = func() map[string]*pdDataset {
@@ -54,6 +54,7 @@ var pdUpstreamLimits = map[string]pdLimit{
 	"www.atlantafed.org":      {10, 1000},
 	"www.newyorkfed.org":      {10, 1000},
 	"www.clevelandfed.org":    {6, 500},
+	arenaHost:                 {20, 2000},
 }
 
 // --- shared helpers ---------------------------------------------------------

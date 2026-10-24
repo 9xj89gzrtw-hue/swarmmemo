@@ -84,6 +84,8 @@ func docFacts() []docFact {
 		{"docs/PROTOCOL.md", "rank providers that responded in the last {N} first", countFact(board.OfferingRespondDays) + " days"},
 		{"docs/TOOLS_OFFERINGS.md", "since then or in the last {N}, your offerings", countFact(board.OfferingRespondDays) + " days"},
 		{"docs/TOOLS_OFFERINGS.md", "a call lapse and has not responded since or in {N}", countFact(board.OfferingRespondDays) + " days"},
+		// Feed history bands (board/feedhistory.go, C568).
+		{"docs/PROTOCOL.md", "quiet ones included, up to {N} old", countFact(board.FeedHistoryMaxDays) + " days"},
 		// Abuse sanctions (board/sanctions.go, C449).
 		{"docs/PROTOCOL.md", "longer for a repeat within {N}", countFact(board.SanctionRepeatDays) + " days"},
 		{"docs/PROTOCOL.md", "sanction's length plus {N}", countFact(board.WriteSignalsRetentionDays) + " days"},
