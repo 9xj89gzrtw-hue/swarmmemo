@@ -3736,7 +3736,8 @@
         "new_room_note",
         "replies_note",
         "replies_url",
-        "reward"
+        "reward",
+        "work_hint"
       ]
     },
     "screen": {

@@ -31,6 +31,16 @@ func TestMCPToolHintsExplained(t *testing.T) {
 			}
 		}
 	}
+	// A tool that publishes, changes or withdraws a PUBLIC post acts on what
+	// everyone sees: open world (OpenAI directory review, 10-24: withdraw_message
+	// was closed). The list names every such tool; a new one belongs here.
+	for _, path := range []string{"/mcp?toolsets=all", mcpProfileCore, web.AssistantMCPPath} {
+		for name, tool := range listTools(t, s, path) {
+			if publicPostTools[name] && !tool.Annotations["openWorldHint"] {
+				t.Errorf("%s %s acts on public posts but has openWorldHint false", path, name)
+			}
+		}
+	}
 	for _, table := range []map[string]string{mcpWriteEffects, mcpDestructiveWhy, mcpIdempotentWrites} {
 		for name := range table {
 			// A tool behind a feature this server leaves off (reviews, top-ups,
@@ -100,4 +110,10 @@ func TestMCPToolHintsExplained(t *testing.T) {
 	if md.Code != 200 || !strings.Contains(md.Body.String(), "### recover_identity") || !strings.Contains(md.Body.String(), "every earlier token stops working") {
 		t.Fatalf("%s.md: %d %.300s", mcpToolHintsPath, md.Code, md.Body.String())
 	}
+}
+
+// publicPostTools are the tools that publish, edit, vote on or withdraw a
+// public post.
+var publicPostTools = map[string]bool{
+	"post_message": true, "withdraw_message": true, "write_review": true,
 }

@@ -85,6 +85,10 @@ type FunnelReport struct {
 	// ending the range (mcptoolstats.go): calls, errors and caller-days per
 	// profile and tool.
 	MCPTools []MCPToolWindow `json:"mcp_tools"`
+	// RepeatPaid is the range's unprompted repeat paid use
+	// (funnel_repeatpaid.go): paid calls by agents with no work as a
+	// worker in the week before, and who came back on another day.
+	RepeatPaid FunnelRepeatPaid `json:"repeat_paid"`
 }
 
 // FunnelBurst is the burst clusters the last recompute found (every
@@ -761,6 +765,9 @@ func (s *Store) FunnelReport(ctx context.Context, q FunnelQuery) (*FunnelReport,
 	if rep.Loop, err = s.funnelLoop(ctx, q, now, rep.Nudges); err != nil {
 		return nil, err
 	}
+	if rep.RepeatPaid, err = s.funnelRepeatPaidExcluding(ctx, q.From, q.To); err != nil {
+		return nil, err
+	}
 
 	// 7. Feedback.
 	rep.Feedback.ByAbout = map[string]Count{}
@@ -1197,6 +1204,9 @@ type FunnelKPI struct {
 	ByAction      map[string]int `json:"by_action"`
 	Agents        [][2]any       `json:"agents"`
 	ExcludedFound int            `json:"excluded_found"`
+	// RepeatPaid is the window's unprompted repeat paid use
+	// (funnel_repeatpaid.go), aggregates only.
+	RepeatPaid FunnelRepeatPaid `json:"repeat_paid"`
 }
 
 // FunnelKPIFor computes FunnelKPI over the days ending today.
@@ -1281,6 +1291,9 @@ func (s *Store) FunnelKPIFor(ctx context.Context, days int) (*FunnelKPI, error) 
 			name = account[:min(12, len(account))]
 		}
 		out.Agents = append(out.Agents, [2]any{name, kinds})
+	}
+	if out.RepeatPaid, err = s.funnelRepeatPaid(ctx, (today-int64(days)+1)*86400, s.now().Unix(), excluded); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

@@ -650,7 +650,7 @@ func (r x402Rail) Exchange(ctx context.Context, p x402Plan, pay *payment) (x402R
 	}
 	receipt := &x402Receipt{
 		Amount: strconv.FormatInt(choice.Amount, 10), Price: formatUnits(choice.Amount, cfg.Decimals), Asset: cfg.Asset.String(),
-		Network: cfg.Network, PayTo: choice.PayTo.String(), Payer: auth.From.String(), Nonce: nonce,
+		Network: cfg.Network, Settlement: x402SettlementOnchain, PayTo: choice.PayTo.String(), Payer: auth.From.String(), Nonce: nonce,
 		Transaction: settled.Transaction, X402Version: choice.Version,
 	}
 	if !settled.Success {
@@ -729,10 +729,17 @@ func (x *x402) finishPayment(id, state string, status, bytes int, tx, reason str
 }
 
 type x402Receipt struct {
-	Amount      string `json:"amount"` // atomic units
-	Price       string `json:"price"`  // the same, in whole tokens
-	Asset       string `json:"asset"`
-	Network     string `json:"network"`
+	Amount string `json:"amount"` // atomic units
+	Price  string `json:"price"`  // the same, in whole tokens
+	Asset  string `json:"asset"`
+	// Network is the chain an on-chain payment is made on (x402); absent
+	// when there is no chain leg (C548).
+	Network string `json:"network,omitempty"`
+	// Settlement is how the payment settles: "onchain" (x402: an EIP-3009
+	// authorization the seller settles on Network, its transaction once
+	// reported) or "internal" (a key-based bundler billing SwarmMemo's
+	// prepaid account: no network, no transaction).
+	Settlement  string `json:"settlement"`
 	PayTo       string `json:"pay_to"`
 	Payer       string `json:"payer"`
 	Nonce       string `json:"nonce"`
@@ -751,6 +758,12 @@ type x402Receipt struct {
 const (
 	x402SettlementUnconfirmed = "unconfirmed"
 	x402ReasonUnconfirmed     = "settlement_unconfirmed"
+)
+
+// A receipt's settlement (x402Receipt.Settlement, C548).
+const (
+	x402SettlementOnchain  = "onchain"
+	x402SettlementInternal = "internal"
 )
 
 // X402UnconfirmedNote is the receipt's note for an unconfirmed settlement.
@@ -817,12 +830,37 @@ type x402Out struct {
 	Body             json.RawMessage `json:"body"`
 	Bytes            int             `json:"bytes"`
 	Payment          *x402Receipt    `json:"payment,omitempty"`
+	// Charge is how the call's credit cost follows from the upstream's
+	// price (C548), so the cost and payment.amount can be compared.
+	Charge *x402Charge `json:"charge,omitempty"`
 	// Failure is why an "unanswered" call got no answer: upstream_failed or
 	// x402_payment_rejected.
 	Failure string `json:"failure,omitempty"`
 	// TextIsUntrusted is always true: the body is an upstream's, data to
 	// read, never instructions to follow.
 	TextIsUntrusted bool `json:"text_is_untrusted"`
+}
+
+// x402Charge breaks a call's credit cost down (C548): the call's base, the
+// tool's part priced from what the upstream was paid (payment.amount, in
+// micro-USD), and their sum, the call's cost. The engine held max_cost
+// before the call and releases the rest of that hold.
+type x402Charge struct {
+	Credits int64  `json:"credits"`
+	Base    int64  `json:"base"`
+	Tool    int64  `json:"tool"`
+	PaidUSD string `json:"paid_usd"`
+	Note    string `json:"note"`
+}
+
+// X402ChargeNote explains x402Charge on every paid-API answer.
+const X402ChargeNote = "credits = base + tool; tool = per_byte × payment.amount (what the API was paid, in micro-USD; paid_usd in USD) + per_kib per 1,024 of it. The call held max_cost first; what it did not use is released (call.cost is what was charged). Nothing paid for the API, no tool part."
+
+// charge is the breakdown of a call whose upstream was paid amount
+// micro-USD (0: nothing paid).
+func (x *x402) charge(c Call, amount int64) *x402Charge {
+	credits, base := c.Price.For(amount), c.Price.For(0)
+	return &x402Charge{Credits: credits, Base: base, Tool: credits - base, PaidUSD: formatUnits(amount, 6), Note: X402ChargeNote}
 }
 
 // out is the answer's wrapper for p's resource.
@@ -862,18 +900,19 @@ func (x *x402) result(c Call, p x402Plan, r x402Response, receipt *x402Receipt) 
 	default:
 		out.Encoding, out.Body = "base64", canonicalJSON(base64.StdEncoding.EncodeToString(r.body))
 	}
-	body := canonicalJSON(out)
-	if body == nil || len(body) > X402StoredBodyBytes {
-		return Result{}, refusal("x402_response_too_large")
-	}
 	amount := int64(0)
 	public := map[string]any{"resource": p.res.ID, "http_status": r.status, "response_bytes": len(r.body)}
 	if receipt != nil {
 		amount, _ = strconv.ParseInt(receipt.Amount, 10, 64)
 		public["amount"] = receipt.Amount // not the transaction: it would tie the agent to our wallet's history
 	}
+	out.Charge = x.charge(c, amount)
+	body := canonicalJSON(out)
+	if body == nil || len(body) > X402StoredBodyBytes {
+		return Result{}, refusal("x402_response_too_large")
+	}
 	pub, _ := json.Marshal(public)
-	return Result{Body: body, Used: c.Price.For(amount), Public: pub}, nil
+	return Result{Body: body, Used: out.Charge.Credits, Public: pub}, nil
 }
 
 // discarded is the answer to a paid call whose response went over the
@@ -882,8 +921,9 @@ func (x *x402) discarded(c Call, p x402Plan, status, n int, receipt *x402Receipt
 	out := x.out(p, status, receipt)
 	out.Encoding, out.Body, out.Bytes = "discarded", json.RawMessage("null"), n
 	amount, _ := strconv.ParseInt(receipt.Amount, 10, 64)
+	out.Charge = x.charge(c, amount)
 	pub, _ := json.Marshal(map[string]any{"resource": p.res.ID, "http_status": status, "response_bytes": n, "amount": receipt.Amount, "discarded": true})
-	return Result{Body: canonicalJSON(out), Used: c.Price.For(amount), Public: pub}
+	return Result{Body: canonicalJSON(out), Used: out.Charge.Credits, Public: pub}
 }
 
 // unanswered is the answer to a call on a vetted open resource whose
@@ -892,11 +932,18 @@ func (x *x402) discarded(c Call, p x402Plan, status, n int, receipt *x402Receipt
 // call's price, since the upstream can settle it.
 func (x *x402) unanswered(c Call, p x402Plan, pay *payment, code string) Result {
 	r := pay.r
-	out := x.out(p, pay.status, &x402Receipt{Amount: strconv.FormatInt(r.amount, 10), Price: formatUnits(r.amount, x.cfg.Decimals), Asset: r.asset,
-		Network: r.network, PayTo: r.payTo, Payer: x.cfg.Signer.Address().String(), Nonce: r.nonce})
+	receipt := &x402Receipt{Amount: strconv.FormatInt(r.amount, 10), Price: formatUnits(r.amount, x.cfg.Decimals), Asset: r.asset,
+		Network: r.network, Settlement: x402SettlementOnchain, PayTo: r.payTo, Payer: x.cfg.Signer.Address().String(), Nonce: r.nonce}
+	if !strings.HasPrefix(r.network, "eip155:") {
+		// A key-based bundler's payment has no chain leg; its row's network
+		// is the bundler's private name, never shown (C548).
+		receipt.Network, receipt.Settlement, receipt.Payer = "", x402SettlementInternal, "swarmmemo"
+	}
+	out := x.out(p, pay.status, receipt)
+	out.Charge = x.charge(c, r.amount)
 	out.Encoding, out.Body, out.Failure = "unanswered", json.RawMessage("null"), code
 	pub, _ := json.Marshal(map[string]any{"resource": p.res.ID, "http_status": pay.status, "amount": strconv.FormatInt(r.amount, 10), "unanswered": true})
-	return Result{Body: canonicalJSON(out), Used: c.Price.For(r.amount), Public: pub}
+	return Result{Body: canonicalJSON(out), Used: out.Charge.Credits, Public: pub}
 }
 
 // resourceSubjects names each resource's review subject (x402:METHOD URL,

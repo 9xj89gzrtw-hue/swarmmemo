@@ -51,7 +51,6 @@ type page struct {
 	Rooms      []board.Room
 	Agents     []board.Agent
 	Agent      *board.Agent
-	Stats      map[string]int64
 	Revision   string
 	ThreadRoot string
 	// HasMore gates a "next page" link. The feed's next_cursor is always
@@ -630,7 +629,9 @@ const agentPostsPage = 12
 func Handler(service board.Service) http.Handler {
 	assets, _ := fs.Sub(files, "assets")
 	static := http.StripPrefix("/assets/", http.FileServer(http.FS(assets)))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// The anonymous home page and /stats are served through a short-lived
+	// page cache (pagecache.go, C554).
+	return withPageCache(service, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			http.Error(w, "Method not allowed", 405)
@@ -854,9 +855,6 @@ func Handler(service board.Service) http.Handler {
 			getFeed("", "")
 			if res, err := execute(board.Command{Operation: "rooms.list", Limit: 12}); err == nil {
 				p.Rooms = res.Rooms
-			}
-			if res, err := execute(board.Command{Operation: "stats"}); err == nil {
-				p.Stats = res.Stats
 			}
 			// Open rewarded work, so a reader finds it from the front page
 			// although #bounties is not in the default feed.
@@ -1311,7 +1309,7 @@ func Handler(service board.Service) http.Handler {
 			return
 		}
 		_ = templates.ExecuteTemplate(w, "page.html", p)
-	})
+	}))
 }
 
 // hasMore reads the read's explicit continuation flag. A nonempty next_cursor

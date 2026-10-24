@@ -101,6 +101,46 @@ type DailyStats struct {
 // containing end, oldest first. Reader counts come from counters; the post
 // metrics are derived from events at read time and store nothing.
 func (s *Store) ReadDailyStats(ctx context.Context, end time.Time, days int) ([]DailyStats, error) {
+	out, err := s.readDailyReaders(ctx, end, days)
+	if err != nil {
+		return nil, err
+	}
+	end = end.UTC().Truncate(24 * time.Hour)
+	start := end.AddDate(0, 0, -(days - 1))
+	clients, err := s.ReadClientStats(ctx, end, days)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Clients = clients[i]
+	}
+	startDay, endDay := start.Unix()/86400, end.Unix()/86400
+	rows, err := s.db.QueryContext(ctx, `WITH posts AS (
+ SELECT DISTINCT e.public_key AS k, e.created_at/86400 AS d FROM events e JOIN rooms r ON r.name=e.room
+ WHERE r.visibility='public' AND e.hidden=0 AND e.public_key<>'' AND e.kind NOT IN ('imported','simulation')),
+firsts AS (SELECT k, min(d) AS first_day FROM posts GROUP BY k)
+SELECT p.d, sum(CASE WHEN f.first_day=p.d THEN 1 ELSE 0 END), sum(CASE WHEN f.first_day<p.d THEN 1 ELSE 0 END)
+FROM posts p JOIN firsts f ON f.k=p.k WHERE p.d BETWEEN ? AND ? GROUP BY p.d`, startDay, endDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d, first, returning int64
+		if err = rows.Scan(&d, &first, &returning); err != nil {
+			return nil, err
+		}
+		if i := int(d - startDay); i >= 0 && i < days {
+			out[i].FirstPostKeys, out[i].ReturningKeys = first, returning
+		}
+	}
+	return out, rows.Err()
+}
+
+// readDailyReaders is ReadDailyStats' reader counters alone (Reads and
+// Distinct): what the activity summary needs, without the post metrics' scan
+// of events (C554).
+func (s *Store) readDailyReaders(ctx context.Context, end time.Time, days int) ([]DailyStats, error) {
 	if days < 1 || days > 366 {
 		return nil, fmt.Errorf("daily stats: days out of range")
 	}
@@ -135,32 +175,5 @@ func (s *Store) ReadDailyStats(ctx context.Context, end time.Time, days int) ([]
 	if err = s.readDistinctReaders(ctx, out, index); err != nil {
 		return nil, err
 	}
-	clients, err := s.ReadClientStats(ctx, end, days)
-	if err != nil {
-		return nil, err
-	}
-	for i := range out {
-		out[i].Clients = clients[i]
-	}
-	startDay, endDay := start.Unix()/86400, end.Unix()/86400
-	rows, err = s.db.QueryContext(ctx, `WITH posts AS (
- SELECT DISTINCT e.public_key AS k, e.created_at/86400 AS d FROM events e JOIN rooms r ON r.name=e.room
- WHERE r.visibility='public' AND e.hidden=0 AND e.public_key<>'' AND e.kind NOT IN ('imported','simulation')),
-firsts AS (SELECT k, min(d) AS first_day FROM posts GROUP BY k)
-SELECT p.d, sum(CASE WHEN f.first_day=p.d THEN 1 ELSE 0 END), sum(CASE WHEN f.first_day<p.d THEN 1 ELSE 0 END)
-FROM posts p JOIN firsts f ON f.k=p.k WHERE p.d BETWEEN ? AND ? GROUP BY p.d`, startDay, endDay)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var d, first, returning int64
-		if err = rows.Scan(&d, &first, &returning); err != nil {
-			return nil, err
-		}
-		if i := int(d - startDay); i >= 0 && i < days {
-			out[i].FirstPostKeys, out[i].ReturningKeys = first, returning
-		}
-	}
-	return out, rows.Err()
+	return out, nil
 }

@@ -165,73 +165,27 @@ func (s *Store) computeActivity(ctx context.Context, now time.Time) (*Activity, 
 	a := &Activity{Generated: now, Via: map[string]int64{}}
 	hourStart := now.Truncate(time.Hour).Add(-(ActivityHours - 1) * time.Hour)
 	dayStart := now.Truncate(24*time.Hour).AddDate(0, 0, -(ActivityDays - 1))
-	var err error
-	if a.Hours, err = s.activityBuckets(ctx, hourStart, time.Hour, ActivityHours); err != nil {
+	if err := s.activityPostsScan(ctx, a, hourStart, dayStart, now); err != nil {
 		return nil, err
 	}
-	if a.Days, err = s.activityBuckets(ctx, dayStart, 24*time.Hour, ActivityDays); err != nil {
-		return nil, err
-	}
-	daily, err := s.ReadDailyStats(ctx, now, ActivityDays)
+	readers, err := s.readDailyReaders(ctx, now, ActivityDays)
 	if err != nil {
 		return nil, err
 	}
-	for i := range min(len(daily), len(a.Days)) {
-		for key, n := range daily[i].Reads {
+	for i := range min(len(readers), len(a.Days)) {
+		for key, n := range readers[i].Reads {
 			if strings.HasSuffix(key, ":crawler") {
 				a.Days[i].CrawlerReads += n
 			} else {
 				a.Days[i].Reads += n
 			}
 		}
-		a.Days[i].DistinctReaders = daily[i].Distinct[ReaderMetricKey(ReaderAnyMetric, "other")]
-		a.Days[i].CrawlerDistinctReaders = daily[i].Distinct[ReaderMetricKey(ReaderAnyMetric, "crawler")]
-	}
-	// Channels per day, in the same scan that used to count them over the
-	// whole range; Via is their sum.
-	rows, err := s.db.QueryContext(ctx, "SELECT e.created_at/86400, e.via, count(*)"+activityFrom+activityPosts+" AND e.created_at>=? GROUP BY 1,2", dayStart.Unix())
-	if err != nil {
-		return nil, err
+		a.Days[i].DistinctReaders = readers[i].Distinct[ReaderMetricKey(ReaderAnyMetric, "other")]
+		a.Days[i].CrawlerDistinctReaders = readers[i].Distinct[ReaderMetricKey(ReaderAnyMetric, "crawler")]
 	}
 	first := dayStart.Unix() / 86400
-	for rows.Next() {
-		var day int64
-		var via string
-		var n int64
-		if err = rows.Scan(&day, &via, &n); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		a.Via[via] += n
-		if i := day - first; i >= 0 && i < int64(len(a.Days)) {
-			if a.Days[i].Via == nil {
-				a.Days[i].Via = map[string]int64{}
-			}
-			a.Days[i].Via[via] += n
-		}
-	}
-	if err = closeRows(rows); err != nil {
-		return nil, err
-	}
-	agents := "SELECT count(DISTINCT e.account)" + activityFrom + activityPosts + " AND e.public_key<>'' AND e.created_at>=?"
-	if err = s.db.QueryRowContext(ctx, agents, now.Add(-7*24*time.Hour).Unix()).Scan(&a.Agents7); err != nil {
-		return nil, err
-	}
-	if err = s.db.QueryRowContext(ctx, agents, now.Add(-30*24*time.Hour).Unix()).Scan(&a.Agents30); err != nil {
-		return nil, err
-	}
-	if err = s.db.QueryRowContext(ctx, agents+" AND e.created_at<?", now.Add(-14*24*time.Hour).Unix(), now.Add(-7*24*time.Hour).Unix()).Scan(&a.Agents7Prior); err != nil {
-		return nil, err
-	}
-	today := now.Truncate(24 * time.Hour)
-	if err = s.db.QueryRowContext(ctx, agents+" AND e.created_at<?", today.AddDate(0, 0, -7).Unix(), today.Unix()).Scan(&a.AgentsFull7); err != nil {
-		return nil, err
-	}
-	if err = s.db.QueryRowContext(ctx, agents+" AND e.created_at<?", today.AddDate(0, 0, -14).Unix(), today.AddDate(0, 0, -7).Unix()).Scan(&a.AgentsFull7Prior); err != nil {
-		return nil, err
-	}
 	// New keys per day, by each account's first key; burst members among them.
-	rows, err = s.db.QueryContext(ctx, activityNewKeys, dayStart.Unix())
+	rows, err := s.db.QueryContext(ctx, activityNewKeys, dayStart.Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -286,69 +240,142 @@ func (s *Store) computeActivity(ctx context.Context, now time.Time) (*Activity, 
 	return a, nil
 }
 
-// activityBuckets fills n consecutive buckets of width step from start.
-func (s *Store) activityBuckets(ctx context.Context, start time.Time, step time.Duration, n int) ([]ActivityBucket, error) {
-	out := make([]ActivityBucket, n)
-	for i := range out {
-		out[i].Start = start.Add(time.Duration(i) * step)
+// activityPostsScan fills the hourly and daily buckets, Via and the agent
+// windows from one scan of the visible public events since dayStart (every
+// window starts at or after it), and NewAgents from one read of each signed
+// account's first native post (C554: this was twelve scans of events, which
+// has no index on created_at). It counts as those queries did: an event's
+// bucket is created_at/width; posts are versions that supersede nothing;
+// agents, replies, rooms and channels count native posts only.
+func (s *Store) activityPostsScan(ctx context.Context, a *Activity, hourStart, dayStart, now time.Time) error {
+	type series struct {
+		out           []ActivityBucket
+		from, width   int64 // the first bucket's start; seconds per bucket
+		agents, rooms []map[string]bool
+		vias          bool // Days only
 	}
-	width, from := int64(step/time.Second), start.Unix()
-	at := func(bucket int64) *ActivityBucket {
-		if i := bucket - from/width; i >= 0 && i < int64(n) {
-			return &out[i]
+	newSeries := func(start time.Time, step time.Duration, n int, vias bool) *series {
+		sr := &series{out: make([]ActivityBucket, n), from: start.Unix(), width: int64(step / time.Second), agents: make([]map[string]bool, n), rooms: make([]map[string]bool, n), vias: vias}
+		for i := range sr.out {
+			sr.out[i].Start = start.Add(time.Duration(i) * step)
 		}
-		return nil
+		return sr
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT e.created_at/?, "+activityClass+", sum(e.supersedes=''), coalesce(sum(length(CAST(e.text AS BLOB))),0)"+activityFrom+" AND e.created_at>=? GROUP BY 1,2", width, from)
+	hours, days := newSeries(hourStart, time.Hour, ActivityHours, false), newSeries(dayStart, 24*time.Hour, ActivityDays, true)
+	all := []*series{hours, days}
+	// at is the bucket of an event created at t, or -1 before the series'
+	// start or after its last bucket.
+	at := func(sr *series, t int64) int {
+		if i := t/sr.width - sr.from/sr.width; t >= sr.from && i < int64(len(sr.out)) {
+			return int(i)
+		}
+		return -1
+	}
+	add := func(set []map[string]bool, i int, key string) {
+		if set[i] == nil {
+			set[i] = map[string]bool{}
+		}
+		set[i][key] = true
+	}
+	// The agent windows, each [from, to), over native posts with a key.
+	today := now.Truncate(24 * time.Hour)
+	const open = int64(1<<63 - 1)
+	windows := []struct {
+		dst      *int64
+		from, to int64
+		agents   map[string]bool
+	}{
+		{&a.Agents7, now.Add(-7 * 24 * time.Hour).Unix(), open, map[string]bool{}},
+		{&a.Agents30, now.Add(-30 * 24 * time.Hour).Unix(), open, map[string]bool{}},
+		{&a.Agents7Prior, now.Add(-14 * 24 * time.Hour).Unix(), now.Add(-7 * 24 * time.Hour).Unix(), map[string]bool{}},
+		{&a.AgentsFull7, today.AddDate(0, 0, -7).Unix(), today.Unix(), map[string]bool{}},
+		{&a.AgentsFull7Prior, today.AddDate(0, 0, -14).Unix(), today.AddDate(0, 0, -7).Unix(), map[string]bool{}},
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT e.created_at, "+activityClass+", e.supersedes='', length(CAST(e.text AS BLOB)), e.account, e.public_key<>'', e.reply_to<>'', e.room, e.via"+activityFrom+" AND e.created_at>=?", dayStart.Unix())
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for rows.Next() {
-		var bucket, series, posts, bytes int64
-		if err = rows.Scan(&bucket, &series, &posts, &bytes); err != nil {
+		var createdAt, class, bytes int64
+		var post, signed, reply bool
+		var account, room, via string
+		if err = rows.Scan(&createdAt, &class, &post, &bytes, &account, &signed, &reply, &room, &via); err != nil {
 			rows.Close()
-			return nil, err
+			return err
 		}
-		if b := at(bucket); b != nil {
-			b.Posts.add(int(series), posts)
-			b.Bytes.add(int(series), bytes)
+		nativePost := class < 2 && post
+		for _, sr := range all {
+			i := at(sr, createdAt)
+			if i < 0 {
+				continue
+			}
+			b := &sr.out[i]
+			if post {
+				b.Posts.add(int(class), 1)
+			}
+			b.Bytes.add(int(class), bytes)
+			if !nativePost {
+				continue
+			}
+			if signed {
+				add(sr.agents, i, account)
+			}
+			if reply {
+				b.Replies++
+			}
+			add(sr.rooms, i, room)
+			if sr.vias {
+				if b.Via == nil {
+					b.Via = map[string]int64{}
+				}
+				b.Via[via]++
+			}
+		}
+		if !nativePost {
+			continue
+		}
+		a.Via[via]++
+		if signed {
+			for _, w := range windows {
+				if createdAt >= w.from && createdAt < w.to {
+					w.agents[account] = true
+				}
+			}
 		}
 	}
 	if err = closeRows(rows); err != nil {
-		return nil, err
+		return err
 	}
-	rows, err = s.db.QueryContext(ctx, "SELECT e.created_at/?, count(DISTINCT CASE WHEN e.public_key<>'' THEN e.account END), sum(e.reply_to<>''), count(DISTINCT e.room)"+activityFrom+activityPosts+" AND e.created_at>=? GROUP BY 1", width, from)
+	for _, sr := range all {
+		for i := range sr.out {
+			sr.out[i].Agents, sr.out[i].Rooms = int64(len(sr.agents[i])), int64(len(sr.rooms[i]))
+		}
+	}
+	for _, w := range windows {
+		*w.dst = int64(len(w.agents))
+	}
+	// NewAgents: each signed account's first native post, all time.
+	rows, err = s.db.QueryContext(ctx, "SELECT min(e.created_at)"+activityFrom+activityPosts+" AND e.public_key<>'' GROUP BY e.account")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for rows.Next() {
-		var bucket, agents, replies, rooms int64
-		if err = rows.Scan(&bucket, &agents, &replies, &rooms); err != nil {
+		var first int64
+		if err = rows.Scan(&first); err != nil {
 			rows.Close()
-			return nil, err
+			return err
 		}
-		if b := at(bucket); b != nil {
-			b.Agents, b.Replies, b.Rooms = agents, replies, rooms
+		for _, sr := range all {
+			if i := at(sr, first); i >= 0 {
+				sr.out[i].NewAgents++
+			}
 		}
 	}
 	if err = closeRows(rows); err != nil {
-		return nil, err
+		return err
 	}
-	rows, err = s.db.QueryContext(ctx, "SELECT first/?, count(*) FROM (SELECT min(e.created_at) AS first"+activityFrom+activityPosts+" AND e.public_key<>'' GROUP BY e.account) WHERE first>=? GROUP BY 1", width, from)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var bucket, first int64
-		if err = rows.Scan(&bucket, &first); err != nil {
-			return nil, err
-		}
-		if b := at(bucket); b != nil {
-			b.NewAgents = first
-		}
-	}
-	return out, rows.Err()
+	a.Hours, a.Days = hours.out, days.out
+	return nil
 }
 
 // closeRows reports an error that ended the iteration early, which Close

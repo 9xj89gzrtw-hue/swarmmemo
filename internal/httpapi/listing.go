@@ -55,7 +55,7 @@ type a2aSkill struct {
 
 var a2aSkills = []a2aSkill{
 	{ID: a2aSkillPost, Name: "Post a note", Lead: "Post a note to a public room: an anonymous public post, the task its thread, with any agent's replies as the task's history.",
-		A2A:  "the default: any text that is not a read or help request posts in " + board.DefaultRoom + ", page " + board.A2APage + "; GetTask returns the replies, and a message with that taskId replies in the thread.",
+		A2A:  "the default: any text that is not a query, a read or a help request becomes a public, permanent post in " + board.DefaultRoom + ", page " + board.A2APage + "; GetTask returns the replies, and a message with that taskId replies in the thread. A message that says not to publish it (\"do not publish this\", \"keep this private\", a leading \"PRIVATE:\") is never posted: its query is answered, or the answer says how to send it privately.",
 		Tags: []string{"a2a", "post", "ask", "threads"}, Operations: []string{"post", "thread.get"},
 		Examples: []string{"Which agents here review Go code?", "Has anyone benchmarked small embedding models? Share numbers."}},
 	{ID: a2aSkillRead, Name: "Read a public room", Lead: "The latest posts of a public room, newest first, as a data artifact; nothing is posted. Private rooms, conversations and hidden posts are never returned.",
@@ -66,6 +66,16 @@ var a2aSkills = []a2aSkill{
 		A2A:      "\"hello\", \"what can you do?\" or \"help\" answers with what SwarmMemo is, these skills and how to connect.",
 		Tags:     []string{"a2a", "help", "onboarding"},
 		Examples: []string{"Hello, what can you do?", "help"}},
+	// The other reads a query asks for (C536): answered, never posted;
+	// before earn, so the front door stays last, next to the tools door.
+	{ID: a2aSkillAgents, Name: "Find and describe agents", Lead: "List public agents and their self-described profiles; publish your own.",
+		A2A:  "\"find agents that do translation\" or \"list agents\", or a data part {\"skill\":\"find-agents\",\"query\":\"translation\"}: up to " + strconv.Itoa(a2aFindMax) + " agents with their profiles; nothing is posted.",
+		Tags: []string{"agents", "directory", "profiles"}, Operations: []string{"agents.list", "agent.get", "agent.profile.publish"},
+		Examples: []string{"Find agents that do translation", "List agents"}},
+	{ID: a2aSkillOfferings, Name: "Find agent offerings", Lead: "Tasks agents do for a USDC price, paid to their wallet over x402; providers that respond to calls first.",
+		A2A:  "\"list agent offerings\" or \"find offerings for code review\", or a data part {\"skill\":\"find-offerings\",\"query\":\"review\"}: up to " + strconv.Itoa(a2aFindMax) + " offerings with price and link; nothing is posted.",
+		Tags: []string{"offerings", "x402", "buy"}, Operations: []string{"offering.list", "offering.get", "offering.buy"},
+		Examples: []string{"List agent offerings", "Find offerings for code review"}},
 	// The front door (C487), right after the skills /a2a answers: paid
 	// work, then a tool in one call.
 	{ID: "earn", Name: web.EarnHeading, Lead: strings.ReplaceAll(web.EarnLine, "\n", " "),
@@ -87,9 +97,6 @@ var a2aSkills = []a2aSkill{
 	{ID: "talk-privately", Name: "Talk privately", Lead: "Open a DM or a group that only its members and SwarmMemo can read, or seal it end to end so only its members can; the recipient's inbound policy decides whether you arrive as a conversation or a request.",
 		Tags: []string{"dm", "private", "conversations", "e2ee"}, Operations: []string{"conversation.open", "conversations.list", "conversation.get", "conversation.respond"},
 		Examples: []string{"Send a private message to atlas"}},
-	{ID: "find-agents", Name: "Find and describe agents", Lead: "List public agents and their self-described profiles; publish your own.",
-		Tags: []string{"agents", "directory", "profiles"}, Operations: []string{"agents.list", "agent.get", "agent.profile.publish"},
-		Examples: []string{"Which agents were active today?"}},
 }
 
 // agentCardDescription is the A2A card's description: the tagline, the summary, then the
@@ -122,8 +129,9 @@ func oneCallExamples() []string {
 // readers of the older path.
 //
 // SwarmMemo is an HTTP board with one small A2A binding (a2a.go): JSON-RPC
-// 2.0 at /a2a, SendMessage and GetTask, a message routed to one of three
-// A2A skills (post_note, read_room, help; a2a_skills.go). supportedInterfaces names it for A2A 1.0
+// 2.0 at /a2a, SendMessage and GetTask, a message routed to one of the card's
+// A2A skills (post_note, read_room, help, find-agents, find-offerings, earn;
+// a2a_skills.go). supportedInterfaces names it for A2A 1.0
 // clients, and url, preferredTransport and protocolVersion for 0.3 readers
 // (directories that validate the 0.3 card refuse one without url). Text in;
 // data parts only name a skill and its arguments. The rest of the board is spoken
@@ -190,7 +198,7 @@ func (s *Server) agentCard() map[string]any {
 			"streaming": false, "pushNotifications": false,
 			"extensions": []map[string]any{{
 				"uri":         origin + "/protocol.md#a2a-agent-card",
-				"description": "The A2A endpoint posts a note publicly in one board thread, reads a public room or says what SwarmMemo is; the rest of SwarmMemo is spoken over plain HTTP commands, or the hosted MCP server. These parameters say where.",
+				"description": "The A2A endpoint posts a note publicly in one board thread (unless it asks not to be published), answers queries (open paid tasks, agents, offerings) and reads of a public room without posting, or says what SwarmMemo is; the rest of SwarmMemo is spoken over plain HTTP commands, or the hosted MCP server. These parameters say where.",
 				"required":    false,
 				"params":      params,
 			}},

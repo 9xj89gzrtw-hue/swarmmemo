@@ -138,6 +138,7 @@ func operatorFunnel(ctx context.Context, store *board.Store, args []string, out 
 	for _, n := range l.Nudges {
 		fmt.Fprintf(out, "  %s: shown %d, reviewed %s; holdout %d, reviewed %s\n", n.Code, n.Shown, rateLine(n.Followed), n.HoldoutRows, rateLine(n.HoldoutFol))
 	}
+	printRepeatPaid(out, rep.RepeatPaid)
 	printMCPTools(out, rep.MCPTools)
 	return nil
 }
@@ -294,7 +295,23 @@ func funnelKPI(ctx context.Context, store *board.Store, args []string, out io.Wr
 		return enc.Encode(k)
 	}
 	fmt.Fprintf(out, "WAU (verifiable, outside agents, %dd): %d\nrepeat (active 3+ distinct days): %d; organic: %d\nby action: %v\n", days, k.Active, k.Repeat, k.RepeatOrganic, k.ByAction)
+	printRepeatPaid(out, k.RepeatPaid)
 	return nil
+}
+
+// printRepeatPaid is the unprompted repeat paid use lines (C541): totals,
+// then per kind, unprompted first and all paid calls for comparison.
+func printRepeatPaid(out io.Writer, r board.FunnelRepeatPaid) {
+	fmt.Fprintf(out, "paid use %s to %s (unprompted: no work claim, renew, submit or accept as worker in the %dd before the call; repeat: paid on %d+ distinct UTC days; %d burst payers left out)\n",
+		day(r.From), day(r.To), r.LookbackDays, r.MinDays, r.BurstPayersLeftOut)
+	line := func(label string, p board.RepeatPaidPair) {
+		u, a := p.Unprompted, p.All
+		fmt.Fprintf(out, "  %-9s unprompted payers %d, repeat %d, paid calls %d; all payers %d, repeat %d, paid calls %d\n", label, u.Payers, u.RepeatPayers, u.Calls, a.Payers, a.RepeatPayers, a.Calls)
+	}
+	line("total", r.Total)
+	for _, k := range board.RepeatPaidKinds {
+		line(k, r.ByKind[k])
+	}
 }
 
 func operatorFeedback(ctx context.Context, store *board.Store, args []string, out io.Writer) error {

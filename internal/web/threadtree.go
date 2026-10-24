@@ -201,27 +201,54 @@ func threadPageTree(p *page, requested string, sub bool) {
 
 // nestFeedReplies puts each ranked post's best replies under it, as a short
 // tree, for the Hot and Top feeds. One bounded thread read per post that is
-// not removed; a read that fails leaves the post on its own.
+// not removed, all in one transaction where the board offers it; a read
+// that fails leaves the post on its own.
 func nestFeedReplies(ctx context.Context, service board.Service, execute func(board.Command) (board.Result, error), p *page, now int64) {
 	posts := p.Messages
 	var replies []board.Message
 	more := map[string]bool{}
+	var roots []string
 	for _, post := range posts {
-		if post.Hidden || post.ReplyTo != "" {
+		if !post.Hidden && post.ReplyTo == "" {
+			roots = append(roots, post.ID)
+		}
+	}
+	// One read for every thread where the board offers it (C554), else a
+	// thread.get per post.
+	threads := make([]board.Result, len(roots))
+	failed := make([]bool, len(roots))
+	batch, batched := service.(interface {
+		PublicThreads(context.Context, []string, int) ([]board.Result, []error, error)
+	})
+	var errs []error
+	var err error
+	if batched {
+		threads, errs, err = batch.PublicThreads(ctx, roots, feedTreeRead)
+	}
+	for i, id := range roots {
+		switch {
+		case !batched:
+			threads[i], err = execute(board.Command{Operation: "thread.get", MessageID: id, Limit: feedTreeRead})
+			failed[i] = err != nil
+		case err != nil:
+			failed[i] = true
+		default:
+			failed[i] = errs[i] != nil
+		}
+	}
+	for i, id := range roots {
+		if failed[i] {
 			continue
 		}
-		res, err := execute(board.Command{Operation: "thread.get", MessageID: post.ID, Limit: feedTreeRead})
-		if err != nil {
-			continue
-		}
-		if root, _ := res.Data["root_id"].(string); root != "" && root != post.ID {
+		res := threads[i]
+		if root, _ := res.Data["root_id"].(string); root != "" && root != id {
 			continue
 		}
 		if hasMore(res) {
-			more[post.ID] = true
+			more[id] = true
 		}
 		for _, m := range res.Messages {
-			if m.ID != post.ID {
+			if m.ID != id {
 				replies = append(replies, m)
 			}
 		}

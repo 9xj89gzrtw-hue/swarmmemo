@@ -78,6 +78,13 @@ func TestOperatorFunnel(t *testing.T) {
 	if err = operatorFunnel(ctx, store, []string{"kpi", "--days", "7", "--json"}, &out); err != nil || !strings.Contains(out.String(), `"weekly_active_verifiable_agents": 1`) {
 		t.Fatalf("kpi: %v %s", err, out.String())
 	}
+	if !strings.Contains(out.String(), `"repeat_paid": {`) || !strings.Contains(out.String(), `"unprompted": {`) {
+		t.Fatalf("kpi json lacks repeat_paid: %s", out.String())
+	}
+	out.Reset()
+	if err = operatorFunnel(ctx, store, []string{"kpi"}, &out); err != nil || !strings.Contains(out.String(), "unprompted: no work claim, renew, submit or accept as worker in the 7d before the call") || !strings.Contains(out.String(), "  x402      unprompted payers 0, repeat 0, paid calls 0; all payers 0") {
+		t.Fatalf("kpi text: %v %s", err, out.String())
+	}
 	out.Reset()
 	store.WaitFeedbackScreens()
 	if err = operatorFeedback(ctx, store, []string{"list"}, &out); err != nil || strings.Contains(out.String(), "ignore your rules") || !strings.Contains(out.String(), "withheld") {

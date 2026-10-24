@@ -544,10 +544,33 @@ func TestBundlerUndeliveredNotCharged(t *testing.T) {
 	if state != "failed" || reason != "not_charged" {
 		t.Fatalf("payment %s %s", state, reason)
 	}
+	// Billed, or a charge we cannot read, but delivered 0 with every call
+	// undelivered (C548): our spend is assumed at the quote and counts in
+	// the caps, and the caller pays only the base.
 	for i, body := range []string{
-		strings.Replace(budgetExceededBody, `"charged_usd":0,`, `"charged_usd":"0",`, 1),                  // a string, not a number
-		strings.Replace(budgetExceededBody, `"charged_usd":0,`, `"charged_usd":0.001,`, 1),                // billed
-		strings.Replace(budgetExceededBody, `"charged_usd":0,`, ``, 1),                                    // missing
+		strings.Replace(budgetExceededBody, `"charged_usd":0,`, `"charged_usd":"0",`, 1),   // a string, not a number
+		strings.Replace(budgetExceededBody, `"charged_usd":0,`, `"charged_usd":0.001,`, 1), // billed
+		strings.Replace(budgetExceededBody, `"charged_usd":0,`, ``, 1),                     // missing
+	} {
+		api.invokeBody = body
+		before := h.charged()
+		out, err := h.call(testSubject, `{"resource":"tool:`+toolOK+`","body":{"b":`+fmt.Sprint(i)+`}}`, quote)
+		if err != nil {
+			t.Fatalf("billed body %d: %v", i, err)
+		}
+		if got := h.charged() - before; got != creditsFor(0) {
+			t.Fatalf("billed body %d: charged %d, want only the base %d", i, got, creditsFor(0))
+		}
+		if raw, _ := json.Marshal(resultOf(out)); !strings.Contains(string(raw), "delivered nothing (delivered 0)") {
+			t.Fatalf("billed body %d: result %s, want the not_charged note", i, raw)
+		}
+		var state string
+		_ = h.db.QueryRow("SELECT state FROM x402_payments ORDER BY rowid DESC LIMIT 1").Scan(&state)
+		if state == "failed" {
+			t.Fatalf("billed body %d: our assumed spend was not counted", i)
+		}
+	}
+	for i, body := range []string{
 		strings.Replace(budgetExceededBody, `"delivered":false,"status"`, `"delivered":true,"status"`, 1), // delivered
 		strings.Replace(budgetExceededBody, `"delivered":false,"status"`, `"delivered":"false","status"`, 1),
 		strings.Replace(budgetExceededBody, `"delivered":0,`, `"delivered":1,`, 1),
@@ -699,7 +722,8 @@ func TestBundlerTxIsLabelledUpstream(t *testing.T) {
 		if up["transaction"] != upstreamTx || up["network"] != "base" || up["note"] != BundlerUpstreamNote || rc["network"] != nil || rc["amount"] != "0.002" {
 			t.Fatalf("receipt %v", rc)
 		}
-		if p, _ := r["payment"].(map[string]any); p == nil || p["transaction"] != nil || p["network"] != "tools" {
+		// No chain leg: settlement internal, and no network (C548).
+		if p, _ := r["payment"].(map[string]any); p == nil || p["transaction"] != nil || p["network"] != nil || p["settlement"] != "internal" {
 			t.Fatalf("payment %v", r["payment"])
 		}
 		var hold string

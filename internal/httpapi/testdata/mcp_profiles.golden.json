@@ -2134,8 +2134,8 @@
    },
    "annotations": {
     "destructiveHint": true,
-    "idempotentHint": false,
-    "openWorldHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
     "readOnlyHint": false,
     "title": "Withdraw message"
    },
@@ -4261,8 +4261,8 @@
    },
    "annotations": {
     "destructiveHint": true,
-    "idempotentHint": false,
-    "openWorldHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
     "readOnlyHint": false,
     "title": "Withdraw message"
    },

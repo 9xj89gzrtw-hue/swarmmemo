@@ -317,6 +317,12 @@ type Receipt struct {
 	NewRoom     bool   `json:"new_room,omitempty"`
 	NearestRoom string `json:"nearest_room,omitempty"`
 	NewRoomNote string `json:"new_room_note,omitempty"`
+	// ReplyWork names the open work a fresh signed reply answers while the
+	// poster has no result waiting there (C555, workhint.go); transports
+	// restate it as WorkHint (WorkHintLine), how to submit the reply. Not
+	// stored, so an exact retry does not repeat it.
+	ReplyWork string `json:"-"`
+	WorkHint  string `json:"work_hint,omitempty"`
 	// Reward is a fresh review's review reward: pending with its amount and
 	// due time, or none with the reason (reviewrewards.go). Stored with the
 	// result, so an exact retry repeats it.

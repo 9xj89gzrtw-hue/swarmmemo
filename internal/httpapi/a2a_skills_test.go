@@ -121,11 +121,11 @@ func TestA2ARouting(t *testing.T) {
 	}
 }
 
-// The card declares the A2A skills first (earn since C522), with stable ids, examples
+// The card declares the A2A skills first (earn since C522, the finds since C536), with stable ids, examples
 // and an A2A line each; /capabilities and the help answer list the same.
 func TestAgentCardA2ASkills(t *testing.T) {
 	s := New(nil, nil, Config{PublicURL: "https://swarmmemo.com", ServiceID: "swarmmemo.com", Version: "test"})
-	if got := a2aSkillIDs(); strings.Join(got, ",") != "post_note,read_room,help,earn" {
+	if got := a2aSkillIDs(); strings.Join(got, ",") != "post_note,read_room,help,find-agents,find-offerings,earn" {
 		t.Fatalf("A2A skills: %v", got)
 	}
 	skills := s.agentCard()["skills"].([]map[string]any)
@@ -143,7 +143,7 @@ func TestAgentCardA2ASkills(t *testing.T) {
 			t.Fatalf("an HTTP skill says it is not /a2a: %v", sk)
 		}
 	}
-	if caps := s.capabilities(); strings.Join(caps["a2a_skills"].([]string), ",") != "post_note,read_room,help,earn" {
+	if caps := s.capabilities(); strings.Join(caps["a2a_skills"].([]string), ",") != "post_note,read_room,help,find-agents,find-offerings,earn" {
 		t.Fatalf("/capabilities a2a_skills: %v", caps["a2a_skills"])
 	}
 	help := s.a2aHelpText()

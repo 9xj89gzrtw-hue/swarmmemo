@@ -176,96 +176,226 @@ func threadReferences(ctx context.Context, tx *sql.Tx, root threadReference) ([]
 }
 
 func (s *Store) readThread(ctx context.Context, tx *sql.Tx, c Command, a actor, now int64) (Result, error) {
-	if c.MessageID == "" || len(c.MessageID) > 64 {
-		return Result{}, problem(400, "invalid_message_id", "thread.get requires a message_id of at most 64 characters.")
-	}
 	ctx, cancel := context.WithTimeout(ctx, ConversationReadTimeout)
 	defer cancel()
+	res, errs := s.readThreads(ctx, tx, []Command{c}, a, now)
+	return res[0], errs[0]
+}
+
+// threadRead is one thread.get of a readThreads batch.
+type threadRead struct {
+	root                 threadReference
+	cursor               conversationCursor
+	replies, lastReplyAt int64
+	ids                  []string // the page's events, oldest first, at most limit+1
+	limit                int
+	events               []Message
+	hasMore              bool
+	err                  error
+}
+
+// readThreads answers several thread.get commands in one transaction, each
+// result and error exactly as thread.get alone gives it: each thread is
+// resolved and bounded on its own, and the page's events are then read, with
+// their attachments, votes, quality and work marks, once for all of them
+// (C554: the Hot and Top feeds read a thread per post). A failure of that
+// shared read fails every command.
+func (s *Store) readThreads(ctx context.Context, tx *sql.Tx, cs []Command, a actor, now int64) ([]Result, []error) {
+	reads := make([]threadRead, len(cs))
+	var args []any
+	queued := map[string]bool{}
+	for i, c := range cs {
+		r := &reads[i]
+		r.err = s.threadPage(ctx, tx, c, a, r)
+		if r.err != nil {
+			continue
+		}
+		for _, id := range r.ids {
+			if !queued[id] {
+				queued[id] = true
+				args = append(args, id)
+			}
+		}
+	}
+	results, errs := make([]Result, len(cs)), make([]error, len(cs))
+	fail := func(err error) ([]Result, []error) {
+		for i := range errs {
+			if reads[i].err == nil {
+				errs[i] = err
+			} else {
+				errs[i] = reads[i].err
+			}
+		}
+		return results, errs
+	}
+	// At most 201 event bodies are loaded per thread, even for the largest
+	// accepted tree.
+	byID := make(map[string]Message, len(args))
+	for start := 0; start < len(args); start += threadReadChunk {
+		chunk := args[start:min(start+threadReadChunk, len(args))]
+		rows, err := tx.QueryContext(ctx, "SELECT "+eventColumns+" FROM events e JOIN rooms r ON r.name=e.room WHERE e.id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",")+")", chunk...)
+		if err != nil {
+			return fail(conversationError(err))
+		}
+		for rows.Next() {
+			event, err := scanEvent(rows)
+			if err != nil {
+				rows.Close()
+				return fail(conversationError(err))
+			}
+			byID[event.ID] = event
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return fail(conversationError(err))
+		}
+	}
+	// Each thread's page, oldest first (ids are in seq order), cut to its limit.
+	var all []Message
+	for i := range reads {
+		r := &reads[i]
+		if r.err != nil {
+			continue
+		}
+		r.events = []Message{}
+		for _, id := range r.ids {
+			if e, ok := byID[id]; ok {
+				r.events = append(r.events, e)
+			}
+		}
+		r.hasMore = len(r.events) > r.limit
+		if r.hasMore {
+			r.events = r.events[:r.limit]
+		}
+		all = append(all, r.events...)
+	}
+	// distribute copies all's enriched events back into each thread's page.
+	distribute := func() {
+		at := 0
+		for i := range reads {
+			if reads[i].err == nil {
+				at += copy(reads[i].events, all[at:at+len(reads[i].events)])
+			}
+		}
+	}
+	if err := s.loadAttachments(ctx, tx, all, now); err != nil {
+		return fail(conversationError(err))
+	}
+	distribute()
+	all = all[:0]
+	for i := range reads {
+		r := &reads[i]
+		if r.err != nil {
+			continue
+		}
+		bytes, end := 0, 0
+		for j, event := range r.events {
+			encoded, _ := json.Marshal(event)
+			if j > 0 && bytes+len(encoded) > conversationResponseBytes {
+				r.hasMore = true
+				break
+			}
+			bytes += len(encoded)
+			end = j + 1
+		}
+		r.events = r.events[:end]
+		if len(r.events) > 0 {
+			r.cursor.After = r.events[len(r.events)-1].internalSequence
+		}
+		all = append(all, r.events...)
+	}
+	if err := s.attachScores(ctx, tx, all, now); err != nil {
+		return fail(err)
+	}
+	if err := s.screenConversationMessages(ctx, tx, a, all); err != nil {
+		return fail(err)
+	}
+	distribute()
+	for i := range reads {
+		r := &reads[i]
+		if errs[i] = r.err; r.err != nil {
+			continue
+		}
+		results[i] = Result{Messages: r.events, NextCursor: s.encodeConversationCursor(r.cursor), Data: map[string]any{"root_id": r.root.id, "requested_message_id": cs[i].MessageID, "room": r.root.room, "has_more": r.hasMore, "replies": r.replies, "last_reply_at": r.lastReplyAt}}
+	}
+	return results, errs
+}
+
+// threadReadChunk bounds the event IDs one statement of readThreads names.
+const threadReadChunk = 500
+
+// threadPage resolves one thread.get: the message, the reader's access to
+// its room, the thread's root, the cursor, the thread's references and
+// reply counts, and the page of event IDs after the cursor (one past the
+// limit, to tell whether more follow).
+func (s *Store) threadPage(ctx context.Context, tx *sql.Tx, c Command, a actor, r *threadRead) error {
+	if c.MessageID == "" || len(c.MessageID) > 64 {
+		return problem(400, "invalid_message_id", "thread.get requires a message_id of at most 64 characters.")
+	}
 	var current threadReference
 	err := tx.QueryRowContext(ctx, "SELECT id,room,"+threadParent+",seq FROM events WHERE id=?", c.MessageID).Scan(&current.id, &current.room, &current.parent, &current.seq)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Result{}, errThreadNotFound()
+		return errThreadNotFound()
 	}
 	if err != nil {
-		return Result{}, conversationError(err)
+		return conversationError(err)
 	}
 	if _, err = roomAccess(ctx, tx, current.room, a); err != nil {
 		var access *Error
 		if errors.As(err, &access) && access.Code == "not_found" {
-			return Result{}, errThreadNotFound()
+			return errThreadNotFound()
 		}
-		return Result{}, conversationError(err)
+		return conversationError(err)
 	}
-	root, err := resolveThreadRoot(ctx, tx, current)
+	if r.root, err = resolveThreadRoot(ctx, tx, current); err != nil {
+		return err
+	}
+	if r.cursor, err = s.decodeConversationCursor(c.Cursor, "thread.get", r.root.id); err != nil {
+		return err
+	}
+	refs, err := threadReferences(ctx, tx, r.root)
 	if err != nil {
-		return Result{}, err
+		return err
 	}
-	cursor, err := s.decodeConversationCursor(c.Cursor, "thread.get", root.id)
-	if err != nil {
-		return Result{}, err
+	if r.replies, r.lastReplyAt, err = threadReplyStats(ctx, tx, refs); err != nil {
+		return err
 	}
-	refs, err := threadReferences(ctx, tx, root)
-	if err != nil {
-		return Result{}, err
+	r.limit = limitValue(c.Limit)
+	start := sort.Search(len(refs), func(i int) bool { return refs[i].seq > r.cursor.After })
+	for _, ref := range refs[start:min(start+r.limit+1, len(refs))] {
+		r.ids = append(r.ids, ref.id)
 	}
-	replies, lastReplyAt, err := threadReplyStats(ctx, tx, refs)
-	if err != nil {
-		return Result{}, err
-	}
-	limit := limitValue(c.Limit)
-	start := sort.Search(len(refs), func(i int) bool { return refs[i].seq > cursor.After })
-	refs = refs[start:min(start+limit+1, len(refs))]
-	args := make([]any, 0, len(refs))
-	for _, ref := range refs {
-		args = append(args, ref.id)
-	}
-	// At most 201 event bodies are loaded, even for the largest accepted tree.
-	rows, err := tx.QueryContext(ctx, "SELECT "+eventColumns+" FROM events e JOIN rooms r ON r.name=e.room WHERE e.id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+") ORDER BY e.seq", args...)
-	if err != nil {
-		return Result{}, conversationError(err)
-	}
-	events := []Message{}
-	for rows.Next() {
-		event, err := scanEvent(rows)
-		if err != nil {
-			rows.Close()
-			return Result{}, conversationError(err)
+	return nil
+}
+
+// PublicThreads reads, for an anonymous reader in one read-only
+// transaction, thread.get of each of ids with limit: what Execute gives each
+// thread.get from the public web pages (web-public-read), without a
+// transaction per thread. A thread that cannot be read has its error in
+// errs; it is never a reason to fail the others.
+func (s *Store) PublicThreads(ctx context.Context, ids []string, limit int) (results []Result, errs []error, err error) {
+	cs := make([]Command, len(ids))
+	for i, id := range ids {
+		cs[i] = Command{Operation: "thread.get", MessageID: id, Limit: limit}
+		if err = readLimitRange(cs[i]); err != nil {
+			return nil, nil, err
 		}
-		events = append(events, event)
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return Result{}, conversationError(err)
-	}
-	hasMore := len(events) > limit
-	if hasMore {
-		events = events[:limit]
-	}
-	if err = s.loadAttachments(ctx, tx, events, now); err != nil {
-		return Result{}, conversationError(err)
-	}
-	bytes, end := 0, 0
-	for i, event := range events {
-		encoded, _ := json.Marshal(event)
-		if i > 0 && bytes+len(encoded) > conversationResponseBytes {
-			hasMore = true
-			break
+	err = s.publicRead(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var generation string
+		if err := tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key='generation'").Scan(&generation); err != nil {
+			return err
 		}
-		bytes += len(encoded)
-		end = i + 1
-	}
-	events = events[:end]
-	if len(events) > 0 {
-		cursor.After = events[len(events)-1].internalSequence
-	}
-	if err := s.attachScores(ctx, tx, events, now); err != nil {
-		return Result{}, err
-	}
-	if err := s.screenConversationMessages(ctx, tx, a, events); err != nil {
-		return Result{}, err
-	}
-	return Result{Messages: events, NextCursor: s.encodeConversationCursor(cursor), Data: map[string]any{"root_id": root.id, "requested_message_id": c.MessageID, "room": root.room, "has_more": hasMore, "replies": replies, "last_reply_at": lastReplyAt}}, nil
+		results, errs = s.readThreads(ctx, tx, cs, actor{id: "anonymous"}, s.now().Unix())
+		for i := range results {
+			if errs[i] == nil {
+				results[i].OK, results[i].Generation = true, generation
+			}
+		}
+		return nil
+	})
+	return results, errs, err
 }
 
 // threadReplyStats counts the thread's visible replies (every post but the

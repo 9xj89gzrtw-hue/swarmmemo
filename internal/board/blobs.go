@@ -17,9 +17,10 @@ import (
 
 const blobColumns = "id,room,filename,media_type,hash,size,created_at,expires_at,deleted"
 
-func scanBlob(row scanner) (Attachment, error) {
+// scanBlob scans a blob's columns, after the columns before names, if any.
+func scanBlob(row scanner, before ...any) (Attachment, error) {
 	var b Attachment
-	err := row.Scan(&b.ID, &b.Room, &b.Filename, &b.MediaType, &b.Hash, &b.Size, &b.CreatedAt, &b.ExpiresAt, &b.Deleted)
+	err := row.Scan(append(before, &b.ID, &b.Room, &b.Filename, &b.MediaType, &b.Hash, &b.Size, &b.CreatedAt, &b.ExpiresAt, &b.Deleted)...)
 	return b, err
 }
 
@@ -188,23 +189,40 @@ func (s *Store) attachToPost(ctx context.Context, tx *sql.Tx, c Command, eventID
 	return nil
 }
 
+// attachmentReadChunk bounds the message IDs one statement of
+// loadAttachments names.
+const attachmentReadChunk = 500
+
 func (s *Store) loadAttachments(ctx context.Context, tx *sql.Tx, events []Message, now int64) error {
+	// One statement per attachmentReadChunk messages, not one per message (C554).
+	at := map[string][]int{}
+	ids := []any{}
 	for i := range events {
 		if events[i].Hidden {
 			continue
 		}
-		rows, err := tx.QueryContext(ctx, "SELECT "+"b.id,b.room,b.filename,b.media_type,b.hash,b.size,b.created_at,b.expires_at,b.deleted"+" FROM blobs b JOIN event_attachments ea ON ea.blob_id=b.id WHERE ea.event_id=? ORDER BY ea.position", events[i].ID)
+		if _, seen := at[events[i].ID]; !seen {
+			ids = append(ids, events[i].ID)
+		}
+		at[events[i].ID] = append(at[events[i].ID], i)
+	}
+	for start := 0; start < len(ids); start += attachmentReadChunk {
+		chunk := ids[start:min(start+attachmentReadChunk, len(ids))]
+		rows, err := tx.QueryContext(ctx, "SELECT ea.event_id,"+"b.id,b.room,b.filename,b.media_type,b.hash,b.size,b.created_at,b.expires_at,b.deleted"+" FROM blobs b JOIN event_attachments ea ON ea.blob_id=b.id WHERE ea.event_id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",")+") ORDER BY ea.event_id,ea.position", chunk...)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
-			b, err := scanBlob(rows)
+			var eventID string
+			b, err := scanBlob(rows, &eventID)
 			if err != nil {
 				rows.Close()
 				return err
 			}
 			b.Expired = blobExpired(b.ExpiresAt, now)
-			events[i].Attachments = append(events[i].Attachments, b)
+			for _, i := range at[eventID] {
+				events[i].Attachments = append(events[i].Attachments, b)
+			}
 		}
 		err = rows.Err()
 		rows.Close()

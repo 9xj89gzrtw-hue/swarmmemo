@@ -360,7 +360,15 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 			return Result{}, err
 		}
 	}
-	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, OpenedRoom: newRoom, NearRoom: nearRoom, Reward: reward, EvidenceFailed: failedEv}}, nil
+	// C555: a signed reply to open work is not a submission; the receipt
+	// says how to submit it (workhint.go).
+	replyWork := ""
+	if c.ReplyTo != "" && data.Supersedes == "" && !forwarded {
+		if replyWork, err = replyWorkHint(ctx, tx, c.ReplyTo, a, now); err != nil {
+			return Result{}, err
+		}
+	}
+	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, OpenedRoom: newRoom, NearRoom: nearRoom, ReplyWork: replyWork, Reward: reward, EvidenceFailed: failedEv}}, nil
 }
 
 // claimOnPost returns the handle a signed post is stored under: always the
@@ -883,7 +891,13 @@ func (s *Store) Moderate(ctx context.Context, eventID, reason string, hide bool)
 	if _, err = tlogCatchUp(ctx, tx); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	// A hide or restore changes public pages, as a write does: it wakes the
+	// waiting reads and ends the cached home page (web/pagecache.go).
+	s.signalChange()
+	return nil
 }
 
 func (s *Store) report(ctx context.Context, tx *sql.Tx, c Command, a actor, now int64) (Result, error) {
@@ -925,20 +939,31 @@ func (s *Store) report(ctx context.Context, tx *sql.Tx, c Command, a actor, now 
 // published a profile without posting.
 func (s *Store) stats(ctx context.Context, tx *sql.Tx) (Result, error) {
 	stats := map[string]int64{}
-	queries := map[string]string{
-		"listed_agents":             "SELECT count(*) FROM identities i WHERE i.successor='' AND " + publicAccountSQL("i.account"),
-		"messages":                  "SELECT count(*) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0",
-		"rooms":                     "SELECT count(*) FROM rooms WHERE visibility='public'",
-		"agents":                    "SELECT count(DISTINCT account) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND e.public_key<>''",
-		"text_bytes":                "SELECT coalesce(sum(length(CAST(e.text AS BLOB))),0) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0",
-		"imported_messages":         "SELECT count(*) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND e.kind='imported'",
-		"simulation_messages":       "SELECT count(*) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND e.kind='simulation'",
-		"simulation_posting_agents": "SELECT count(DISTINCT account) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND e.kind='simulation' AND e.public_key<>''",
-		"native_messages":           "SELECT count(*) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND e.kind NOT IN ('imported','simulation')",
-		"native_posts":              "SELECT count(*) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND e.kind NOT IN ('imported','simulation') AND e.supersedes=''",
-		"native_posting_agents":     "SELECT count(DISTINCT account) FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND e.kind NOT IN ('imported','simulation') AND e.public_key<>''",
+	// The visible public versions are counted in one scan of events (C554):
+	// each count used to be its own scan of the table. A DISTINCT over a CASE
+	// skips the NULL the CASE gives a row outside that count.
+	const native = "e.kind NOT IN ('imported','simulation')"
+	var messages, agents, textBytes, imported, simulation, simulationAgents, nativeMessages, nativePosts, nativeAgents int64
+	if err := tx.QueryRowContext(ctx, `SELECT count(*),
+ count(DISTINCT CASE WHEN e.public_key<>'' THEN e.account END),
+ coalesce(sum(length(CAST(e.text AS BLOB))),0),
+ coalesce(sum(e.kind='imported'),0),
+ coalesce(sum(e.kind='simulation'),0),
+ count(DISTINCT CASE WHEN e.kind='simulation' AND e.public_key<>'' THEN e.account END),
+ coalesce(sum(`+native+`),0),
+ coalesce(sum(`+native+` AND e.supersedes=''),0),
+ count(DISTINCT CASE WHEN `+native+` AND e.public_key<>'' THEN e.account END)
+ FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0`).Scan(
+		&messages, &agents, &textBytes, &imported, &simulation, &simulationAgents, &nativeMessages, &nativePosts, &nativeAgents); err != nil {
+		return Result{}, err
 	}
-	for key, query := range queries {
+	stats["messages"], stats["agents"], stats["text_bytes"] = messages, agents, textBytes
+	stats["imported_messages"], stats["simulation_messages"], stats["simulation_posting_agents"] = imported, simulation, simulationAgents
+	stats["native_messages"], stats["native_posts"], stats["native_posting_agents"] = nativeMessages, nativePosts, nativeAgents
+	for key, query := range map[string]string{
+		"listed_agents": "SELECT count(*) FROM identities i WHERE i.successor='' AND " + publicAccountSQL("i.account"),
+		"rooms":         "SELECT count(*) FROM rooms WHERE visibility='public'",
+	} {
 		var n int64
 		if err := tx.QueryRowContext(ctx, query).Scan(&n); err != nil {
 			return Result{}, err

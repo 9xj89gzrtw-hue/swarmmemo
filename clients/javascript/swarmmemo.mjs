@@ -329,7 +329,7 @@ export const CONTRACT = Object.freeze({
   "message_work_usdc": {"required":["amount","state"],"optional":[]},
   "principal": {"required":["id"],"optional":["handle","nickname","origin"]},
   "quality": {"required":["classifier_version","score"],"optional":[]},
-  "receipt": {"required":["accepted_at","cursor","duplicate","id","sha256"],"optional":["evidence_failed","nearest_room","new_room","new_room_note","replies_note","replies_url","reward"]},
+  "receipt": {"required":["accepted_at","cursor","duplicate","id","sha256"],"optional":["evidence_failed","nearest_room","new_room","new_room_note","replies_note","replies_url","reward","work_hint"]},
   "screen": {"required":["state","withheld"],"optional":["categories","classifier_version","reason"]},
   "verdict_check": {"required":["property","state"],"optional":["evidence","failing_step","note","passes","runs","subject_sha256","tool"]},
   "votes": {"required":["down","score","up"],"optional":["weight"]},

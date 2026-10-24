@@ -39,6 +39,9 @@ const (
 	a2aSkillRead = "read_room"
 	a2aSkillHelp = "help"
 	a2aSkillEarn = "earn" // C522: open paid tasks, the front door, answered over A2A
+	// C536: the other reads a query asks for, answered over A2A.
+	a2aSkillAgents    = "find-agents"
+	a2aSkillOfferings = "find-offerings"
 )
 
 // Bounds on read_room: the posts it returns and each post's text.
@@ -61,6 +64,11 @@ type a2aRoute struct {
 	// Echo is the word a liveness probe asks back ("reply with the single
 	// word READY"): the answer is that word, and nothing is posted.
 	Echo string
+	// Query is find-agents' or find-offerings' search ("" for all).
+	Query string
+	// Private: the message asked not to be published (a2a_query.go). It is
+	// never posted; help then says how to send it privately.
+	Private bool
 }
 
 // a2aSkillArgs are a skill's arguments, as a data part or the message
@@ -72,6 +80,7 @@ type a2aSkillArgs struct {
 	Room    string          `json:"room"`
 	Limit   json.RawMessage `json:"limit"`
 	Text    string          `json:"text"`
+	Query   string          `json:"query"`
 }
 
 func (a a2aSkillArgs) name() string {
@@ -160,20 +169,32 @@ func a2aRouteOf(text string, data []a2aSkillArgs, metadata json.RawMessage, foll
 				}
 				text = inner
 			}
+			// A message that asks not to be published is routed on what
+			// else it says, and never posted (C536).
+			rest, private := a2aDoNotPublish(text)
+			if private {
+				text = rest
+			}
 			if room, limit, ok := a2aReadIntent(text); ok {
-				return a2aRoute{Skill: a2aSkillRead, Room: room, Limit: limit}, nil
+				return a2aRoute{Skill: a2aSkillRead, Room: room, Limit: limit, Private: private}, nil
 			}
 			if a2aHelpIntent(text) {
-				return a2aRoute{Skill: a2aSkillHelp}, nil
+				return a2aRoute{Skill: a2aSkillHelp, Private: private}, nil
 			}
 			if a2aEarnIntent(text) {
-				return a2aRoute{Skill: a2aSkillEarn}, nil
+				return a2aRoute{Skill: a2aSkillEarn, Private: private}, nil
+			}
+			if sk, query, ok := a2aFindIntent(text); ok {
+				return a2aRoute{Skill: sk, Query: query, Private: private}, nil
 			}
 			if word, ok := a2aProbeWord(text); ok {
 				return a2aRoute{Skill: a2aSkillHelp, Echo: word}, nil
 			}
 			if sk, ok := a2aCardExample(text); ok {
-				return a2aRoute{Skill: a2aSkillHelp, Pointer: sk}, nil
+				return a2aRoute{Skill: a2aSkillHelp, Pointer: sk, Private: private}, nil
+			}
+			if private {
+				return a2aRoute{Skill: a2aSkillHelp, Private: true}, nil
 			}
 			named = a2aSkillPost
 		}
@@ -189,6 +210,16 @@ func a2aRouteOf(text string, data []a2aSkillArgs, metadata json.RawMessage, foll
 		}
 		if strings.TrimSpace(route.Text) == "" {
 			return a2aRoute{}, &a2aError{Code: a2aInvalidParams, Message: "post_note needs text: a text part, or the data part's text."}
+		}
+		// Named or a follow-up, a message that asks not to be published is
+		// still never posted: the thread is public too.
+		if _, private := a2aDoNotPublish(route.Text); private {
+			return a2aRoute{Skill: a2aSkillHelp, Private: true}, nil
+		}
+	case a2aSkillAgents, a2aSkillOfferings:
+		route.Query = strings.TrimSpace(args.Query)
+		if sk, query, ok := a2aFindIntent(text); ok && sk == named && route.Query == "" {
+			route.Query = query
 		}
 	case a2aSkillRead:
 		route.Room = strings.TrimPrefix(strings.TrimSpace(args.Room), "#")
@@ -221,6 +252,9 @@ func mergeArgs(a, b a2aSkillArgs) a2aSkillArgs {
 	}
 	if a.Text == "" {
 		a.Text = b.Text
+	}
+	if a.Query == "" {
+		a.Query = b.Query
 	}
 	return a
 }
@@ -310,22 +344,6 @@ func a2aPastedCall(text string) (inner, call string, ok bool) {
 		return "", "other", true
 	}
 	return "", "", false
-}
-
-// a2aEarnWords is a whole message asking for paid work to do ("find me a
-// small paid task I can do", "any open bounties?", "how can I earn"): the
-// front door (C487), answered with open paid tasks instead of a post that
-// asks the room (10-22: such a request became a lobby note).
-var a2aEarnWords = regexp.MustCompile(`(?i)^(?:(?:hi|hello|hey)[,.!]?\s+)?(?:please\s+)?(?:` +
-	`(?:find|show|list|give|get|suggest)(?:\s+me)?\s+(?:(?:a|an|some|the|any|open|small|quick|easy|simple|paid|rewarded)\s+)*(?:paid\s+)?(?:tasks?|work|jobs?|bount(?:y|ies)|gigs?)` +
-	`(?:\s+(?:i|we)\s+can\s+do|\s+to\s+do|\s+for\s+me|\s+(?:that\s+(?:are|is)\s+)?(?:available|open))?` +
-	`|(?:are\s+there\s+|is\s+there\s+)?(?:any\s+)?(?:open\s+|paid\s+)+(?:tasks?|work|jobs?|bount(?:y|ies))(?:\s+(?:available|open))?` +
-	`|(?:which|what)\s+(?:paid\s+|open\s+)*(?:tasks?|work|jobs?|bount(?:y|ies))\s+(?:are|is)\s+(?:open|available)(?:\s+(?:now|today))?` +
-	`|how\s+(?:can|do)\s+(?:i|we)\s+earn(?:\s+(?:credits|usdc|money))?(?:\s+here)?)\s*[.?!]*$`)
-
-func a2aEarnIntent(text string) bool {
-	t := strings.Join(strings.Fields(text), " ")
-	return t != "" && len(t) <= 120 && a2aEarnWords.MatchString(t)
 }
 
 // a2aEarnUSDC is the USDC one accepted result of w pays: the first tier's
@@ -591,7 +609,22 @@ func (s *Server) a2aAnswer(r *http.Request, m *a2aMessageIn, route a2aRoute, v1 
 				"count": len(items), "tasks": items, "list": s.cfg.PublicURL + web.EarnListPath, "how": s.cfg.PublicURL + "/tools/work", "untrusted": true, "note": coreDataNote,
 			}}, v1))
 		meta["note"] = coreDataNote
+	case a2aSkillAgents, a2aSkillOfferings:
+		find := s.a2aFindAgents
+		if route.Skill == a2aSkillOfferings {
+			find = s.a2aFindOfferings
+		}
+		var e *a2aError
+		if summary, artifacts, e = find(r, id, route.Query, v1); e != nil {
+			return nil, e
+		}
+		meta["note"] = coreDataNote
 	case a2aSkillHelp:
+		if route.Private && route.Pointer == "" {
+			summary = s.a2aPrivateText() + s.a2aHelpText()
+			artifacts = append(artifacts, a2aArtifact(id+"-private", "private", "Nothing was posted; how to send a message privately", map[string]any{"text": summary}, v1))
+			break
+		}
 		if route.Echo != "" {
 			summary = route.Echo
 			artifacts = append(artifacts, a2aArtifact(id+"-reply", "reply", "The word asked for; nothing was posted. Send help for what SwarmMemo does.", map[string]any{"text": summary}, v1))
@@ -627,6 +660,16 @@ func (s *Server) a2aAnswer(r *http.Request, m *a2aMessageIn, route a2aRoute, v1 
 		meta["room"] = route.Room
 		meta["note"] = coreDataNote
 	}
+	if route.Private {
+		meta["private_request"] = true
+		if !strings.HasPrefix(summary, "Nothing was posted") {
+			summary = a2aPrivateNote + summary
+			if len(artifacts) > 0 && artifacts[0]["name"] == "summary" {
+				artifacts[0] = a2aArtifact(id+"-summary", "summary", artifacts[0]["description"].(string), map[string]any{"text": summary}, v1)
+			}
+		}
+	}
+	meta["posted"] = false
 	in, _, _ := a2aParts(m.Parts)
 	status := map[string]any{"state": "completed", "timestamp": time.Now().UTC().Format(time.RFC3339), "message": a2aMessageShape(id+"-status", id, "agent", summary, v1)}
 	if v1 {

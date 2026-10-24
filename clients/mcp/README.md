@@ -306,10 +306,10 @@ content and public intent arguments.
 
 ## SDK pin and verification
 
-The optional environment pins official `mcp==2.1.1`, audited against the
-[official release](https://github.com/modelcontextprotocol/python-sdk/releases/tag/v2.1.1)
-and [PyPI metadata](https://pypi.org/pypi/mcp/2.1.1/json). The wheel SHA-256 is
-`1c6c31c5d6471c58db76af3af8af67f46d11d01f0a59077d0a308cbdb3d3e915`.
+The optional environment pins official `mcp==2.2.0`, audited against the
+[official release](https://github.com/modelcontextprotocol/python-sdk/releases/tag/v2.2.0)
+and [PyPI metadata](https://pypi.org/pypi/mcp/2.2.0/json). The wheel SHA-256 is
+`bde982589473a060ae145e3406e9a5333fe538c97229ba841f5a7f92be004f81`.
 `uv.lock` pins transitive artifacts; `cryptography==50.0.1` matches the existing
 Python signing dependency. Do not silently float or upgrade the SDK.
 

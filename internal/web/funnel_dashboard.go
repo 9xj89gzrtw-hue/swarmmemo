@@ -40,19 +40,19 @@ type funnelDashboard struct {
 	Heat                          []heatRow
 	Acquisition                   []acqView
 	// Refs is the range's new agents per ?ref= tag their first day carried.
-	Refs                          []dashRow
-	Visitors                      *lineChart
-	Segments, SmallSegments       []dashRow
-	Candidates                    []dashRow
-	Paths                         []dashRow
-	Nudges                        []dashNudge
-	Loop                          dashLoop
-	Feedback, FeedbackTexts       []dashRow
-	LapsingRoles                  []dashRow
-	Lapsing                       []dashLapse
-	LapsingMore                   int
-	LapsingRule                   string
-	MinN, Taxonomy                int
+	Refs                    []dashRow
+	Visitors                *lineChart
+	Segments, SmallSegments []dashRow
+	Candidates              []dashRow
+	Paths                   []dashRow
+	Nudges                  []dashNudge
+	Loop                    dashLoop
+	Feedback, FeedbackTexts []dashRow
+	LapsingRoles            []dashRow
+	Lapsing                 []dashLapse
+	LapsingMore             int
+	LapsingRule             string
+	MinN, Taxonomy          int
 	// Trust is the trust section (funnel_trust.go); nil before any run.
 	Trust *dashTrust
 	// Refusals is the allowance refusals by day: a row per day and
@@ -60,6 +60,35 @@ type funnelDashboard struct {
 	Refusals []dashRefusal
 	// Burst is the burst clusters' section (board.FunnelBurst).
 	Burst dashBurst
+	// RepeatPaid is the unprompted repeat paid use (board.FunnelRepeatPaid).
+	RepeatPaid dashRepeatPaid
+}
+
+// dashRepeatPaid is the paid use section: a row per kind and the total,
+// unprompted counts beside every paid call's.
+type dashRepeatPaid struct {
+	Caption string
+	Rows    []dashRepeatPaidRow
+}
+
+type dashRepeatPaidRow struct {
+	Label                                                 string
+	Payers, Repeat, Calls, AllPayers, AllRepeat, AllCalls string
+}
+
+// buildRepeatPaid lays out board.FunnelRepeatPaid.
+func (d *funnelDashboard) buildRepeatPaid(r board.FunnelRepeatPaid) {
+	d.RepeatPaid.Caption = fmt.Sprintf("Paid calls (priced tool calls, x402 cash calls, settled offering calls), operator accounts and burst clusters left out (%d burst payers). Unprompted: the caller had no work claim, renewal, submit or accept as a worker in the %d days before the call, so no bounty asked for it. Repeat: paid on %d or more distinct UTC days.", r.BurstPayersLeftOut, r.LookbackDays, r.MinDays)
+	row := func(label string, p board.RepeatPaidPair) {
+		u, a := p.Unprompted, p.All
+		n := func(v int) string { return count(int64(v)) }
+		d.RepeatPaid.Rows = append(d.RepeatPaid.Rows, dashRepeatPaidRow{Label: label, Payers: n(u.Payers), Repeat: n(u.RepeatPayers), Calls: n(u.Calls), AllPayers: n(a.Payers), AllRepeat: n(a.RepeatPayers), AllCalls: n(a.Calls)})
+	}
+	labels := map[string]string{"service": "Priced tool calls", "x402": "x402 cash calls", "offering": "Offering calls"}
+	for _, k := range board.RepeatPaidKinds {
+		row(labels[k], r.ByKind[k])
+	}
+	row("Any kind", r.Total)
 }
 
 // dashBurst is the burst clusters: the rates with and without their
@@ -264,6 +293,7 @@ func buildFunnelDashboard(rep *board.FunnelReport) *funnelDashboard {
 	d.Trust = buildDashTrust(rep.Trust)
 	d.buildRefusals(rep.Refusals)
 	d.buildBurst(rep.Burst)
+	d.buildRepeatPaid(rep.RepeatPaid)
 	d.Takeaways = funnelTakeaways(rep, worst, segs, cohorts)
 	return d
 }

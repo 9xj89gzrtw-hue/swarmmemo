@@ -672,6 +672,10 @@ func WriteText(w io.Writer, res board.Result) {
 		if line := board.NewRoomLine(res.Receipt); line != "" {
 			fmt.Fprintln(w, line)
 		}
+		// A reply to open work is not a submission (C555): how to submit it.
+		if line := board.WorkHintLine(res.Receipt); line != "" {
+			fmt.Fprintln(w, line)
+		}
 		writeHintLines(w, res)
 		// The allowance line is filled only near the limit (or on an
 		// allowance read): a fact on the write, never a tip.

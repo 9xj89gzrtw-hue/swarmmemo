@@ -208,6 +208,7 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 	}
 	charged := p.max // what we assume when the bundler reports nothing, or we could not read it
 	reported, empty := false, false
+	emptyNote := ""
 	if !resp.over {
 		var out map[string]json.RawMessage
 		dec := json.NewDecoder(bytes.NewReader(resp.body))
@@ -225,8 +226,10 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 			if !reported && bundlerUndelivered(out) {
 				charged = 0 // the bundler reports it delivered and billed nothing
 			}
-			if empty = bundlerAllEmpty(out); empty {
-				out["not_charged"] = canonicalJSON(BundlerEmptyNote)
+			// Nothing delivered (C531 delivered_empty; C548 delivered 0,
+			// payment_failed, payment_refused): the caller pays no tool cost.
+			if emptyNote, empty = bundlerNothingDelivered(out); empty {
+				out["not_charged"] = canonicalJSON(emptyNote)
 			}
 			delete(out, "billing") // our account's balance is not the agent's business
 			bundlerLabelUpstreamReceipts(out, f.payer)
@@ -247,11 +250,14 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 	}
 	pay.settle(charged)
 	if empty {
-		// The upstream billed us for an answer it labels empty: our spend
-		// counts against the caps, the caller pays nothing for it (C531).
+		// The upstream billed us for an answer that delivered nothing: our
+		// spend counts against the caps, the caller pays no tool cost for it
+		// (C531, C548).
 		return resp, nil, nil
 	}
-	return resp, &x402Receipt{Amount: strconv.FormatInt(charged, 10), Price: formatUnits(charged, 6), Asset: "USD", Network: publicBundler(f.Name()),
+	// No chain leg: the bundler bills SwarmMemo's prepaid account, so the
+	// receipt names its settlement internal, and no network (C548).
+	return resp, &x402Receipt{Amount: strconv.FormatInt(charged, 10), Price: formatUnits(charged, 6), Asset: "USD", Settlement: x402SettlementInternal,
 		PayTo: bundlerToolID(p.res.Tool), Payer: "swarmmemo", Nonce: idem}, nil
 }
 
@@ -283,6 +289,67 @@ func bundlerUndelivered(out map[string]json.RawMessage) bool {
 // BundlerEmptyNote is the not_charged note on an answer whose every call the
 // upstream bundler labels delivered_empty (an envelope-only body).
 const BundlerEmptyNote = "the upstream answered with an empty body (outcome delivered_empty): you were not charged for the tool"
+
+// BundlerUndeliveredNote is the not_charged note on an answer that reports
+// nothing delivered (C548): result.delivered 0 with every call undelivered,
+// or every call's outcome payment_failed or payment_refused. %s is what the
+// upstream reported.
+const BundlerUndeliveredNote = "the upstream delivered nothing (%s): you were not charged for the tool, only the call's base"
+
+// bundlerFailedOutcomes are the per-call outcomes the upstream bundler
+// reports for a call it could not pay its seller for (C548: "no applicable
+// payers found"): nothing was delivered.
+var bundlerFailedOutcomes = map[string]bool{"payment_failed": true, "payment_refused": true}
+
+// bundlerNothingDelivered says whether an invoke answer reports, in full,
+// that nothing was delivered, with the not_charged note that says so: every
+// call delivered_empty (C531); every call payment_failed or payment_refused
+// and none delivered; or result.delivered a JSON 0 with every call's
+// delivered a JSON false (C548). Anything missing, malformed or contrary is
+// false, and the call keeps its charge.
+func bundlerNothingDelivered(out map[string]json.RawMessage) (string, bool) {
+	if bundlerAllEmpty(out) {
+		return BundlerEmptyNote, true
+	}
+	var result map[string]json.RawMessage
+	if json.Unmarshal(out["result"], &result) != nil || result == nil {
+		return "", false
+	}
+	var calls []json.RawMessage
+	if json.Unmarshal(result["calls"], &calls) != nil || len(calls) == 0 {
+		return "", false
+	}
+	failed, undelivered := true, true
+	outcomes := map[string]bool{}
+	for _, raw := range calls {
+		var c map[string]json.RawMessage
+		if json.Unmarshal(raw, &c) != nil || c == nil {
+			return "", false
+		}
+		delivered := bytes.TrimSpace(c["delivered"])
+		var outcome string
+		if json.Unmarshal(c["outcome"], &outcome) != nil || !bundlerFailedOutcomes[outcome] || bytes.Equal(delivered, []byte("true")) {
+			failed = false
+		} else {
+			outcomes[outcome] = true
+		}
+		if !bytes.Equal(delivered, []byte("false")) {
+			undelivered = false
+		}
+	}
+	switch {
+	case failed:
+		names := make([]string, 0, len(outcomes))
+		for o := range outcomes {
+			names = append(names, o)
+		}
+		sort.Strings(names)
+		return fmt.Sprintf(BundlerUndeliveredNote, "outcome "+strings.Join(names, ", ")), true
+	case undelivered && bundlerZero(result["delivered"]):
+		return fmt.Sprintf(BundlerUndeliveredNote, "delivered 0"), true
+	}
+	return "", false
+}
 
 // bundlerAllEmpty says whether every result.calls[] entry has outcome exactly
 // "delivered_empty", the upstream's own label for an envelope-only answer
@@ -384,61 +451,101 @@ var bundlerUpstreamKeys = []struct{ from, to string }{
 }
 
 // bundlerLabelUpstreamReceipts moves the network and transaction of each
-// results[].receipt under receipt.upstream, with BundlerUpstreamNote: the
-// bundler pays from its prepaid account, so a transaction it reports is its
-// own, never the settlement of the agent's call (which has none: see
+// receipt the bundler reports (results[].receipt, result.calls[].receipt and
+// the rows of receipts[]) under receipt.upstream, with BundlerUpstreamNote:
+// the bundler pays from its prepaid account, so a transaction it reports is
+// its own, never the settlement of the agent's call (which has none: see
 // X402Settlements). A receipt whose pay_to is payer, the bundler's own
 // wallet, is a first-party tool's: first_party, and BundlerFirstPartyNote.
+// One that reports no transaction names no network either: its
+// upstream.settlement is "none" (C548: network tempo with tx_hash "" read
+// as a payment that never happened).
 func bundlerLabelUpstreamReceipts(out map[string]json.RawMessage, payer EVMAddress) {
-	var results []json.RawMessage
-	if json.Unmarshal(out["results"], &results) != nil {
-		return
-	}
-	changed := false
-	for i, raw := range results {
-		var row map[string]json.RawMessage
-		if json.Unmarshal(raw, &row) != nil || row == nil {
-			continue
+	// results[].receipt and receipts[]: a list of rows, the receipt in the
+	// row's "receipt" field or the row itself.
+	labelRows := func(raw json.RawMessage, field string) (json.RawMessage, bool) {
+		var rows []json.RawMessage
+		if json.Unmarshal(raw, &rows) != nil {
+			return nil, false
 		}
-		var receipt map[string]json.RawMessage
-		if json.Unmarshal(row["receipt"], &receipt) != nil || receipt == nil {
-			continue
-		}
-		var payTo string
-		firstParty := false
-		if json.Unmarshal(receipt["pay_to"], &payTo) == nil && payer != (EVMAddress{}) {
-			if a, ok := ParseEVMAddress(payTo); ok && a == payer {
-				firstParty = true
-				receipt["first_party"] = []byte("true")
-			}
-		}
-		upstream, moved := map[string]json.RawMessage{}, false
-		for _, k := range bundlerUpstreamKeys {
-			v, ok := receipt[k.from]
-			if !ok {
+		changed := false
+		for i, r := range rows {
+			var row map[string]json.RawMessage
+			if json.Unmarshal(r, &row) != nil || row == nil {
 				continue
 			}
-			delete(receipt, k.from)
-			moved = true
-			if _, set := upstream[k.to]; !set && !bytes.Equal(v, []byte("null")) && !bytes.Equal(v, []byte(`""`)) {
-				upstream[k.to] = v
+			if field == "" {
+				if bundlerLabelReceipt(row, payer) {
+					rows[i], changed = canonicalJSON(row), true
+				}
+				continue
+			}
+			var receipt map[string]json.RawMessage
+			if json.Unmarshal(row[field], &receipt) != nil || receipt == nil || !bundlerLabelReceipt(receipt, payer) {
+				continue
+			}
+			row[field] = canonicalJSON(receipt)
+			rows[i], changed = canonicalJSON(row), true
+		}
+		if !changed {
+			return nil, false
+		}
+		b := canonicalJSON(rows)
+		return b, b != nil
+	}
+	if b, ok := labelRows(out["results"], "receipt"); ok {
+		out["results"] = b
+	}
+	if b, ok := labelRows(out["receipts"], ""); ok {
+		out["receipts"] = b
+	}
+	var result map[string]json.RawMessage
+	if json.Unmarshal(out["result"], &result) == nil && result != nil {
+		if b, ok := labelRows(result["calls"], "receipt"); ok {
+			result["calls"] = b
+			if r := canonicalJSON(result); r != nil {
+				out["result"] = r
 			}
 		}
-		if !moved && !firstParty {
+	}
+}
+
+// bundlerLabelReceipt labels one upstream receipt in place
+// (bundlerLabelUpstreamReceipts) and reports whether it changed.
+func bundlerLabelReceipt(receipt map[string]json.RawMessage, payer EVMAddress) bool {
+	var payTo string
+	firstParty := false
+	if json.Unmarshal(receipt["pay_to"], &payTo) == nil && payer != (EVMAddress{}) {
+		if a, ok := ParseEVMAddress(payTo); ok && a == payer {
+			firstParty = true
+			receipt["first_party"] = []byte("true")
+		}
+	}
+	upstream, moved := map[string]json.RawMessage{}, false
+	for _, k := range bundlerUpstreamKeys {
+		v, ok := receipt[k.from]
+		if !ok {
 			continue
 		}
-		upstream["note"] = canonicalJSON(BundlerUpstreamNote)
-		if firstParty {
-			upstream["note"] = canonicalJSON(BundlerFirstPartyNote)
-		}
-		receipt["upstream"] = canonicalJSON(upstream)
-		row["receipt"] = canonicalJSON(receipt)
-		results[i] = canonicalJSON(row)
-		changed = true
-	}
-	if changed {
-		if b := canonicalJSON(results); b != nil {
-			out["results"] = b
+		delete(receipt, k.from)
+		moved = true
+		if _, set := upstream[k.to]; !set && !bytes.Equal(v, []byte("null")) && !bytes.Equal(v, []byte(`""`)) {
+			upstream[k.to] = v
 		}
 	}
+	if !moved && !firstParty {
+		return false
+	}
+	if _, ok := upstream["transaction"]; ok {
+		upstream["settlement"] = canonicalJSON(x402SettlementOnchain)
+	} else {
+		delete(upstream, "network")
+		upstream["settlement"] = canonicalJSON("none")
+	}
+	upstream["note"] = canonicalJSON(BundlerUpstreamNote)
+	if firstParty {
+		upstream["note"] = canonicalJSON(BundlerFirstPartyNote)
+	}
+	receipt["upstream"] = canonicalJSON(upstream)
+	return true
 }

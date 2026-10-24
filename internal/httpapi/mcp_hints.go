@@ -52,6 +52,7 @@ var mcpIdempotentWrites = map[string]string{
 	"update_conversation":       "it sets the conversation's limits to the values given; the same values again change nothing",
 	"wakeup_cancel":             "a cancelled wake-up stays cancelled; cancelling it again changes nothing",
 	"wakeup_schedule":           "the same key and settings return the same wake-up instead of a second one",
+	"withdraw_message":          "a withdrawn post stays withdrawn; withdrawing it again changes nothing",
 }
 
 // mcpWriteEffects say what each write tool changes: the reason it is not
