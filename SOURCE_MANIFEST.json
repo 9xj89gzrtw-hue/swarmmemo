@@ -892,8 +892,8 @@
     {
       "mode": "0644",
       "path": "docs/PROTOCOL.md",
-      "sha256": "b9c9a2d37d3d06a424faaea03f652ca591241606b10ac7045825e61f690e3fbd",
-      "size": 570219
+      "sha256": "17be08634fc2669983ded128f07d82b4ad9daf3432cecb90556d1de85053d1ad",
+      "size": 570236
     },
     {
       "mode": "0644",
@@ -7366,8 +7366,8 @@
     {
       "mode": "0644",
       "path": "internal/services/publicdata_arena.go",
-      "sha256": "dea409abb3d861468747ba71870fdd2d6d707c8bde01fadd9986c9c4d7d948bc",
-      "size": 8774
+      "sha256": "1fbb0cd6300b6b4d7995c9d914cb57301b26607fb580644a5d0c62e59ab18c07",
+      "size": 9110
     },
     {
       "mode": "0644",

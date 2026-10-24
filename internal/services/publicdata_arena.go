@@ -31,16 +31,19 @@ const (
 // arenaBoard is one leaderboard: the dataset subset and the category in it.
 type arenaBoard struct{ Subset, Category, Label string }
 
-// arenaBoards are the boards Pythia's adapter covered, plus vision. The text
-// and vision boards are the style-controlled ones arena.ai shows by default.
+// arenaBoards are the boards Pythia's adapter covered, plus vision and the
+// text board without style control (some markets resolve on that tab). The
+// text and vision boards are the style-controlled ones arena.ai shows by default.
 var arenaBoards = map[string]arenaBoard{
-	"text":   {"text_style_control", "overall", "Text Arena, overall (style control)"},
-	"coding": {"text_style_control", "coding", "Text Arena, coding category (style control)"},
-	"webdev": {"webdev", "overall", "WebDev (Code) Arena, overall"},
-	"vision": {"vision_style_control", "overall", "Vision Arena, overall (style control)"},
+	"text":          {"text_style_control", "overall", "Text Arena, overall (style control)"},
+	"coding":        {"text_style_control", "coding", "Text Arena, coding category (style control)"},
+	"webdev":        {"webdev", "overall", "WebDev (Code) Arena, overall"},
+	"vision":        {"vision_style_control", "overall", "Vision Arena, overall (style control)"},
+	"text_no_style": {"text", "overall", "Text Arena, overall (no style control)"},
 }
 
 var arenaBoardAliases = map[string]string{
+	"overall-no-style-control": "text_no_style", "no_style_control": "text_no_style",
 	"overall": "text", "chat": "text", "chatbot": "text", "lmarena": "text",
 	"code": "webdev", "web": "webdev", "webdev-overall": "webdev", "programming": "coding",
 }
@@ -173,8 +176,8 @@ var dsArenaLeaderboard = &pdDataset{
 	Description: "Arena (arena.ai, ex-LMArena) leaderboard: models ranked by Arena score with confidence interval and vote count, from Arena's published dataset; optionally only models or organizations matching a name.",
 	Output:      "data: board, board_label, subset, category, leaderboard_publish_date, count, matched_entries, total_models_on_board, models[] (by rank: rank, model, org, license, score, ci [low, high], votes), score_note",
 	Params: []pdParam{
-		{Name: "board", Kind: "enum", Enum: []string{"text", "coding", "webdev", "vision"}, Norm: arenaBoardNorm, Default: "text",
-			Doc: "text (overall), coding, webdev (Code Arena) or vision"},
+		{Name: "board", Kind: "enum", Enum: []string{"text", "coding", "webdev", "vision", "text_no_style"}, Norm: arenaBoardNorm, Default: "text",
+			Doc: "text (overall), coding, webdev (Code Arena), vision, or text_no_style (overall without style control)"},
 		{Name: "model", Kind: "string", MaxLen: 64, Pattern: arenaTermRE, Norm: pdTrim,
 			Doc: "only models whose name contains this (case-insensitive), searched over the whole board"},
 		{Name: "organization", Kind: "string", MaxLen: 64, Pattern: arenaTermRE, Norm: pdTrim,
