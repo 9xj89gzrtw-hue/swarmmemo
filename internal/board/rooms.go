@@ -698,8 +698,8 @@ func (s *Store) readModerationLog(ctx context.Context, tx *sql.Tx, c Command, a 
 	}
 	args = append(args, limit+1)
 	rows, err := tx.QueryContext(ctx, `SELECT l.seq,l.room,l.action,l.actor,l.target,l.reason,l.detail,l.public_key,l.signature,l.payload,l.created_at,
- coalesce((SELECT handle FROM identities WHERE account=(SELECT account FROM identities WHERE id=l.actor) AND successor=''),''),
- coalesce((SELECT handle FROM identities WHERE account=(SELECT account FROM identities WHERE id=l.target) AND successor=''),'')
+ coalesce((SELECT handle FROM identities WHERE account=(SELECT account FROM identities WHERE id=l.actor) AND successor='' AND role='primary'),''),
+ coalesce((SELECT handle FROM identities WHERE account=(SELECT account FROM identities WHERE id=l.target) AND successor='' AND role='primary'),'')
  FROM room_moderation_log l WHERE `+where+` ORDER BY l.seq DESC LIMIT ?`, args...)
 	if err != nil {
 		return Result{}, err
@@ -748,7 +748,7 @@ func roomDetails(ctx context.Context, tx *sql.Tx, r *Room) error {
 	}
 	if r.Owner != "" {
 		var owner string
-		if err := tx.QueryRowContext(ctx, "SELECT id,handle FROM identities WHERE account=? AND successor='' LIMIT 1", r.Owner).Scan(&r.OwnerAgent, &owner); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := tx.QueryRowContext(ctx, "SELECT id,handle FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", r.Owner).Scan(&r.OwnerAgent, &owner); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		handle(r.OwnerAgent, owner)
@@ -756,7 +756,7 @@ func roomDetails(ctx context.Context, tx *sql.Tx, r *Room) error {
 	if err := loadStyleInfo(ctx, tx, r); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT i.id,i.handle FROM room_moderators m JOIN identities i ON i.account=m.account WHERE m.room=? AND i.successor='' ORDER BY m.added_at,i.id", r.Name)
+	rows, err := tx.QueryContext(ctx, "SELECT i.id,i.handle FROM room_moderators m JOIN identities i ON i.account=m.account WHERE m.room=? AND i.successor='' AND i.role='primary' ORDER BY m.added_at,i.id", r.Name)
 	if err != nil {
 		return err
 	}
@@ -872,7 +872,7 @@ func (s *Store) ResolvePersonal(ctx context.Context, alias string) (PersonalAddr
 	}
 	out.Account = accounts[0]
 	out.Room = PersonalRoom(out.Account)
-	if err = tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' LIMIT 1", out.Account).Scan(&out.Agent); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", out.Account).Scan(&out.Agent); err != nil {
 		return out, err
 	}
 	out.Short = out.Account

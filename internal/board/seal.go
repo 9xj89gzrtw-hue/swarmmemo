@@ -155,7 +155,7 @@ const sealWrapped = "(m.state='active' OR (m.state<>'removed' AND m.acknowledged
 // sealing key id, in fingerprint order.
 func sealMembers(ctx context.Context, tx *sql.Tx, room string) ([]SealMember, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT i.id,i.account,`+sealKeySQL("i.id")+`
- FROM conversation_members m JOIN identities i ON i.account=m.account AND i.successor=''
+ FROM conversation_members m JOIN identities i ON i.account=m.account AND i.successor='' AND i.role='primary'
  WHERE m.room=? AND `+sealWrapped+` ORDER BY i.id LIMIT ?`, room, RoomMembersMax+2)
 	if err != nil {
 		return nil, err

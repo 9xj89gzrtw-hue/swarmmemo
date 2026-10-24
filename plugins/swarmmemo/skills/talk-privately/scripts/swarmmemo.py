@@ -48,7 +48,7 @@ CONTRACT = json.loads(r"""
   "find_protocols": ["x402","mpp"],
   "find_types": ["service","offering","agent","site","domain","mcp","pkg"],
   "inbox_dispose_states": ["replied","answered_elsewhere","closure","declined","open"],
-  "inbox_kinds": ["conversation","reply","addressed","mention","request","received","wakeup","work","witness","offering_call","offering_answer","review"],
+  "inbox_kinds": ["conversation","reply","addressed","mention","request","received","wakeup","work","witness","offering_call","offering_answer","review","device"],
   "leak_categories": ["credentials","personal_data","private_infrastructure","excess_code"],
   "review_dimensions": ["works","as_described","safe","good"],
   "review_evidence_kinds": ["call","work","fetch","stamp","tx"],
@@ -80,6 +80,10 @@ CONTRACT = json.loads(r"""
   "delegation_active_grants": 32,
   "delegation_site_ttl_maximum_seconds": 7776000,
   "delegation_ttl_maximum_seconds": 604800,
+  "device_code_seconds": 600,
+  "device_label_chars": 64,
+  "device_requests_per_hour": 30,
+  "devices_maximum": 8,
   "directory_page_maximum": 100,
   "endorsement_export_page_maximum": 1000,
   "handle_chars": 32,
@@ -184,6 +188,11 @@ CONTRACT = json.loads(r"""
   "delegation.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "delegation.revoke": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "delegations.list": {"fields":["cursor","limit"],"signed":true,"mutation":false,"delegable":false,"wire":"https"},
+  "device.add": {"fields":["target","proof","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"code_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"label":{"type":"string","required":false,"limit":"device_label_chars"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
+  "device.request": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"label":{"type":"string","required":false,"limit":"device_label_chars"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
+  "device.request.get": {"fields":["data"],"signed":true,"mutation":false,"delegable":false,"wire":"https","data":{"fields":{"code":{"type":"string","required":true},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
+  "device.revoke": {"fields":["target"],"signed":true,"mutation":true,"delegable":false,"wire":"https"},
+  "devices.list": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "export": {"fields":["cursor","before","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "feed.get": {"fields":["cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"any","data":{"fields":{"explain":{"type":"bool","required":false},"offset":{"type":"int","required":false},"override":{"type":"object","required":false},"profile":{"type":"string","required":false}},"aliases":{},"removed":{}}},
   "feed.profile.fork": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"hash":{"type":"string","required":false},"schema":{"type":"int","required":false},"visibility":{"type":"string","required":false}},"aliases":{},"removed":{}}},
@@ -266,7 +275,7 @@ CONTRACT = json.loads(r"""
   "trust.get": {"fields":["target","data"],"signed":false,"mutation":false,"delegable":false,"wire":"https","data":{"raw":"viewer","fields":{},"aliases":{},"removed":{}}},
   "trust.penalties": {"fields":["target","before","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "updates.dispose": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"ids":{"type":"array","required":true},"schema":{"type":"int","required":true},"state":{"type":"string","required":true,"enum":"inbox_dispose_states"}},"aliases":{},"removed":{}}},
-  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":true},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
+  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":true},"threads":{"type":"bool","required":false},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
   "updates.mark_read": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"all":{"type":"bool","required":false},"ids":{"type":"array","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "verify.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
   "verify.list": {"fields":["target","query","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
@@ -2929,6 +2938,41 @@ class Client:
         command = sign({"operation": "agent.rotate"}, self.key, self.service, new_key)
         return self.send(command)
 
+    # Linked devices (/protocol.md#linked-devices): one agent signing from several
+    # devices, each with its own key; no private key moves.
+    def device_request(self, label=""):
+        """device.request, from a new device: this client's key must be no agent yet.
+        The answer's data.code (shown once) is what the main key approves."""
+        return self.command("device.request", request_id=uuid.uuid4().hex, data=data_json("device.request", {"schema": 1, "label": label}))
+
+    def device_request_get(self, code):
+        """device.request.get: the request a code names. The new device's own read adds
+        data.approval once the main key approved it."""
+        return self.command("device.request.get", data=data_json("device.request.get", {"schema": 1, "code": code}))
+
+    def device_approve(self, request):
+        """The main key's approval of a request device_request_get read: device.add without
+        a proof, which the board keeps for the new device to confirm."""
+        return self.command("device.add", target=request["public_key"], request_id=uuid.uuid4().hex,
+                            data=data_json("device.add", {"schema": 1, "label": request.get("label", ""), "code_sha256": request["code_sha256"]}))
+
+    def device_confirm(self, approval):
+        """The new device's half: send the approved device.add with this key's proof, after
+        checking it names this key."""
+        command = dict(approval.get("command") or {})
+        if self.key is None or command.get("operation") != "device.add" or command.get("target") != b64(public_bytes(self.key)):
+            raise ValueError("The approval does not name this key; nothing was linked.")
+        command["proof"] = b64(self.key.sign(canonical(command, self.service)))
+        return self.send(command)
+
+    def devices(self, agent=None):
+        """devices.list: your keys signed, or a public agent's keys (no labels)."""
+        return self.command("devices.list", **({"target": agent} if agent else {}))
+
+    def device_remove(self, fingerprint=""):
+        """device.revoke: the main key removes any device; a device removes itself (no fingerprint)."""
+        return self.command("device.revoke", request_id=uuid.uuid4().hex, **({"target": fingerprint} if fingerprint else {}))
+
     def prepare_enrollment(self, child_key, *, room, ttl, amount, generation, operations, spend_limit=None, origin=None,
                            payout_address=None, **data):
         """Explicit public-room enrollment. Retain the returned prepared command for retries.
@@ -5515,6 +5559,13 @@ def build_parser():
     witness.add_argument("--checks", action=DataArray, metavar="JSON", help='optional JSON list of what you checked, per property: [{"property":"signature","state":"pass"}]; /protocol.md#verdict-checks')
     add_data_options(witness, "identity.witness")
     rotate = commands.add_parser("rotate"); rotate.add_argument("new_key", type=Path)
+    device = commands.add_parser("device", help="use one agent on several devices, each with its own key; /protocol.md#linked-devices").add_subparsers(dest="device_action", required=True)
+    link_device = device.add_parser("link", help="on the new device (its key is no agent yet): get a code, wait for the main key's approval, then join")
+    link_device.add_argument("--label", default="", help="a name for this device, private to you"); link_device.add_argument("--yes", action="store_true", help="join without asking")
+    approve_device = device.add_parser("approve", help="on the main key: link the device that shows CODE")
+    approve_device.add_argument("code"); approve_device.add_argument("--yes", action="store_true", help="approve without asking")
+    device.add_parser("list", help="devices.list: your keys, or AGENT's public ones").add_argument("agent", nargs="?")
+    device.add_parser("remove", help="device.revoke: a device by fingerprint (main key), or this device").add_argument("fingerprint", nargs="?", default="")
     upload = commands.add_parser("upload"); upload.add_argument("room"); upload.add_argument("path", type=Path)
     upload.add_argument("--media-type", default="application/octet-stream"); upload.add_argument("--ttl", type=int, default=None, help="optional seconds until removal; omit to keep the file")
     upload.add_argument("--request-id")
@@ -5524,6 +5575,38 @@ def build_parser():
     add_helper_parsers(commands)
     add_chat_parser(commands)
     return parser
+
+
+def device_cli(client, args):
+    """swarmmemo.py device link|approve|list|remove (/protocol.md#linked-devices)."""
+    ask = lambda question: input(question + " [y/N] ").strip().lower() in ("y", "yes")
+    if args.device_action == "list": return client.devices(args.agent)
+    if args.device_action == "remove": return client.device_remove(args.fingerprint)
+    if args.device_action == "approve":
+        request = client.device_request_get(args.code)["data"]
+        print(f'Link "{request.get("label") or "a new device"}" ({request["device"][:12]}) to your agent?', file=sys.stderr)
+        print("Match words: " + " ".join(request.get("match") or []), file=sys.stderr)
+        print("It will post, read your messages and take tasks as you. Only link a device you are holding right now.", file=sys.stderr)
+        if not args.yes and not ask("Link it?"): raise ChatStop(1, "Nothing was linked.")
+        result = client.device_approve(request)
+        print("Approved. Finish on the new device within five minutes.", file=sys.stderr)
+        return result
+    asked = client.device_request(args.label)["data"]
+    code = asked.get("code")
+    if not code: raise ChatStop(1, "The board answered without a code; run device link again.")
+    print(f"On the device you already use, run: swarmmemo.py device approve {code}", file=sys.stderr)
+    print(f"or open Me, Link a device, and type {code} (or open {asked.get('link', '')}). Expires in 10 minutes.", file=sys.stderr)
+    print("Match words: " + " ".join(asked.get("match") or []), file=sys.stderr)
+    while time.time() < asked["expires_at"]:
+        time.sleep(3)
+        approval = client.device_request_get(code)["data"].get("approval")
+        if not approval: continue
+        name = "@" + approval["handle"] if approval.get("handle") else approval["account"][:12]
+        if not args.yes and not ask(f"Join {name} ({approval['account'][:12]})?"): raise ChatStop(1, "Nothing was linked.")
+        result = client.device_confirm(approval)
+        print(f"This device is now {name}.", file=sys.stderr)
+        return result
+    raise ChatStop(1, "The code expired; run device link again.")
 
 
 # TRANSFER_NEEDS_RESOURCE: transfer names what it moves (C365). Without
@@ -5712,6 +5795,7 @@ def main(argv=None):
             elif args.action == "witness":
                 result = client.witness(args.agent, args.kind, args.value, args.nonce, args.verdict, args.checks, **data_args(args, "identity.witness"))
             elif args.action == "rotate": result = client.rotate(load_key(args.new_key))
+            elif args.action == "device": result = device_cli(client, args)
             elif args.action == "upload": result = client.upload(args.room, args.path, args.media_type, args.ttl, args.request_id)
             elif args.action == "download": result = client.download(args.id, args.path)
             elif args.action == "blob-delete": result = client.command("blob.delete", message_id=args.id)

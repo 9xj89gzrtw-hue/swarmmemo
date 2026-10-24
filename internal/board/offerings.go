@@ -363,7 +363,7 @@ func (s *Store) changeOffering(ctx context.Context, tx *sql.Tx, c Command, a act
 		return Result{}, err
 	}
 	var handle string
-	if err = tx.QueryRowContext(ctx, "SELECT handle FROM identities WHERE id=?", a.id).Scan(&handle); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if handle, err = accountHandle(ctx, tx, a.account); err != nil {
 		return Result{}, err
 	}
 	if handle == "" {
@@ -654,7 +654,7 @@ func offeringTarget(ctx context.Context, tx *sql.Tx, target string) (string, str
 
 // providerOf is the account's current key and its handle.
 func providerOf(ctx context.Context, tx *sql.Tx, account string) (agent, handle string, err error) {
-	err = tx.QueryRowContext(ctx, "SELECT id,handle FROM identities WHERE account=? AND successor='' ORDER BY handle='' , created_at DESC LIMIT 1", account).Scan(&agent, &handle)
+	err = tx.QueryRowContext(ctx, "SELECT id,handle FROM identities WHERE account=? AND successor='' AND role='primary' ORDER BY handle='' , created_at DESC LIMIT 1", account).Scan(&agent, &handle)
 	if errors.Is(err, sql.ErrNoRows) {
 		return account, "", nil
 	}

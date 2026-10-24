@@ -1,10 +1,11 @@
 // Requires an owned, verified disposable loopback preview; never production.
 // The header and the Inbox on a phone with new replies (C181, C184): one header
 // row, with Me in the corner carrying a count; Me opens Me at its Inbox, where
-// the new replies come first (byline, preview, Unread), each opening its
-// permalink, where the reply is loaded (even past the conversation's first page
-// and deeper than the page indents), centred and marked New. Once read, the
-// count clears and the item stays listed, marked Read.
+// the thread with the new replies comes first (Unread, the others in it, its
+// first line), opening at its newest new reply, where the reply is loaded
+// (even past the conversation's first page and deeper than the page indents),
+// centred and marked New. Once read, the count clears and the thread stays
+// listed, marked Read.
 const assert = require('node:assert/strict');
 const {identity, board, withIdentity, launch, noHorizontalScroll} = require('./testdata/messages_mock.cjs');
 const origin = process.env.SWARMMEMO_TEST_URL;
@@ -52,21 +53,21 @@ const shots = process.env.SWARMMEMO_SCREENSHOT_DIR;
     assert.equal(await meLink.getAttribute('href'), '/me#inbox-new', 'with news, Me opens Me at the Inbox');
     if (shots) await page.screenshot({path: shots + '/c184-after-360-feed.png'});
 
-    // Me opens Me at the Inbox: the new replies first, each with byline, preview and Unread.
+    // Me opens Me at the Inbox: its thread first, Unread, with kind, the others in it and
+    // its first line, opening at the newest new reply (Your threads, C575).
     await meLink.tap(); await page.waitForURL(origin + '/me#inbox-new');
     const rows = page.locator('#inbox-list .inbox-row');
-    await page.waitForFunction(() => document.querySelectorAll('#inbox-list .inbox-unread .inbox-row-who').length === 2);
+    await page.waitForFunction(() => document.querySelectorAll('#inbox-list .inbox-unread .inbox-row-who').length === 1);
     assert.equal(await page.locator('#me-tabs [aria-selected="true"]').textContent(), 'Inbox2');
     const first = rows.first();
     assert.equal(await first.locator('.inbox-row-state').textContent(), 'Unread');
     assert.equal(await first.locator('.inbox-row-kind').textContent(), 'Reply to you');
-    assert.match(await first.locator('.inbox-row-who').textContent(), /\S/, 'a byline');
-    const hrefs = await page.locator('#inbox-list .inbox-unread a').evaluateAll(list => list.map(a => a.getAttribute('href')));
-    assert.deepEqual(hrefs.sort(), ['/e/' + late, '/e/' + deep].sort(), 'each new reply links its permalink');
-    assert.ok(await rows.count() > 2, 'earlier replies are listed too, marked Read');
-    assert.equal(await rows.nth(2).locator('.inbox-row-state').textContent(), 'Read');
+    assert.match(await first.locator('.inbox-row-who').textContent(), /^with \S/, 'the others in the thread');
+    assert.match(await first.locator('.inbox-row-preview').textContent(), /^My long conversation for the phone/);
+    assert.equal(await first.locator('a').getAttribute('href'), '/e/' + deep, 'the thread opens at its newest new reply');
+    assert.equal(await rows.count(), 1, 'both replies are in the one thread');
     const box = await first.boundingBox();
-    assert.ok(box.y >= 0 && box.y + box.height <= 800, 'the first new reply is on screen without scrolling');
+    assert.ok(box.y >= 0 && box.y + box.height <= 800, 'the thread is on screen without scrolling');
     assert.ok(await page.locator('#me-tabs a[href="#more"]').count() === 1, 'Settings is one tap away on Me');
     assert.ok(await noHorizontalScroll(page), 'no horizontal scroll on Me at 360px');
     if (shots) await page.screenshot({path: shots + '/c184-after-360-me.png'});
@@ -77,29 +78,29 @@ const shots = process.env.SWARMMEMO_SCREENSHOT_DIR;
       assert.ok(await el.evaluate(n => n.classList.contains('memo-focus') && n.classList.contains('memo-new')), 'the reply is highlighted');
       assert.equal(await el.locator('.memo-new-label').textContent(), 'New reply');
     };
+    // The reply deeper than the page indents: its branch, with the way back up.
+    await first.locator('a').tap(); await page.waitForURL(origin + '/e/' + deep);
+    await page.locator('#e-' + deep).waitFor();
+    assert.ok(await page.locator('a', {hasText: 'The whole conversation'}).count() > 0, 'a branch page links the whole conversation');
+    await centred(deep); await marked(deep);
+    await page.waitForFunction(() => document.getElementById('me-count').textContent === '1');
+
+    // Back to the Inbox: the thread is still Unread, now opening at the other reply.
+    await meLink.tap(); await page.waitForURL(origin + '/me#inbox-new');
+    await page.waitForFunction(id => document.querySelector('#inbox-list .inbox-unread a')?.getAttribute('href') === '/e/' + id, late);
     // The reply past the first page: the conversation reads on to it.
     await page.locator('#inbox-list a[href="/e/' + late + '"]').tap(); await page.waitForURL(origin + '/e/' + late);
     await page.locator('#e-' + late).waitFor();
     assert.ok(await page.locator('#thread article.memo').count() > 40, 'the conversation is read on past its first page to the reply');
     await centred(late); await marked(late);
     if (shots) await page.screenshot({path: shots + '/c184-after-360-reply.png'});
-    await page.waitForFunction(() => document.getElementById('me-count').textContent === '1');
-
-    // Back to the Inbox: that reply is now Read, still listed; the deep one is still Unread.
-    await meLink.tap(); await page.waitForURL(origin + '/me#inbox-new');
-    await page.waitForFunction(id => document.querySelector('#inbox-list a[href="/e/' + id + '"]')?.closest('.inbox-row')?.querySelector('.inbox-row-state')?.textContent === 'Read', late);
-    // The reply deeper than the page indents: its branch, with the way back up.
-    await page.locator('#inbox-list a[href="/e/' + deep + '"]').tap(); await page.waitForURL(origin + '/e/' + deep);
-    await page.locator('#e-' + deep).waitFor();
-    assert.ok(await page.locator('a', {hasText: 'The whole conversation'}).count() > 0, 'a branch page links the whole conversation');
-    await centred(deep); await marked(deep);
-    // Both read: the count clears, Me is plain Me, and the Inbox keeps both, marked Read.
+    // Both read: the count clears, Me is plain Me, and the Inbox keeps the thread, marked Read.
     await count.waitFor({state: 'hidden'});
     assert.equal(await meLink.getAttribute('href'), '/me');
     await meLink.tap(); await page.waitForURL(origin + '/me');
-    await page.waitForFunction(() => document.querySelectorAll('#inbox-list .inbox-row').length > 2);
+    await page.waitForFunction(() => document.querySelectorAll('#inbox-list .inbox-row').length === 1);
     assert.equal(await page.locator('#inbox-list .inbox-unread').count(), 0);
-    assert.equal(await page.locator('#inbox-list a[href="/e/' + deep + '"] .inbox-row-state').textContent(), 'Read');
+    assert.equal(await page.locator('#inbox-list a[href="/e/' + root + '"] .inbox-row-state').textContent(), 'Read');
     assert.equal(await page.locator('#inbox-mark-read').isHidden(), true);
     if (shots) await page.screenshot({path: shots + '/c184-after-360-me-read.png'});
 
@@ -120,6 +121,6 @@ const shots = process.env.SWARMMEMO_SCREENSHOT_DIR;
     assert.equal(await desk.locator('#me-count').textContent(), '1', 'the conversation keeps its own unread count');
     await wide.close();
     assert.deepEqual(errors, []);
-    console.log('PASS: one header row with a count on Me; Me opens Me at the Inbox, new replies first with byline, preview and Unread; each lands on the reply, centred and marked New, past the first page and deeper than the page indents; read replies stay listed as Read; desktop and Mark all read.');
+    console.log('PASS: one header row with a count on Me; Me opens Me at the Inbox, the thread with new replies first, Unread, opening at its newest new reply; each lands on the reply, centred and marked New, past the first page and deeper than the page indents; the read thread stays listed as Read; desktop and Mark all read.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

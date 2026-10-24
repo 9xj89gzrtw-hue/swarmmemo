@@ -470,7 +470,7 @@ func (s *Store) conversationFor(ctx context.Context, tx *sql.Tx, conv conversati
 	}
 	if me.State == memberLeft || me.State == memberRemoved {
 		self := ConversationMember{Agent: reader, Custody: "self", State: me.State, Role: me.Role}
-		if err = tx.QueryRowContext(ctx, "SELECT id,handle,custody FROM identities WHERE account=? AND successor='' LIMIT 1", reader).Scan(&self.Agent, &self.Handle, &self.Custody); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err = tx.QueryRowContext(ctx, "SELECT id,handle,custody FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", reader).Scan(&self.Agent, &self.Handle, &self.Custody); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return Conversation{}, err
 		}
 		return Conversation{Room: conv.Room, Kind: conv.Kind, State: "closed", Sealed: conv.Sealed, Members: []ConversationMember{self}, MembersCount: 1,
@@ -506,7 +506,7 @@ func (s *Store) conversationFor(ctx context.Context, tx *sql.Tx, conv conversati
 	// arrival.
 	rows, err := tx.QueryContext(ctx, `SELECT m.account,m.state,m.role,m.acknowledged,m.changed_at,m.read_seq,
  coalesce(i.id,m.account),coalesce(i.handle,''),coalesce(i.custody,'self'),`+sealKeySQL("i.id")+`
- FROM conversation_members m LEFT JOIN identities i ON i.id=(SELECT id FROM identities WHERE account=m.account AND successor='' LIMIT 1)
+ FROM conversation_members m LEFT JOIN identities i ON i.id=(SELECT id FROM identities WHERE account=m.account AND successor='' AND role='primary' LIMIT 1)
  WHERE m.room=? AND (?='' OR m.account IN (?,?)) AND (`+placeTakenSQL+` OR m.rowid IN
  (SELECT d.rowid FROM conversation_members d WHERE d.room=m.room AND NOT `+strings.ReplaceAll(placeTakenSQL, "m.", "d.")+` ORDER BY d.changed_at DESC,d.rowid DESC LIMIT ?))
  ORDER BY m.account=? DESC,m.role='owner' DESC,m.changed_at,m.account LIMIT ?`, conv.Room, only, reader, only, DeparturesShown, reader, limit)

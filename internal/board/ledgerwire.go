@@ -833,13 +833,13 @@ func (s *Store) rotatedKeyMayCancel(ctx context.Context, tx *sql.Tx, c Command, 
 var proofBearingKinds = map[string]bool{"domain": true, "ed25519": true}
 
 // onAccountChange records a breaker trigger (§2.4) in the command's
-// transaction: every agent.rotate, and identity.link or identity.unlink of
-// a proof-bearing kind.
+// transaction: every agent.rotate and device.add, and identity.link or
+// identity.unlink of a proof-bearing kind.
 func (s *Store) onAccountChange(ctx context.Context, tx *sql.Tx, change accountChange, now int64) error {
 	if s.config.Features.Ledger == LedgerOff {
 		return nil
 	}
-	if change.Reason != "agent.rotate" && !proofBearingKinds[change.Kind] {
+	if change.Reason != "agent.rotate" && change.Reason != "device.add" && !proofBearingKinds[change.Kind] {
 		return nil
 	}
 	return s.ledger.led.TripBreaker(ctx, tx, change.Account, change.Reason, change.CancelKey, now)

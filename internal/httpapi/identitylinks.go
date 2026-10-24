@@ -58,6 +58,30 @@ func keyBackupCapabilities() map[string]any {
 	}
 }
 
+// deviceCapabilities describes linked devices (RFC0014 §3, C576): one agent
+// signing from several keys, linked with a one-time code.
+func deviceCapabilities() map[string]any {
+	return map[string]any{
+		"operations":                    []string{"device.request", "device.request.get", "device.add", "device.revoke", "devices.list"},
+		"browser_control":               "/me#devices",
+		"maximum":                       board.DeviceMax,
+		"code_ttl_seconds":              board.DeviceCodeTTL,
+		"code":                          "8 Crockford base32 characters, shown as XXXX-XXXX; one-time; only its SHA-256 is stored",
+		"hold_seconds":                  board.DeviceHoldSeconds,
+		"held_operations":               board.DeviceHeldOps,
+		"held_also":                     "work.claim and work.submit naming a payout_address; a post's handle claim",
+		"main_key_only":                 board.DeviceMainKeyOps,
+		"requests_per_hour_per_network": board.DeviceRequestsPerHour,
+		"private_key_moves":             false,
+		"both_keys_sign":                "device.add: the main key signs, the new device signs the same canonical bytes as proof",
+		"public":                        "each key's public_key, role, added_at and removed_at (devices.list with target; /api/record); labels stay private",
+		"per_account":                   "handle, standing, allowance, inbox, rooms and conversations; a device adds none",
+		"sealed_history":                "not shared with devices: sealed epochs wrap for each member's main key",
+		"hosted":                        "hosted identities link no devices; a second app takes another token (manage_tokens)",
+		"instructions":                  "/protocol.md#linked-devices",
+	}
+}
+
 // identityLinkOpenAPI is the published shape of one agent.links item; the HTTP
 // tests validate real /api/agent responses against it.
 func identityLinkOpenAPI() map[string]any {

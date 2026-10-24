@@ -213,11 +213,15 @@ func privateReadState(ctx context.Context, tx *sql.Tx, g privateReadRow, now int
 	if epoch != g.Epoch || owner != g.Owner || visibility != "private" {
 		return "room_epoch_disabled", nil
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT successor FROM identities WHERE id=?", g.IssuerID).Scan(&successor); err != nil {
+	var revoked int64
+	if err := tx.QueryRowContext(ctx, "SELECT successor,revoked_at FROM identities WHERE id=?", g.IssuerID).Scan(&successor, &revoked); err != nil {
 		return "", err
 	}
 	if successor != "" {
 		return "issuer_rotated", nil
+	}
+	if revoked != 0 {
+		return "issuer_revoked", nil
 	}
 	if now >= g.Expires {
 		return "expired", nil
@@ -472,7 +476,7 @@ func privateReadCapacity(ctx context.Context, tx *sql.Tx, owner, room, generatio
 		global, local := 32768, 4096
 		if active {
 			global, local = 256, 8
-			query += " JOIN rooms r ON r.name=g.room JOIN identities i ON i.id=g.issuer_id WHERE g.revoked_at=0 AND g.expires_at>? AND g.generation=? AND g.access_epoch=r.private_access_epoch AND g.owner_account=r.owner AND r.visibility='private' AND i.successor=''"
+			query += " JOIN rooms r ON r.name=g.room JOIN identities i ON i.id=g.issuer_id WHERE g.revoked_at=0 AND g.expires_at>? AND g.generation=? AND g.access_epoch=r.private_access_epoch AND g.owner_account=r.owner AND r.visibility='private' AND i.successor='' AND i.revoked_at=0"
 			args = append(args, now, generation)
 		}
 		var total, owned, inRoom int

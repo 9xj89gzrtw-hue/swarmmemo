@@ -242,17 +242,22 @@ func delegationState(ctx context.Context, tx *sql.Tx, g delegationRow, now int64
 		return "revoked", nil
 	}
 	var generation, successor string
+	var revoked int64
 	if err := tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key='generation'").Scan(&generation); err != nil {
 		return "", err
 	}
 	if generation != g.Generation {
 		return "epoch_disabled", nil
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT successor FROM identities WHERE id=?", g.IssuerID).Scan(&successor); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT successor,revoked_at FROM identities WHERE id=?", g.IssuerID).Scan(&successor, &revoked); err != nil {
 		return "", err
 	}
 	if successor != "" {
 		return "issuer_rotated", nil
+	}
+	if revoked != 0 {
+		// A removed device's grants die with it (RFC0014 §3.4).
+		return "issuer_revoked", nil
 	}
 	if now >= g.Expires {
 		return "expired", nil
@@ -441,7 +446,7 @@ func (s *Store) changeDelegation(ctx context.Context, tx *sql.Tx, c Command, a a
 		if exists != 0 {
 			return Result{}, delegationError("delegation_exists")
 		}
-		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM delegations g JOIN identities i ON i.id=g.issuer_id WHERE g.parent_account=? AND g.revoked_at=0 AND g.expires_at>? AND g.generation=? AND i.successor=''", a.account, now, current).Scan(&exists); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM delegations g JOIN identities i ON i.id=g.issuer_id WHERE g.parent_account=? AND g.revoked_at=0 AND g.expires_at>? AND g.generation=? AND i.successor='' AND i.revoked_at=0", a.account, now, current).Scan(&exists); err != nil {
 			return Result{}, err
 		}
 		if exists >= DelegationMaxActive {
@@ -701,7 +706,7 @@ type Principal struct {
 
 // principalColumn reads a delegated event's grant as "ISSUER HANDLE PAYLOAD"
 // (a handle has no spaces; the payload is the rest), or "" for any other event.
-const principalColumn = `coalesce((SELECT d.issuer_id||' '||coalesce((SELECT pi.handle FROM identities pi WHERE pi.id=d.issuer_id),'')||' '||d.payload FROM event_delegations pd JOIN delegations d ON d.child_id=pd.grant_id WHERE pd.event_id=e.id),'')`
+var principalColumn = `coalesce((SELECT d.issuer_id||' '||` + handleKeySQL("d.issuer_id") + `||' '||d.payload FROM event_delegations pd JOIN delegations d ON d.child_id=pd.grant_id WHERE pd.event_id=e.id),'')`
 
 // parsePrincipal reads principalColumn for a worker key's own post (its
 // author is the grant delegation_id names), or nil.

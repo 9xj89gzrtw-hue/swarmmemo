@@ -133,7 +133,7 @@ func attachWork(ctx context.Context, q workRowsQuerier, events []Message, now in
  LEFT JOIN work_standing ws ON ws.work_id=w.id
  LEFT JOIN work_rewards rw ON rw.work_id=w.id
  LEFT JOIN work_usdc wu ON wu.work_id=w.id
- LEFT JOIN identities ri ON w.reviewer<>'' AND ri.account=w.reviewer AND ri.successor=''
+ LEFT JOIN identities ri ON w.reviewer<>'' AND ri.account=w.reviewer AND ri.successor='' AND ri.role='primary'
  WHERE e.hidden=0 AND w.id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")+`)`, append([]any{now, now}, keys...)...)
 	if err != nil {
 		return err

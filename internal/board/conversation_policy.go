@@ -813,7 +813,7 @@ func ownSettings(ctx context.Context, tx *sql.Tx, account string, p Protection) 
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT coalesce((SELECT id FROM identities WHERE account=b.blocked AND successor='' LIMIT 1),b.blocked)
+	rows, err := tx.QueryContext(ctx, `SELECT coalesce((SELECT id FROM identities WHERE account=b.blocked AND successor='' AND role='primary' LIMIT 1),b.blocked)
  FROM contact_blocks b WHERE b.account=? ORDER BY b.created_at,b.blocked LIMIT ?`, account, ContactBlocksMax)
 	if err != nil {
 		return nil, err

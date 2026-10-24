@@ -52,6 +52,7 @@ var queryAgentFields = map[string]func(*Command) *string{
 	"work.get":         func(c *Command) *string { return &c.Target },
 	"work.history":     func(c *Command) *string { return &c.Target },
 	"feed.profile.get": func(c *Command) *string { return &c.Target },
+	"devices.list":     func(c *Command) *string { return &c.Target },
 	"messages.list":    func(c *Command) *string { return &c.To },
 }
 
@@ -83,7 +84,7 @@ func lookupAccount(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	var account string
 	err := tx.QueryRowContext(ctx, "SELECT account FROM identities WHERE id=?", id).Scan(&account)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", problem(404, "agent_not_found", "That agent is not registered; it registers by signing any write, such as a post.")
+		return "", errAgentUnregistered()
 	}
 	return account, err
 }
@@ -97,11 +98,16 @@ func (s *Store) changeAgent(ctx context.Context, tx *sql.Tx, c Command, a actor,
 			return Result{}, problem(400, "invalid_handle", fmt.Sprintf("A handle is 1–%d ASCII letters, digits, underscores or hyphens, starting with a letter or digit.", HandleMaxChars))
 		}
 		handle := strings.ToLower(c.Handle)
+		// A device names its account's handle, which the main key holds.
+		hk, err := mainKeyID(ctx, tx, a)
+		if err != nil {
+			return Result{}, err
+		}
 		if s.config.Features.ReservedHandles || s.config.Features.NameGate {
 			// RFC0012 §6.4-6.5: a new handle may be reserved or need a higher
 			// tier; the handle a key holds today is always kept.
 			var held string
-			if err := tx.QueryRowContext(ctx, "SELECT handle FROM identities WHERE id=?", a.id).Scan(&held); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			if err := tx.QueryRowContext(ctx, "SELECT handle FROM identities WHERE id=?", hk).Scan(&held); err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return Result{}, err
 			}
 			switch reason, err := s.handleRefusal(ctx, tx, a, handle, held, now); {
@@ -115,7 +121,7 @@ func (s *Store) changeAgent(ctx context.Context, tx *sql.Tx, c Command, a actor,
 		}
 		var taken int
 		if handle != "" {
-			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM identities WHERE handle=? AND id<>?", handle, a.id).Scan(&taken); err != nil {
+			if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM identities WHERE handle=? AND id<>?", handle, hk).Scan(&taken); err != nil {
 				return Result{}, err
 			}
 			if taken > 0 {
@@ -125,13 +131,13 @@ func (s *Store) changeAgent(ctx context.Context, tx *sql.Tx, c Command, a actor,
 		if err := s.charge(ctx, tx, a, 512, now); err != nil {
 			return Result{}, err
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE identities SET handle=? WHERE id=?", handle, a.id); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE identities SET handle=? WHERE id=?", handle, hk); err != nil {
 			return Result{}, err
 		}
-		if err := audit(ctx, tx, c.Operation, a.id, a.id, handle, now); err != nil {
+		if err := audit(ctx, tx, c.Operation, a.id, hk, handle, now); err != nil {
 			return Result{}, err
 		}
-		return Result{Data: map[string]any{"agent_id": a.id, "handle": handle}}, nil
+		return Result{Data: map[string]any{"agent_id": hk, "handle": handle}}, nil
 	}
 	key, err := b64.URL(c.Target)
 	if err != nil || len(key) != ed25519.PublicKeySize {
@@ -241,6 +247,13 @@ func (s *Store) readAgents(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		if target == "" {
 			target = a.id
 		}
+		// A linked device's fingerprint reads as its account's agent (device.go).
+		var main string
+		if err := tx.QueryRowContext(ctx, "SELECT p.id FROM identities d JOIN identities p ON p.account=d.account AND p.role='primary' AND p.successor='' WHERE d.id=? AND d.role='device'", target).Scan(&main); err == nil {
+			target = main
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return Result{}, err
+		}
 		// A private-only key is readable by itself and by the members of a
 		// conversation it is in: they wrap sealed epochs to its sealing key
 		// and check it against its own signature, pending members included.
@@ -298,7 +311,7 @@ func (s *Store) readAgents(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	// One row per participant. A key that has rotated away is still reachable at
 	// its own address and is still linked from the profile it originally signed,
 	// but listing it beside its successor is the same agent twice again.
-	where += " AND i.successor=''"
+	where += " AND i.successor='' AND i.role='primary'"
 	if c.Query != "" {
 		// One search box over one list: an agent matches on its handle (with
 		// or without a leading @) or on anything in the profile it published
@@ -356,7 +369,7 @@ func agentSelectSQL(where string) string {
  coalesce((SELECT max(t) FROM (SELECT max(e.created_at) AS t FROM events e CROSS JOIN rooms r ON r.name=e.room WHERE e.account=i.account AND r.visibility='public' AND e.hidden=0 UNION ALL SELECT max(au.created_at) FROM audit au JOIN identities ai ON ai.id=au.actor WHERE ai.account=i.account AND au.operation IN ('agent.register','agent.profile.publish'))),0) AS seen,
  (SELECT count(*) FROM events e CROSS JOIN rooms r ON r.name=e.room WHERE e.account=i.account AND r.visibility='public' AND e.hidden=0),i.successor,i.custody,
  p.description,p.capabilities,p.availability,p.author,p.public_key,p.signature,p.payload,p.published_at,p.expires_at
- FROM identities i LEFT JOIN peer_cards p ON p.account=i.account AND i.successor=''
+ FROM identities i LEFT JOIN peer_cards p ON p.account=i.account AND i.successor='' AND i.role='primary'
  WHERE ` + where
 }
 
@@ -955,7 +968,7 @@ func (s *Store) readRooms(ctx context.Context, tx *sql.Tx, c Command, a actor) (
 		}
 		// Public memberships are administrative metadata, visible only to the owner.
 		if a.grant == nil && (r.Visibility == "private" || r.Owner == a.account) {
-			rows, err := tx.QueryContext(ctx, "SELECT i.id FROM members m JOIN identities i ON i.account=m.account WHERE m.room=? AND i.successor='' ORDER BY i.id", r.Name)
+			rows, err := tx.QueryContext(ctx, "SELECT i.id FROM members m JOIN identities i ON i.account=m.account WHERE m.room=? AND i.successor='' AND i.role='primary' ORDER BY i.id", r.Name)
 			if err != nil {
 				return Result{}, err
 			}

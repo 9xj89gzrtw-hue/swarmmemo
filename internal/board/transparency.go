@@ -179,7 +179,7 @@ var eventIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // (a handle claimed on a post) precedes the message, which precedes room
 // governance and tier changes.
 // identityLogOps are the audit operations logged as identity leaves.
-const identityLogOps = `'agent.register','handle.claim','agent.rotate','hosted.claim','identity.link','identity.unlink','agent.profile.publish','agent.profile.remove'`
+const identityLogOps = `'agent.register','handle.claim','agent.rotate','hosted.claim','identity.link','identity.unlink','agent.profile.publish','agent.profile.remove','device.add','device.revoke'`
 
 var logSources = []logSource{
 	{"audit", "audit", 0, `SELECT au.seq,au.operation,au.actor,au.target,au.detail,au.created_at,coalesce(i.account,'') FROM audit au LEFT JOIN identities i ON i.id=au.actor
@@ -1550,6 +1550,10 @@ type RecordKey struct {
 	PublicKey   string `json:"public_key"`
 	CreatedAt   int64  `json:"created_at"`
 	Successor   string `json:"successor,omitempty"`
+	// Role is "device" for a linked device's key (device.go); the main key
+	// leaves it out. RemovedAt is when a device was removed.
+	Role      string `json:"role,omitempty"`
+	RemovedAt int64  `json:"removed_at,omitempty"`
 }
 
 type RecordHandle struct {
@@ -1607,7 +1611,7 @@ func (s *Store) ReadLogRecord(ctx context.Context, who string) (SignedRecord, er
 		return SignedRecord{}, err
 	}
 	r := LogRecord{Type: RecordType, Service: s.config.ServiceID, GeneratedAt: s.now().Unix(), Account: account, Keys: []RecordKey{}, Handles: []RecordHandle{}, Bindings: []RecordLink{}, Checkpoint: cp, Proofs: []LogInclusion{}}
-	rows, err := s.db.QueryContext(ctx, "SELECT id,public_key,created_at,successor,handle,last_seen FROM identities WHERE account=? ORDER BY created_at,id", account)
+	rows, err := s.db.QueryContext(ctx, "SELECT id,public_key,created_at,successor,handle,last_seen,role,revoked_at FROM identities WHERE account=? ORDER BY created_at,id", account)
 	if err != nil {
 		return SignedRecord{}, err
 	}
@@ -1616,13 +1620,16 @@ func (s *Store) ReadLogRecord(ctx context.Context, who string) (SignedRecord, er
 		var k RecordKey
 		var handle string
 		var seen int64
-		if err = rows.Scan(&k.Fingerprint, &k.PublicKey, &k.CreatedAt, &k.Successor, &handle, &seen); err != nil {
+		if err = rows.Scan(&k.Fingerprint, &k.PublicKey, &k.CreatedAt, &k.Successor, &handle, &seen, &k.Role, &k.RemovedAt); err != nil {
 			rows.Close()
 			return SignedRecord{}, err
 		}
+		if k.Role == "primary" {
+			k.Role = ""
+		}
 		r.Keys = append(r.Keys, k)
 		keys = append(keys, k.Fingerprint)
-		if k.Successor == "" {
+		if k.Successor == "" && k.Role == "" {
 			r.Agent, r.Handle = k.Fingerprint, handle
 		}
 		if r.FirstSeen == 0 || k.CreatedAt < r.FirstSeen {
@@ -1877,7 +1884,7 @@ func (s *Store) ReadRecordProofs(ctx context.Context, who, cursor string, limit 
 	}
 	out := RecordProofs{Checkpoint: cp, Proofs: []RecordResultProof{}}
 	// The agent's current key, as its record names it.
-	if err = s.db.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? ORDER BY successor='' DESC,created_at DESC,id DESC LIMIT 1", account).Scan(&out.Agent); err != nil {
+	if err = s.db.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? ORDER BY role='primary' DESC,successor='' DESC,created_at DESC,id DESC LIMIT 1", account).Scan(&out.Agent); err != nil {
 		return RecordProofs{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, recordAcceptedSQL, after.At, after.At, after.Work, account, account, limit+1)

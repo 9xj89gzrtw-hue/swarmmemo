@@ -156,6 +156,8 @@ type Store struct {
 	// RFC0014: restore reads per account (keybackup.go).
 	keyBackupMu    sync.Mutex
 	keyBackupRates map[string]privateReadBucket
+	// RFC0014 §3: link codes and code reads per network (device.go).
+	devices deviceState
 	// The transparency log's signing key (transparency.go).
 	transparency transparencyState
 	// Waiting reads (waiting.go): the signal each committed write closes and
@@ -370,7 +372,13 @@ CREATE TABLE IF NOT EXISTS leases (
 // (services/receiver.go, C491). Additive: a schema-45 binary inserts
 // receivers by column name (the address defaults to none) and never reads
 // it, so a rollback past 46 only stops mail to receivers.
-const SchemaVersion = 46
+//
+// 47: linked devices (RFC0014 §3, C576, device.go): identities.role, label
+// and revoked_at with the identity_devices index, and device_requests, the
+// link codes. Not additive: a schema-46 binary would take a device key for
+// an agent of its own and ignore revoked_at, so it refuses 47; a rollback
+// needs the pre-deploy snapshot.
+const SchemaVersion = 47
 
 // connPragmas are the per-connection PRAGMAs, in modernc.org/sqlite's DSN
 // syntax. journal_mode=WAL is stored in the database file and set at Open.
@@ -833,6 +841,10 @@ type actor struct {
 	// its spend limit (spendlimits.go): "key:" + a worker key's grant, or
 	// "token:" + the hosted token's token_id; "" for the account's own key.
 	credential string
+	// device is a linked device's key (role 'device', device.go), linked at
+	// deviceSince.
+	device      bool
+	deviceSince int64
 }
 
 func (s *Store) authenticate(cmd Command, source string) (actor, error) {
@@ -1003,6 +1015,9 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 	if cmd.Operation == "gate.challenge" {
 		ctx = context.WithValue(ctx, gateSourceKey{}, source) // challenges are counted per network (gate.go)
 	}
+	if cmd.Operation == "device.request" || cmd.Operation == "device.request.get" {
+		ctx = context.WithValue(ctx, deviceSourceKey{}, source) // link codes are counted per network (device.go)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return empty, err
@@ -1032,15 +1047,22 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 	// Arrivals by client (clientstats.go): a signed key with no identity yet
 	// (its first write creates one), and its previous write.
 	newKey, lastWrite := false, int64(0)
+	var revoked int64
 	if a.signed {
-		var custody string
-		err = tx.QueryRowContext(ctx, "SELECT account,successor,last_seen,custody FROM identities WHERE id=?", a.id).Scan(&a.account, &successor, &lastWrite, &custody)
-		a.hosted = custody == "hosted" // RFC0013: signed by a key SwarmMemo holds (hosted.go)
+		var custody, role string
+		var created int64
+		err = tx.QueryRowContext(ctx, "SELECT account,successor,last_seen,custody,role,revoked_at,created_at FROM identities WHERE id=?", a.id).Scan(&a.account, &successor, &lastWrite, &custody, &role, &revoked, &created)
+		a.hosted = custody == "hosted"                      // RFC0013: signed by a key SwarmMemo holds (hosted.go)
+		a.device, a.deviceSince = role == "device", created // RFC0014 §3: a linked device (device.go)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return empty, err
 		}
 		newKey = err != nil
 		if err = hostedTokenCredential(ctx, tx, &a); err != nil {
+			return empty, err
+		}
+		// A removed device signs nothing; a device's limits (device.go).
+		if err = authorizeDevice(cmd, a, revoked, now); err != nil {
 			return empty, err
 		}
 	}
@@ -1164,7 +1186,8 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 				return empty, problem(401, "key_rotated", "This key was rotated; use its successor key.")
 			}
 		}
-		if mutation(cmd.Operation) && a.grant == nil {
+		// A link request's key stays no agent until device.add binds it.
+		if mutation(cmd.Operation) && a.grant == nil && cmd.Operation != "device.request" {
 			if _, err = tx.ExecContext(ctx, "INSERT INTO identities(id,public_key,account,created_at,last_seen) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen", a.id, a.publicKey, a.account, now, now); err != nil {
 				return empty, err
 			}
@@ -1186,7 +1209,7 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 			return empty, err
 		}
 	}
-	if mutation(cmd.Operation) {
+	if mutation(cmd.Operation) && !result.transient {
 		encoded, err := json.Marshal(result)
 		if err != nil {
 			return empty, err
@@ -1316,6 +1339,8 @@ func (s *Store) execute(ctx context.Context, tx *sql.Tx, c Command, a actor, now
 		return s.readModerationLog(ctx, tx, c, a)
 	case "agent.register", "agent.rotate":
 		return s.changeAgent(ctx, tx, c, a, now)
+	case "device.request", "device.request.get", "device.add", "device.revoke", "devices.list":
+		return s.deviceCommand(ctx, tx, c, a, now)
 	case "agent.get", "agents.list":
 		return s.readAgents(ctx, tx, c, a, now)
 	case "agent.posts":

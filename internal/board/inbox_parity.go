@@ -43,7 +43,7 @@ func (s *Store) InboxReadParity(ctx context.Context, agents int, cursorBack int6
 	report := InboxParityReport{Agents: []InboxParityAgent{}}
 	agents = min(max(agents, 1), 200)
 	rows, err := s.db.QueryContext(ctx, `SELECT i.id,i.account FROM (SELECT account,max(seq) AS last FROM inbox_entries GROUP BY account ORDER BY last DESC LIMIT ?) a
- JOIN identities i ON i.account=a.account AND i.successor='' ORDER BY a.last DESC`, agents)
+ JOIN identities i ON i.account=a.account AND i.successor='' AND i.role='primary' ORDER BY a.last DESC`, agents)
 	if err != nil {
 		return report, err
 	}

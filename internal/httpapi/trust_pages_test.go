@@ -115,8 +115,9 @@ func TestPenaltyLogPage(t *testing.T) {
 const (
 	statsPageBudget = 56_000
 	// C349: Me holds the feed settings form (once /feed/tune) and the
-	// Standing and allowance panel.
-	mePageBudget = 72_000
+	// Standing and allowance panel. C576: Your devices (link a device by
+	// code or QR, list, remove), about 1.5 KB.
+	mePageBudget = 74_000
 )
 
 func TestStatsAndMePageByteBudgets(t *testing.T) {

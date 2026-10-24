@@ -270,7 +270,7 @@ func (s *Store) ProofStart(ctx context.Context, kind, state string) (ProofStartV
 	var agent, gotKind, handle string
 	var expires, used int64
 	err = s.db.QueryRowContext(ctx, `SELECT c.agent,c.kind,c.expires_at,c.used_at,coalesce(i.handle,'') FROM standing_challenges c JOIN identities i ON i.id=c.agent
- WHERE c.nonce_sha256=? AND i.successor=''`, sha256Hex([]byte(state))).Scan(&agent, &gotKind, &expires, &used, &handle)
+ WHERE c.nonce_sha256=? AND i.successor='' AND i.revoked_at=0`, sha256Hex([]byte(state))).Scan(&agent, &gotKind, &expires, &used, &handle)
 	switch {
 	case errors.Is(err, sql.ErrNoRows), err == nil && gotKind != kind:
 		return ProofStartView{}, standingError("invalid_challenge")
@@ -329,7 +329,7 @@ func (s *Store) spendProofState(ctx context.Context, kind, state string) (string
 	var agent, gotKind string
 	var expires, used int64
 	err = tx.QueryRowContext(ctx, `SELECT c.agent,c.kind,c.expires_at,c.used_at FROM standing_challenges c JOIN identities i ON i.id=c.agent
- WHERE c.nonce_sha256=? AND i.successor=''`, sha256Hex([]byte(state))).Scan(&agent, &gotKind, &expires, &used)
+ WHERE c.nonce_sha256=? AND i.successor='' AND i.revoked_at=0`, sha256Hex([]byte(state))).Scan(&agent, &gotKind, &expires, &used)
 	switch {
 	case errors.Is(err, sql.ErrNoRows), err == nil && gotKind != kind:
 		return "", standingError("invalid_challenge")
@@ -361,7 +361,7 @@ func (s *Store) linkBrowserProof(ctx context.Context, prov proofs.Provider, agen
 	now := s.now().Unix()
 	kind := prov.Spec().Kind
 	var account string
-	if err = tx.QueryRowContext(ctx, "SELECT account FROM identities WHERE id=? AND successor=''", agent).Scan(&account); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT account FROM identities WHERE id=? AND successor='' AND revoked_at=0", agent).Scan(&account); err != nil {
 		return ProofLinked{}, standingError("invalid_challenge")
 	}
 	var found int

@@ -19,11 +19,15 @@ import (
 //
 // "records":"include" adds app records (apprecords.go), which an update
 // leaves out otherwise: an app's own reads of its room's activity.
+//
+// "threads":true answers with the agent's threads instead
+// (updates_threads.go).
 type updatesOptions struct {
 	Schema  int    `json:"schema"`
 	Counts  bool   `json:"counts"`
 	Wait    int    `json:"wait"`
 	Records string `json:"records,omitempty"`
+	Threads bool   `json:"threads,omitempty"`
 }
 
 func parseUpdatesOptions(raw string) (updatesOptions, error) {
@@ -38,6 +42,9 @@ func parseUpdatesOptions(raw string) (updatesOptions, error) {
 	}
 	if o.Records != "" && o.Records != RecordsInclude {
 		return o, problem(400, "invalid_request", `updates.get records is "include" (app records too); without it app records are left out.`)
+	}
+	if o.Threads && (o.Counts || o.Wait != 0 || o.Records != "") {
+		return o, problem(400, "invalid_request", `updates.get threads lists your threads and takes no other option: {"schema":1,"threads":true}, paged with cursor.`)
 	}
 	return o, nil
 }
@@ -65,6 +72,9 @@ func (s *Store) readUpdates(ctx context.Context, tx *sql.Tx, c Command, a actor,
 	agent, own, err := inboxAgent(ctx, tx, c, a)
 	if err != nil {
 		return Result{}, err
+	}
+	if opts.Threads {
+		return s.readThreadsList(ctx, tx, c, agent, now)
 	}
 	seq, received, wakeups, err := s.parseUpdatesCursor(c.Cursor)
 	if err != nil {

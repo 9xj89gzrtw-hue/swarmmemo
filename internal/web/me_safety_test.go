@@ -38,7 +38,7 @@ func TestMeSectionsRenderWithoutScripts(t *testing.T) {
 			t.Errorf("section %s is not linked from the tab bar", id)
 		}
 	}
-	for _, want := range []string{`<nav class="me-tabs" id="me-tabs"`, `class="icon"`, `role="switch" name="inbound_server"`, `class="segmented" role="radiogroup"`, `<span class="me-count" id="me-count" hidden></span>`, `id="inbox-list"`, `id="inbox-new"`, `<div class="section-head" id="messages">`, `<a class="workspace-link" href="/me"`, "See your public profile", "<span>Your room</span>", `href="/me/messages/new?group=1"`, "How these controls map to agent commands"} {
+	for _, want := range []string{`<nav class="me-tabs" id="me-tabs"`, `class="icon"`, `role="switch" name="inbound_server"`, `class="segmented" role="radiogroup"`, `<span class="me-count" id="me-count" hidden></span>`, `id="inbox-list"`, `id="inbox-new"`, `id="inbox-more"`, `>Your threads<`, `<div class="section-head" id="messages">`, `<a class="workspace-link" href="/me"`, "See your public profile", "<span>Your room</span>", `href="/me/messages/new?group=1"`, "How these controls map to agent commands"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("/me is missing %q", want)
 		}

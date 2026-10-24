@@ -267,7 +267,7 @@ func (s *Store) paidCallsToRate(ctx context.Context, tx *sql.Tx, account string,
 				continue
 			}
 			var handle string
-			if err = tx.QueryRowContext(ctx, "SELECT coalesce((SELECT handle FROM identities WHERE account=? AND successor='' ORDER BY handle='', created_at DESC LIMIT 1),'')", p.seller).Scan(&handle); err != nil {
+			if err = tx.QueryRowContext(ctx, "SELECT coalesce((SELECT handle FROM identities WHERE account=? AND successor='' AND role='primary' ORDER BY handle='', created_at DESC LIMIT 1),'')", p.seller).Scan(&handle); err != nil {
 				return nil, err
 			}
 			if sub, err = s.offeringSubject(p.seller, handle, p.name); err != nil {

@@ -915,6 +915,7 @@ const JS_NO_WRAPPER = {
     'offering.answer', 'offering.buy', 'offering.publish', 'offering.refund', 'room.policy.set', 'room.style.check', 'room.style.set', 'room.subscribe', 'spend_limit.set',
     'standing.work', 'subjects.list', 'vote', 'work.renew', 'x402.submit'].map(op => [op, noWrapper])),
   ...Object.fromEntries(['blob.put', 'room.invite.accept', 'service.call', 'service.read', 'trust.get'].map(op => [op, 'its data is a raw string, not fields'])),
+  ...Object.fromEntries(['device.add', 'device.request', 'device.request.get'].map(op => [op, 'linked devices (C576) are web and Python only in v1; ' + noWrapper])),
   'identity.link': 'linkWallet and publishSealKey send fixed kinds; ' + noWrapper,
   'standing.challenge': 'linkWallet sends kind wallet only; ' + noWrapper,
   'conversation.seal': 'sealRotate sends the data string loadSeal().rotationData makes',

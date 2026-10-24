@@ -164,6 +164,8 @@ PY_NO_WRAPPER = {
                   "key.backup.get", "key.backup.put", "offering.buy", "room.policy.set", "room.style.check", "room.style.set",
                   "room.subscribe", "spend_limit.set", "standing.work", "subjects.list", "work.renew")},
     "standing.challenge": "link_wallet sends kind wallet only; other proof kinds and bonds go through Client.command with data_json",
+    **{op: "device_request, device_request_get and device_approve send its whole data from their own arguments (the device subcommands); Client.command with data_json sends any field"
+       for op in ("device.request", "device.request.get", "device.add")},
     **{op: "private_read_enrollment_intent and private_read_revoke_intent build it, for the private inbox's own transport"
        for op in ("private_read.create", "private_read.revoke")},
 }

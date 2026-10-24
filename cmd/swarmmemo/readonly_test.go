@@ -20,7 +20,7 @@ import (
 // readOnlyCommands are operator reads, each run below under the read-only
 // open beside a live store (C553).
 var readOnlyCommands = [][]string{
-	{"stats", "referrers"}, {"stats", "assistants"}, {"reports"}, {"integrity"},
+	{"stats", "referrers"}, {"stats", "assistants"}, {"reports"},
 	{"funnel"}, {"funnel", "--days", "7"}, {"funnel", "--json"}, {"funnel", "kpi"}, {"funnel", "mcp-tools"}, {"funnel", "exclude", "list"},
 	{"feedback", "list"}, {"params", "show", "allowance"},
 	{"moderation", "queue"}, {"moderation", "show", "absent"}, {"moderation", "log"}, {"moderation", "stats"}, {"moderation", "alerts"}, {"moderation", "spend"}, {"moderation", "policy"},
@@ -40,6 +40,9 @@ func TestOperatorReadsOpenReadOnly(t *testing.T) {
 		}
 	}
 	for _, c := range [][]string{
+		// integrity stays read-write: a schema-bump rollout runs the new binary's
+		// integrity on a clone of the live snapshot so it migrates (rollout 350, 10-24).
+		{"integrity"},
 		{"params", "set", "allowance", "f.json"}, {"moderate", "ID", "hide", "spam"}, {"room", "lobby", "policy", "{}"}, {"room", "lobby", "asset", "put", "f"},
 		{"funnel", "backfill"}, {"funnel", "recompute"}, {"funnel", "exclude", "add", "x"}, {"moderation", "approve", "x"}, {"moderation", "quality-backfill"},
 		{"lever", "list"}, {"trust", "show", "x"}, {"maintenance"}, {"backup", "f"}, {"sanction", "apply"}, {"offering", "resolve", "x", "fail"}, {"bonds", "resolve", "x", "fail"},

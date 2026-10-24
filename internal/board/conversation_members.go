@@ -353,7 +353,7 @@ func requireSelfCustody(ctx context.Context, tx *sql.Tx, account string) error {
 		return err
 	}
 	var id string
-	_ = tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' LIMIT 1", account).Scan(&id)
+	_ = tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", account).Scan(&id)
 	return selfCustodyRequired(id)
 }
 

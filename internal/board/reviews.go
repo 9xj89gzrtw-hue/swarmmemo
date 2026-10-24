@@ -513,7 +513,7 @@ func (s *Store) subjectOwners(ctx context.Context, q allowance.Querier, sub revi
 		return out, nil
 	}
 	var handle string
-	if err = scanAll(ctx, q, "SELECT handle FROM identities WHERE account=? AND successor='' LIMIT 1", []any{account}, func(r *sql.Rows) error { return r.Scan(&handle) }); err != nil {
+	if err = scanAll(ctx, q, "SELECT handle FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", []any{account}, func(r *sql.Rows) error { return r.Scan(&handle) }); err != nil {
 		return nil, err
 	}
 	return append(out, SubjectOwner{Account: account, Handle: handle, Link: "submitted:" + proof}), nil
@@ -531,7 +531,7 @@ func (s *Store) toolOwners(ctx context.Context, q allowance.Querier) ([]SubjectO
 	out := make([]SubjectOwner, 0, len(ops))
 	for _, a := range funnelSortedKeys(ops) {
 		o := SubjectOwner{Account: a, Link: "operator"}
-		if err = scanAll(ctx, q, "SELECT handle FROM identities WHERE account=? AND successor='' LIMIT 1", []any{a}, func(r *sql.Rows) error { return r.Scan(&o.Handle) }); err != nil {
+		if err = scanAll(ctx, q, "SELECT handle FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", []any{a}, func(r *sql.Rows) error { return r.Scan(&o.Handle) }); err != nil {
 			return nil, err
 		}
 		out = append(out, o)
@@ -554,7 +554,7 @@ func domainOwners(ctx context.Context, q interface {
 		return []SubjectOwner{{Account: account, Handle: handle, Link: "offering"}}, nil
 	}
 	if sub.Type == reviews.TypeAgent {
-		rows, err := q.QueryContext(ctx, "SELECT handle FROM identities WHERE account=? AND successor='' LIMIT 1", sub.Key)
+		rows, err := q.QueryContext(ctx, "SELECT handle FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", sub.Key)
 		if err != nil {
 			return nil, err
 		}
@@ -574,7 +574,7 @@ func domainOwners(ctx context.Context, q interface {
 		return nil, nil
 	}
 	names := []any{host, reviews.RegistrableDomain(host)}
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT i.account,coalesce((SELECT h.handle FROM identities h WHERE h.account=i.account AND h.successor='' LIMIT 1),''),l.value
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT i.account,coalesce((SELECT h.handle FROM identities h WHERE h.account=i.account AND h.successor='' AND h.role='primary' LIMIT 1),''),l.value
  FROM identity_links l JOIN identities i ON i.id=l.agent WHERE l.kind='domain' AND l.state='verified' AND l.value IN (?,?) ORDER BY i.account LIMIT 8`, names...)
 	if err != nil {
 		return nil, err

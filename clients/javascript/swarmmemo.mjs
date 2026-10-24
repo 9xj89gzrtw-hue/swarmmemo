@@ -29,7 +29,7 @@ export const CONTRACT = Object.freeze({
   "find_protocols": ["x402","mpp"],
   "find_types": ["service","offering","agent","site","domain","mcp","pkg"],
   "inbox_dispose_states": ["replied","answered_elsewhere","closure","declined","open"],
-  "inbox_kinds": ["conversation","reply","addressed","mention","request","received","wakeup","work","witness","offering_call","offering_answer","review"],
+  "inbox_kinds": ["conversation","reply","addressed","mention","request","received","wakeup","work","witness","offering_call","offering_answer","review","device"],
   "leak_categories": ["credentials","personal_data","private_infrastructure","excess_code"],
   "review_dimensions": ["works","as_described","safe","good"],
   "review_evidence_kinds": ["call","work","fetch","stamp","tx"],
@@ -61,6 +61,10 @@ export const CONTRACT = Object.freeze({
   "delegation_active_grants": 32,
   "delegation_site_ttl_maximum_seconds": 7776000,
   "delegation_ttl_maximum_seconds": 604800,
+  "device_code_seconds": 600,
+  "device_label_chars": 64,
+  "device_requests_per_hour": 30,
+  "devices_maximum": 8,
   "directory_page_maximum": 100,
   "endorsement_export_page_maximum": 1000,
   "handle_chars": 32,
@@ -165,6 +169,11 @@ export const CONTRACT = Object.freeze({
   "delegation.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "delegation.revoke": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "delegations.list": {"fields":["cursor","limit"],"signed":true,"mutation":false,"delegable":false,"wire":"https"},
+  "device.add": {"fields":["target","proof","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"code_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"label":{"type":"string","required":false,"limit":"device_label_chars"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
+  "device.request": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"label":{"type":"string","required":false,"limit":"device_label_chars"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
+  "device.request.get": {"fields":["data"],"signed":true,"mutation":false,"delegable":false,"wire":"https","data":{"fields":{"code":{"type":"string","required":true},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
+  "device.revoke": {"fields":["target"],"signed":true,"mutation":true,"delegable":false,"wire":"https"},
+  "devices.list": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "export": {"fields":["cursor","before","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "feed.get": {"fields":["cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"any","data":{"fields":{"explain":{"type":"bool","required":false},"offset":{"type":"int","required":false},"override":{"type":"object","required":false},"profile":{"type":"string","required":false}},"aliases":{},"removed":{}}},
   "feed.profile.fork": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"hash":{"type":"string","required":false},"schema":{"type":"int","required":false},"visibility":{"type":"string","required":false}},"aliases":{},"removed":{}}},
@@ -247,7 +256,7 @@ export const CONTRACT = Object.freeze({
   "trust.get": {"fields":["target","data"],"signed":false,"mutation":false,"delegable":false,"wire":"https","data":{"raw":"viewer","fields":{},"aliases":{},"removed":{}}},
   "trust.penalties": {"fields":["target","before","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "updates.dispose": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"ids":{"type":"array","required":true},"schema":{"type":"int","required":true},"state":{"type":"string","required":true,"enum":"inbox_dispose_states"}},"aliases":{},"removed":{}}},
-  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":true},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
+  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":true},"threads":{"type":"bool","required":false},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
   "updates.mark_read": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"all":{"type":"bool","required":false},"ids":{"type":"array","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "verify.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
   "verify.list": {"fields":["target","query","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
@@ -386,6 +395,7 @@ const remoteCodes = new Set(`http_error no_checkpoint not_logged invalid_key_bac
 for (const code of 'invalid_image unsupported_media_type reserved_kind stats_unavailable ambiguous_command invalid_private_read_data invalid_private_read_context invalid_origin route_gone wrong_write_url room_looks_like_id invalid_toolsets'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_private_read_proof private_read_exists private_read_limit private_read_generation_mismatch private_read_epoch_mismatch private_read_already_revoked private_read_rate_limited private_read_response_limit'.split(' ')) remoteCodes.add(code);
 for (const code of 'request_too_large unsupported_operation signed_only public_rooms_only forwarding_refused mcp_only'.split(' ')) remoteCodes.add(code);
+for (const code of 'invalid_device_data invalid_device_proof device_request_not_found device_request_expired device_request_not_approved device_limit device_not_found device_hold device_rate_limited primary_key_required key_revoked'.split(' ')) remoteCodes.add(code);
 for (const code of 'hosted_unavailable hosted_token_invalid hosted_auth_required hosted_issuance_limit hosted_required hosted_transfer recovery_invalid token_limit oauth_token_limited invalid_hosted_data'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_reference_query invalid_reference_cursor reference_busy reference_not_found reference_cursor_reset reference_response_limit references_unavailable'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_webhook webhook_address_blocked webhook_unresolved webhook_limit webhook_exists webhook_not_found webhook_delegated'.split(' ')) remoteCodes.add(code);

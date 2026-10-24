@@ -104,6 +104,7 @@ sources' share as it falls.
 | Attack | Result |
 | --- | --- |
 | Many fresh keys | they hold exactly 0 and only thin the allowance's floor |
+| Linking many devices to one agent | standing, votes and allowance are the account's: devices add none, and each link runs the account-change breaker |
 | Splitting money over keys | one root keeps at most the cap: a cent buys a cent, never more |
 | Rings that judge each other | a ring holds at most what it paid; caught, it holds 0 |
 | Self-dealing payments | a seen loop gains nothing; a hidden one at most twice its real costs, and burns |

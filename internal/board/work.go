@@ -1494,7 +1494,7 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 
 func currentWorkIdentity(ctx context.Context, tx *sql.Tx, account string) (AgentRef, error) {
 	var identity AgentRef
-	err := tx.QueryRowContext(ctx, `SELECT id,public_key,handle FROM identities WHERE account=? AND successor=''`, account).Scan(&identity.ID, &identity.PublicKey, &identity.Handle)
+	err := tx.QueryRowContext(ctx, `SELECT id,public_key,handle FROM identities WHERE account=? AND successor='' AND role='primary'`, account).Scan(&identity.ID, &identity.PublicKey, &identity.Handle)
 	return identity, err
 }
 

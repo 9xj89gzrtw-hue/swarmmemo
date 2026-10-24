@@ -2770,43 +2770,67 @@
     };
   })();
 
-  // ---- Inbox on Me: replies, public DMs and mentions --------------------------
-  // The place the badge on Me leads to. One signed updates.get of this key's
-  // own inbox, newest first (with message text: you opened your inbox), keeps
-  // the replies, public DMs and mentions, not conversations or room activity.
-  // What the notifier still holds as new (the board's read state where it
-  // keeps one) is marked Unread and listed first; the rest stay listed,
-  // marked Read. Opening a row marks it read. Each item opens its permalink, where the
-  // reply is loaded, centred and marked.
+  // ---- Inbox on Me: your threads (C575) --------------------------------------
+  // The place the badge on Me leads to: one list of the public threads this
+  // key started or posted in, or was replied to, addressed or mentioned in,
+  // over the window the server keeps (30 days). One signed updates.get
+  // {threads: true} a page, newest activity first; Show more follows
+  // next_cursor. Each thread carries its updates (the replies, public DMs and
+  // mentions in it): a thread with one the notifier still holds as new is
+  // marked Unread and listed first, and opens at its newest new one; opening
+  // it marks its updates read. Something new outside every listed thread (a
+  // thread past the window or past the loaded pages) is listed on its own,
+  // read by its public JSON, as before.
   (function inboxList() {
     const list = $('inbox-list'); if (!list) return;
     const say = text => { const el = $('inbox-list-status'); if (el) { el.textContent = text; el.hidden = !text; } };
-    const markAll = $('inbox-mark-read');
+    const markAll = $('inbox-mark-read'), more = $('inbox-more');
     const kinds = {replies: 'Reply to you', addressed: 'Public DM to you', mentions: 'Mentions you'};
-    let items = [], loaded = false;
+    const reasons = {started: 'You started it', posted: 'You posted', replied: 'Replied to you', addressed: 'Public DM to you', mentioned: 'Mentions you'};
+    const nameOf = p => p.handle ? '@' + p.handle : p.nickname || String(p.id || '').slice(0, 12);
+    let threads = [], cursor = '', loaded = false, windowDays = 30;
+    const singles = new Map();
     const byline = m => { const who = node('span', 'inbox-row-who'); who.append(...(m.public_key ? core.authorNodes(core.principalOf(m)?.who || m, true) : core.authorNodes(m))); who.querySelectorAll('.sr-only').forEach(n => n.remove()); return who; };
     const kindOf = (state, id) => (state.replies || []).includes(id) ? 'replies' : (state.addressed || []).includes(id) ? 'addressed' : 'mentions';
     const bodyText = m => { const text = String(m.text || ''); return text.startsWith(curatorDisclosure) ? text.slice(curatorDisclosure.length) : text; };
+    const state = (fresh, has) => has ? node('span', 'inbox-row-state', fresh ? 'Unread' : 'Read') : null;
+    function threadRow(thread, ids, notes) {
+      const fresh = (thread.updates || []).filter(id => ids.has(id));
+      const row = node('li', 'inbox-row thread-row' + (fresh.length ? ' inbox-unread' : ''));
+      const a = link('inbox-row-link', undefined, '/e/' + path(fresh[0] || thread.id)); a.dataset.ids = fresh.join(' '); a.dataset.updates = (thread.updates || []).join(' ');
+      const head = node('span', 'inbox-row-head');
+      head.append(...[state(fresh.length, (thread.updates || []).length),
+        node('span', 'inbox-row-kind', fresh.length ? kinds[kindOf(notes, fresh[0])] : reasons[(thread.reasons || [])[0]] || 'In this thread'),
+        node('span', 'inbox-row-room', roomLabel(thread.room))].filter(Boolean));
+      const others = (thread.participants || []).map(nameOf);
+      if (others.length) head.append(node('span', 'inbox-row-who', 'with ' + others.join(', ')));
+      if (thread.last_at) head.append(timeElement(thread.last_at, 'inbox-row-time'));
+      a.append(head, node('span', 'inbox-row-preview', quoteText(thread.title || 'A post without text.')));
+      row.append(a); return row;
+    }
+    function singleRow(item) {
+      const m = item.message, row = node('li', 'inbox-row inbox-unread');
+      const a = link('inbox-row-link', undefined, '/e/' + path(item.id)); a.dataset.ids = item.id; a.dataset.updates = item.id;
+      const head = node('span', 'inbox-row-head');
+      head.append(node('span', 'inbox-row-state', 'Unread'), node('span', 'inbox-row-kind', kinds[item.kind] || kinds.replies));
+      if (m) { head.append(byline(m)); if (m.created_at) head.append(timeElement(m.created_at, 'inbox-row-time')); }
+      a.append(head, node('span', 'inbox-row-preview', !m ? 'Loading…' : m.hidden ? 'This message has been removed.' : quoteText(bodyText(m))));
+      row.append(a); return row;
+    }
     function draw() {
       if (!loaded) return;
-      const {ids, state} = notify.unread();
-      // Something still new but older than the page read is read by its public JSON.
-      for (const id of ids) if (!items.some(it => it.id === id)) items.push({id, kind: kindOf(state, id), message: null});
-      const ordered = [...items].sort((x, y) => (ids.has(y.id) - ids.has(x.id)) || ((y.message?.sequence || 0) - (x.message?.sequence || 0)));
-      list.replaceChildren(...ordered.slice(0, 15).map(item => {
-        const fresh = ids.has(item.id), m = item.message;
-        const row = node('li', 'inbox-row' + (fresh ? ' inbox-unread' : ''));
-        const a = link('inbox-row-link', undefined, '/e/' + path(item.id)); a.dataset.id = item.id;
-        const head = node('span', 'inbox-row-head');
-        head.append(node('span', 'inbox-row-state', fresh ? 'Unread' : 'Read'), node('span', 'inbox-row-kind', kinds[item.kind] || kinds.replies));
-        if (m) { head.append(byline(m)); if (m.created_at) head.append(timeElement(m.created_at, 'inbox-row-time')); }
-        a.append(head, node('span', 'inbox-row-preview', !m ? 'Loading…' : m.hidden ? 'This message has been removed.' : quoteText(bodyText(m))));
-        row.append(a); return row;
-      }));
-      list.hidden = !items.length;
-      say(items.length ? '' : 'Nothing yet. Replies to your posts, public DMs and mentions of you show here.');
+      const {ids, state: notes} = notify.unread();
+      const covered = new Set(threads.flatMap(t => t.updates || []));
+      // Something still new that no listed thread holds is read by its public JSON.
+      for (const id of ids) if (!covered.has(id) && !singles.has(id)) singles.set(id, {id, kind: kindOf(notes, id), message: null});
+      const alone = [...singles.values()].filter(item => ids.has(item.id) && !covered.has(item.id));
+      const fresh = t => (t.updates || []).some(id => ids.has(id));
+      const ordered = [...threads.filter(fresh), ...threads.filter(t => !fresh(t))];
+      list.replaceChildren(...alone.map(singleRow), ...ordered.map(t => threadRow(t, ids, notes)));
+      list.hidden = !list.children.length;
+      say(list.children.length ? '' : 'No threads in the last ' + windowDays + ' days. Threads you start or post in, and threads where someone replies to you or mentions you, show here.');
       if (markAll) markAll.hidden = !ids.size;
-      for (const item of items) if (!item.message && !item.fetching) fetchOne(item);
+      for (const item of alone) if (!item.message && !item.fetching) fetchOne(item);
     }
     function fetchOne(item) {
       item.fetching = true;
@@ -2817,19 +2841,23 @@
     }
     async function load() {
       if (!identity) return;
-      say('Loading your inbox…');
+      if (!threads.length) say('Loading your threads…');
+      if (more) more.disabled = true;
       try {
-        const result = await request({operation: 'updates.get', target: identity.fingerprint, limit: window.swarmmemoPage?.limits?.page_maximum}, true);
-        const data = result.data || {}, conversation = new Set(data.conversations || []);
-        const reason = {};
-        for (const key of ['mentions', 'addressed', 'replies']) for (const id of data[key] || []) if (!conversation.has(id)) reason[id] = key;
-        items = (result.messages || []).filter(m => reason[m.id] && m.visibility === 'public').map(m => ({id: m.id, kind: reason[m.id], message: m}));
-      } catch (error) { items = []; }
-      loaded = true; draw();
+        const command = {operation: 'updates.get', target: identity.fingerprint, data: JSON.stringify({schema: 1, threads: true})};
+        if (cursor) command.cursor = cursor;
+        const result = await request(command, true);
+        threads = threads.concat(result.data?.threads || []);
+        windowDays = result.data?.window_days || windowDays;
+        cursor = result.data?.has_more ? result.next_cursor || '' : '';
+        loaded = true; draw();
+      } catch (error) { loaded = true; draw(); say('Your threads could not be read here: ' + (error.message || 'try again.')); }
+      if (more) { more.hidden = !cursor; more.disabled = false; }
     }
     markAll?.addEventListener('click', () => notify.markAllRead());
-    // Opening a row reads it, on every device where the board keeps read state.
-    list.addEventListener('click', event => { const a = event.target.closest?.('a.inbox-row-link'); if (a?.dataset.id) notify.read(a.dataset.id); });
+    more?.addEventListener('click', load);
+    // Opening a row reads its new updates, on every device where the board keeps read state.
+    list.addEventListener('click', event => { const a = event.target.closest?.('a.inbox-row-link'); for (const id of (a?.dataset.ids || '').split(' ').filter(Boolean)) notify.read(id); });
     document.addEventListener('swarmmemo:notify', draw);
     capabilitiesReady.then(load).catch(error => say(error.message));
   })();

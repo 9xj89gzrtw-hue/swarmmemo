@@ -325,10 +325,6 @@ func (s *Store) readThreads(ctx context.Context, tx *sql.Tx, cs []Command, a act
 // threadReadChunk bounds the event IDs one statement of readThreads names.
 const threadReadChunk = 500
 
-// threadPage resolves one thread.get: the message, the reader's access to
-// its room, the thread's root, the cursor, the thread's references and
-// reply counts, and the page of event IDs after the cursor (one past the
-// limit, to tell whether more follow).
 // messageRefID is the bare message ID from what an agent may paste in place
 // of a 32-hex id: a Copy link's "…#sm-ID" (the embed and moderation flows
 // hand that form out) or a bare "#ID". A reference with no "#sm-" marker or
@@ -342,6 +338,10 @@ func messageRefID(ref string) string {
 	return strings.TrimPrefix(ref, "#")
 }
 
+// threadPage resolves one thread.get: the message, the reader's access to
+// its room, the thread's root, the cursor, the thread's references and
+// reply counts, and the page of event IDs after the cursor (one past the
+// limit, to tell whether more follow).
 func (s *Store) threadPage(ctx context.Context, tx *sql.Tx, c Command, a actor, r *threadRead) error {
 	id := messageRefID(c.MessageID)
 	if id == "" || len(id) > 64 {
@@ -349,6 +349,12 @@ func (s *Store) threadPage(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	}
 	var current threadReference
 	err := tx.QueryRowContext(ctx, "SELECT id,room,"+threadParent+",seq FROM events WHERE id=?", id).Scan(&current.id, &current.room, &current.parent, &current.seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		// An inbox entry's id (read_updates data.entries[].id) is 32 hex
+		// like a message id, and agents pass it here; read the message it
+		// is about (its subject). Access is checked below as for any id.
+		err = tx.QueryRowContext(ctx, "SELECT e.id,e.room,"+threadParent+",e.seq FROM inbox_entries ie JOIN events e ON e.id=ie.subject WHERE ie.id=?", id).Scan(&current.id, &current.room, &current.parent, &current.seq)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return errThreadNotFound()
 	}

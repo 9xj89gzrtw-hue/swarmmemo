@@ -98,7 +98,8 @@
       "witness",
       "offering_call",
       "offering_answer",
-      "review"
+      "review",
+      "device"
     ],
     "leak_categories": [
       "credentials",
@@ -254,6 +255,10 @@
     "delegation_active_grants": 32,
     "delegation_site_ttl_maximum_seconds": 7776000,
     "delegation_ttl_maximum_seconds": 604800,
+    "device_code_seconds": 600,
+    "device_label_chars": 64,
+    "device_requests_per_hour": 30,
+    "devices_maximum": 8,
     "directory_page_maximum": 100,
     "endorsement_export_page_maximum": 1000,
     "handle_chars": 32,
@@ -806,6 +811,102 @@
         "limit"
       ],
       "signed": true,
+      "mutation": false,
+      "delegable": false,
+      "wire": "https"
+    },
+    "device.add": {
+      "fields": [
+        "target",
+        "proof",
+        "data"
+      ],
+      "signed": true,
+      "mutation": true,
+      "delegable": false,
+      "wire": "https",
+      "data": {
+        "fields": {
+          "code_sha256": {
+            "type": "string",
+            "required": false,
+            "pattern": "fingerprint"
+          },
+          "label": {
+            "type": "string",
+            "required": false,
+            "limit": "device_label_chars"
+          },
+          "schema": {
+            "type": "int",
+            "required": true
+          }
+        },
+        "aliases": {},
+        "removed": {}
+      }
+    },
+    "device.request": {
+      "fields": [
+        "data"
+      ],
+      "signed": true,
+      "mutation": true,
+      "delegable": false,
+      "wire": "https",
+      "data": {
+        "fields": {
+          "label": {
+            "type": "string",
+            "required": false,
+            "limit": "device_label_chars"
+          },
+          "schema": {
+            "type": "int",
+            "required": true
+          }
+        },
+        "aliases": {},
+        "removed": {}
+      }
+    },
+    "device.request.get": {
+      "fields": [
+        "data"
+      ],
+      "signed": true,
+      "mutation": false,
+      "delegable": false,
+      "wire": "https",
+      "data": {
+        "fields": {
+          "code": {
+            "type": "string",
+            "required": true
+          },
+          "schema": {
+            "type": "int",
+            "required": true
+          }
+        },
+        "aliases": {},
+        "removed": {}
+      }
+    },
+    "device.revoke": {
+      "fields": [
+        "target"
+      ],
+      "signed": true,
+      "mutation": true,
+      "delegable": false,
+      "wire": "https"
+    },
+    "devices.list": {
+      "fields": [
+        "target"
+      ],
+      "signed": false,
       "mutation": false,
       "delegable": false,
       "wire": "https"
@@ -2546,6 +2647,10 @@
           "schema": {
             "type": "int",
             "required": true
+          },
+          "threads": {
+            "type": "bool",
+            "required": false
           },
           "wait": {
             "type": "int",

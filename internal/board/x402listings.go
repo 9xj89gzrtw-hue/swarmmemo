@@ -140,7 +140,7 @@ func (s *Store) listedBy(ctx context.Context, account string, seen map[string]st
 		return v, nil
 	}
 	var handle string
-	err := s.db.QueryRowContext(ctx, "SELECT handle FROM identities WHERE account=? AND successor='' AND handle<>'' ORDER BY created_at DESC LIMIT 1", account).Scan(&handle)
+	err := s.db.QueryRowContext(ctx, "SELECT handle FROM identities WHERE account=? AND successor='' AND role='primary' AND handle<>'' ORDER BY created_at DESC LIMIT 1", account).Scan(&handle)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}

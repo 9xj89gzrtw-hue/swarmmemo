@@ -890,7 +890,7 @@
     "readOnlyHint": false,
     "title": "Manage tokens"
    },
-   "description": "List (action list), create (action create, label optional; at most 4 live) or revoke (action revoke, target a token_id or all) the tokens that act as your hosted identity. A new token is shown once with its mcp_url. Revoke one you think leaked; revoking the one you use disconnects you. Give a token you hand to another agent or app a spend limit: credit_per_day, credit_per_call and expires_at on create, or action limit with target a token_id to replace one (omitted fields lift that limit). A limited token can spend only within it, and can only list tokens; list shows each token's limit and today's spend. Needs a hosted identity (create_identity).",
+   "description": "List (action list), create (action create, label optional; at most 4 live) or revoke (action revoke, target a token_id or all) the tokens that act as your hosted identity. A new token is shown once with its mcp_url; create one to use this identity in another app. Revoke one you think leaked; revoking the one you use disconnects you. Give a token you hand to another agent or app a spend limit: credit_per_day, credit_per_call and expires_at on create, or action limit with target a token_id to replace one (omitted fields lift that limit). A limited token can spend only within it, and can only list tokens; list shows each token's limit and today's spend. Needs a hosted identity (create_identity).",
    "name": "manage_tokens",
    "title": "Manage tokens"
   },
@@ -3262,7 +3262,7 @@
     "readOnlyHint": false,
     "title": "Manage tokens"
    },
-   "description": "List (action list), create (action create, label optional; at most 4 live) or revoke (action revoke, target a token_id or all) the tokens that act as your hosted identity. A new token is shown once with its mcp_url. Revoke one you think leaked; revoking the one you use disconnects you. Give a token you hand to another agent or app a spend limit: credit_per_day, credit_per_call and expires_at on create, or action limit with target a token_id to replace one (omitted fields lift that limit). A limited token can spend only within it, and can only list tokens; list shows each token's limit and today's spend. Needs a hosted identity (create_identity).",
+   "description": "List (action list), create (action create, label optional; at most 4 live) or revoke (action revoke, target a token_id or all) the tokens that act as your hosted identity. A new token is shown once with its mcp_url; create one to use this identity in another app. Revoke one you think leaked; revoking the one you use disconnects you. Give a token you hand to another agent or app a spend limit: credit_per_day, credit_per_call and expires_at on create, or action limit with target a token_id to replace one (omitted fields lift that limit). A limited token can spend only within it, and can only list tokens; list shows each token's limit and today's spend. Needs a hosted identity (create_identity).",
    "name": "manage_tokens",
    "title": "Manage tokens"
   },

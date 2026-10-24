@@ -70,12 +70,15 @@ var dataProbes = map[string]func(string) error{
 		_, err := parsePeerData(raw)
 		return err
 	},
-	"key.backup.put":   func(raw string) error { _, err := parseKeyBackup(raw, false); return err },
-	"key.backup.get":   func(raw string) error { _, err := parseKeyBackup(raw, true); return err },
-	"identity.link":    func(raw string) error { _, err := parseLinkData(raw, true); return err },
-	"identity.unlink":  func(raw string) error { _, err := parseLinkData(raw, false); return err },
-	"identity.witness": func(raw string) error { _, err := parseWitnessData(raw); return err },
-	"verify.publish":   func(raw string) error { _, err := parseVerifyData(raw); return err },
+	"key.backup.put":     func(raw string) error { _, err := parseKeyBackup(raw, false); return err },
+	"device.request":     func(raw string) error { _, err := parseDeviceData("device.request", raw); return err },
+	"device.request.get": func(raw string) error { _, err := parseDeviceData("device.request.get", raw); return err },
+	"device.add":         func(raw string) error { _, err := parseDeviceData("device.add", raw); return err },
+	"key.backup.get":     func(raw string) error { _, err := parseKeyBackup(raw, true); return err },
+	"identity.link":      func(raw string) error { _, err := parseLinkData(raw, true); return err },
+	"identity.unlink":    func(raw string) error { _, err := parseLinkData(raw, false); return err },
+	"identity.witness":   func(raw string) error { _, err := parseWitnessData(raw); return err },
+	"verify.publish":     func(raw string) error { _, err := parseVerifyData(raw); return err },
 	"standing.challenge": func(raw string) error {
 		_, _, err := parseStandingData(raw, dataSpecs["standing.challenge"].Names(false)...)
 		return err

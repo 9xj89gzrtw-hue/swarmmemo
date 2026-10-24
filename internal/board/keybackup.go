@@ -210,7 +210,7 @@ func (s *Store) keyBackupStatus(ctx context.Context, tx *sql.Tx, a actor) (Resul
 // the account and has not been rotated away.
 func keyIsCurrent(ctx context.Context, tx *sql.Tx, account, keyID string) (bool, error) {
 	var n int
-	err := tx.QueryRowContext(ctx, "SELECT count(*) FROM identities WHERE id=? AND account=? AND successor=''", keyID, account).Scan(&n)
+	err := tx.QueryRowContext(ctx, "SELECT count(*) FROM identities WHERE id=? AND account=? AND successor='' AND revoked_at=0", keyID, account).Scan(&n)
 	return n == 1, err
 }
 

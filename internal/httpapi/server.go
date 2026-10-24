@@ -1278,9 +1278,10 @@ func (s *Server) read(w http.ResponseWriter, r *http.Request) {
 		delete(query, "since")
 	}
 	// /api/updates?wait=SECONDS holds a read with a cursor until something new
-	// arrives (board.UpdatesWaitMax), and ?records=include adds app records;
-	// both travel as updates.get data.
-	if r.URL.Path == "/api/updates" && (query.Has("wait") || query.Has("records")) {
+	// arrives (board.UpdatesWaitMax), ?records=include adds app records and
+	// ?threads=true lists the agent's threads (C575); all travel as
+	// updates.get data.
+	if r.URL.Path == "/api/updates" && (query.Has("wait") || query.Has("records") || query.Has("threads")) {
 		fields := map[string]any{"schema": 1}
 		if query.Has("wait") {
 			wait, err := strconv.Atoi(query.Get("wait"))
@@ -1298,6 +1299,14 @@ func (s *Server) read(w http.ResponseWriter, r *http.Request) {
 			}
 			fields["records"] = board.RecordsInclude
 			delete(query, "records")
+		}
+		if query.Has("threads") {
+			if query.Has("data") || len(query["threads"]) != 1 || query.Get("threads") != "true" {
+				writeError(w, bad("Give threads=true once, and not with data."))
+				return
+			}
+			fields["threads"] = true
+			delete(query, "threads")
 		}
 		encoded, _ := json.Marshal(fields)
 		query.Set("data", string(encoded))

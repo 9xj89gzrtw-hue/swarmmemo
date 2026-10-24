@@ -371,6 +371,10 @@ type Result struct {
 	// ended, for CPU-heavy work that must not hold the store's only database
 	// connection (room.style.check).
 	afterCommit func() (Result, error)
+	// transient marks a mutation's result that keeps no receipt and spends
+	// no nonce: a device.add approval (device.go), whose signed command runs
+	// once, later, with the new device's proof.
+	transient bool
 	// ratedPost is the review post a rated accept published in its
 	// transaction (rateWork), screened after commit like any fresh post.
 	ratedPost *Command
@@ -489,7 +493,8 @@ type AllowanceNote struct {
 	Services string `json:"services,omitempty"`
 }
 
-// HandleNotApplied: Reason is "taken" or "already_has_handle"; How is a URL.
+// HandleNotApplied: Reason is "taken", "already_has_handle" or "device_hold"
+// (a linked device in its first day, device.go); How is a URL.
 type HandleNotApplied struct {
 	Requested string `json:"requested"`
 	Reason    string `json:"reason"`

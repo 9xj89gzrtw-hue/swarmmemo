@@ -54,7 +54,7 @@ func (s *Store) RoomStyle(ctx context.Context, room string) (*RoomStyle, error) 
 	}
 	var css, owner, visibility, agent string
 	err := s.db.QueryRowContext(ctx, `SELECT st.css,r.owner,r.visibility,
- coalesce((SELECT id FROM identities WHERE account=r.owner AND r.owner!='' AND successor='' LIMIT 1),'')
+ coalesce((SELECT id FROM identities WHERE account=r.owner AND r.owner!='' AND successor='' AND role='primary' LIMIT 1),'')
  FROM room_styles st JOIN rooms r ON r.name=st.room WHERE st.room=?`, room).Scan(&css, &owner, &visibility, &agent)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && visibility != "public") {
 		return nil, nil

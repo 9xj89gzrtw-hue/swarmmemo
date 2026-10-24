@@ -265,6 +265,11 @@ func migrateSchema(tx *sql.Tx, version int) error {
 	if _, err := tx.Exec(sanctionSchema); err != nil {
 		return err
 	}
+	// Schema 47: linked devices, identities.role/label/revoked_at and the
+	// link codes (device.go, C576).
+	if err := migrateDevices47(tx); err != nil {
+		return err
+	}
 	_, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d;", SchemaVersion))
 	return err
 }

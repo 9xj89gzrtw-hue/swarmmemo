@@ -592,7 +592,7 @@ func (s *Store) findOfferings(ctx context.Context, v find.Vocab, standing map[st
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT o.account,o.name,o.listing,o.price,
- coalesce((SELECT i.handle FROM identities i WHERE i.account=o.account AND i.successor='' ORDER BY i.handle='', i.created_at DESC LIMIT 1),'')
+ coalesce((SELECT i.handle FROM identities i WHERE i.account=o.account AND i.successor='' AND i.role='primary' ORDER BY i.handle='', i.created_at DESC LIMIT 1),'')
  FROM offerings o WHERE `+offeringListedTerm(s.now().Unix())+` ORDER BY o.account,o.name LIMIT ?`, findRowsMax)
 	if err != nil {
 		return nil, err
@@ -641,7 +641,7 @@ func (s *Store) findOfferings(ctx context.Context, v find.Vocab, standing map[st
 func (s *Store) findAgents(ctx context.Context, v find.Vocab, now int64, standing map[string]findStandingOf, quality map[string]subjectQuality) ([]find.Doc, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT i.id,i.account,i.handle,coalesce(p.description,''),coalesce(p.capabilities,'[]'),coalesce(p.availability,''),coalesce(p.expires_at,0)
  FROM identities i LEFT JOIN peer_cards p ON p.account=i.account
- WHERE i.successor='' AND (i.handle<>'' OR p.account IS NOT NULL) AND `+publicAccountSQL("i.account")+`
+ WHERE i.successor='' AND i.role='primary' AND (i.handle<>'' OR p.account IS NOT NULL) AND `+publicAccountSQL("i.account")+`
  ORDER BY i.account, i.handle='', i.created_at DESC LIMIT ?`, findRowsMax)
 	if err != nil {
 		return nil, err

@@ -149,7 +149,7 @@ func loadFeedProfile(ctx context.Context, tx *sql.Tx, account string) (*savedFee
 // currentFingerprint is account's current key, or fallback.
 func currentFingerprint(ctx context.Context, tx *sql.Tx, account, fallback string) (string, error) {
 	var id string
-	err := tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' LIMIT 1", account).Scan(&id)
+	err := tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", account).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fallback, nil
 	}
@@ -661,7 +661,7 @@ func (s *Store) readFeedStats(ctx context.Context, now int64) (*FeedStats, error
 	}
 	for _, f := range list {
 		stat := FeedForkedStat{Agent: f.account, Forks: f.n}
-		if err = s.db.QueryRowContext(ctx, "SELECT id,handle FROM identities WHERE account=? AND successor='' LIMIT 1", f.account).Scan(&stat.Agent, &stat.Handle); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err = s.db.QueryRowContext(ctx, "SELECT id,handle FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", f.account).Scan(&stat.Agent, &stat.Handle); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
 		var value string

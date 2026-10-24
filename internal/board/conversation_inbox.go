@@ -87,8 +87,8 @@ type InboxRequest struct {
 // inboxRequests is the reader's newest requests, at most InboxRequestsMax.
 func inboxRequests(ctx context.Context, tx *sql.Tx, account string) ([]InboxRequest, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT c.room,c.kind,m.changed_at,m.added_by,
- coalesce((SELECT id FROM identities WHERE account=m.added_by AND successor='' LIMIT 1),m.added_by),
- coalesce((SELECT handle FROM identities WHERE account=m.added_by AND successor='' LIMIT 1),''),
+ coalesce((SELECT id FROM identities WHERE account=m.added_by AND successor='' AND role='primary' LIMIT 1),m.added_by),
+ coalesce((SELECT handle FROM identities WHERE account=m.added_by AND successor='' AND role='primary' LIMIT 1),''),
  (SELECT count(*) FROM conversation_members WHERE room=c.room AND state IN ('active','requested'))
  FROM conversation_members m JOIN conversations c ON c.room=m.room
  WHERE m.account=? AND m.state='requested' ORDER BY c.last_seq DESC,c.room DESC LIMIT ?`, account, InboxRequestsMax)

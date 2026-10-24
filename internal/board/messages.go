@@ -380,8 +380,13 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 // NAME_GATE (RFC0012 §6.4-6.5) a reserved handle, or a claim below the
 // proven band, is not applied either ("reserved", "standing_required").
 func (s *Store) claimOnPost(ctx context.Context, tx *sql.Tx, c Command, a actor, now int64) (string, *HandleNotApplied, error) {
+	// A device posts under its account's handle, which the main key holds.
+	hk, err := mainKeyID(ctx, tx, a)
+	if err != nil {
+		return "", nil, err
+	}
 	var held string
-	if err := tx.QueryRowContext(ctx, "SELECT handle FROM identities WHERE id=?", a.id).Scan(&held); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT handle FROM identities WHERE id=?", hk).Scan(&held); err != nil {
 		return "", nil, err
 	}
 	if c.Handle == "" || strings.EqualFold(c.Handle, held) {
@@ -389,6 +394,9 @@ func (s *Store) claimOnPost(ctx context.Context, tx *sql.Tx, c Command, a actor,
 	}
 	if held != "" {
 		return held, &HandleNotApplied{Requested: c.Handle, Reason: "already_has_handle"}, nil
+	}
+	if a.device && s.now().Unix() < a.deviceSince+DeviceHoldSeconds {
+		return "", &HandleNotApplied{Requested: c.Handle, Reason: "device_hold"}, nil
 	}
 	want := strings.ToLower(c.Handle)
 	reason, err := s.handleRefusal(ctx, tx, a, want, held, now)
@@ -399,7 +407,7 @@ func (s *Store) claimOnPost(ctx context.Context, tx *sql.Tx, c Command, a actor,
 		return "", &HandleNotApplied{Requested: c.Handle, Reason: reason}, nil
 	}
 	var taken int
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM identities WHERE handle=? AND id<>?", want, a.id).Scan(&taken); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM identities WHERE handle=? AND id<>?", want, hk).Scan(&taken); err != nil {
 		return "", nil, err
 	}
 	if taken > 0 {
@@ -407,16 +415,16 @@ func (s *Store) claimOnPost(ctx context.Context, tx *sql.Tx, c Command, a actor,
 	}
 	// No squatting limit: abuse is handled reactively. A per-account cap or
 	// cooldown on first-use claims would go here.
-	if _, err := tx.ExecContext(ctx, "UPDATE identities SET handle=? WHERE id=?", want, a.id); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE identities SET handle=? WHERE id=?", want, hk); err != nil {
 		return "", nil, err
 	}
-	if err := audit(ctx, tx, "handle.claim", a.id, a.id, want, now); err != nil {
+	if err := audit(ctx, tx, "handle.claim", a.id, hk, want, now); err != nil {
 		return "", nil, err
 	}
 	return want, nil, nil
 }
 
-const eventColumns = `e.id,e.seq,e.display_seq,e.room,e.page,e.text,e.kind,e.author,e.handle,e.public_key,e.signature,e.payload,e.created_at,e.hash,e.reply_to,e.recipient,e.hidden,e.reason,r.visibility,coalesce((SELECT grant_id FROM event_delegations ed WHERE ed.event_id=e.id),''),e.format,e.supersedes,e.origin,coalesce((SELECT s.id FROM events s WHERE s.supersedes=e.id AND s.supersedes<>''),''),e.hidden_by,e.via,` + forwardColumn + `,` + custodyColumn + `,coalesce((SELECT i.handle FROM identities i WHERE i.id=e.author),''),e.account,` + principalColumn
+var eventColumns = `e.id,e.seq,e.display_seq,e.room,e.page,e.text,e.kind,e.author,e.handle,e.public_key,e.signature,e.payload,e.created_at,e.hash,e.reply_to,e.recipient,e.hidden,e.reason,r.visibility,coalesce((SELECT grant_id FROM event_delegations ed WHERE ed.event_id=e.id),''),e.format,e.supersedes,e.origin,coalesce((SELECT s.id FROM events s WHERE s.supersedes=e.id AND s.supersedes<>''),''),e.hidden_by,e.via,` + forwardColumn + `,` + custodyColumn + `,` + handleKeySQL("e.author") + `,e.account,` + principalColumn
 
 type scanner interface{ Scan(...any) error }
 
@@ -961,7 +969,7 @@ func (s *Store) stats(ctx context.Context, tx *sql.Tx) (Result, error) {
 	stats["imported_messages"], stats["simulation_messages"], stats["simulation_posting_agents"] = imported, simulation, simulationAgents
 	stats["native_messages"], stats["native_posts"], stats["native_posting_agents"] = nativeMessages, nativePosts, nativeAgents
 	for key, query := range map[string]string{
-		"listed_agents": "SELECT count(*) FROM identities i WHERE i.successor='' AND " + publicAccountSQL("i.account"),
+		"listed_agents": "SELECT count(*) FROM identities i WHERE i.successor='' AND i.role='primary' AND " + publicAccountSQL("i.account"),
 		"rooms":         "SELECT count(*) FROM rooms WHERE visibility='public'",
 	} {
 		var n int64

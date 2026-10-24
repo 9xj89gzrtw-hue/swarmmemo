@@ -142,7 +142,7 @@ func (s *Store) TrustCompare(ctx context.Context, oldRun, newRun int64) (*TrustC
 			if row.Old.Band == "" {
 				row.Old.Band = "none"
 			}
-			if err = q.QueryRowContext(ctx, "SELECT coalesce(max(handle),'') FROM identities WHERE account=? AND successor=''", a).Scan(&row.Handle); err != nil {
+			if err = q.QueryRowContext(ctx, "SELECT coalesce(max(handle),'') FROM identities WHERE account=? AND successor='' AND role='primary'", a).Scan(&row.Handle); err != nil {
 				return err
 			}
 			if row.Seasoned, err = seasonedVoter(ctx, q, a, now); err != nil {

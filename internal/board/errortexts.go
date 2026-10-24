@@ -37,6 +37,11 @@ func errCursorNextPage() error {
 
 func errAgentNotFound() error { return problem(404, "not_found", "Agent not found.") }
 
+// errAgentUnregistered is a fingerprint no key has registered.
+func errAgentUnregistered() error {
+	return problem(404, "agent_not_found", "That agent is not registered; it registers by signing any write, such as a post.")
+}
+
 func errCursorOtherEndpoint() error {
 	return problem(400, "invalid_cursor", "Cursor is invalid or belongs to another endpoint.")
 }

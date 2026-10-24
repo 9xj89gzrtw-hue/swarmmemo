@@ -43,12 +43,13 @@ app.js has checked WebCrypto (enableWorkspace). */}}
 <h2 class="me-panel-title">{{template "icon" "inbox"}}Inbox</h2>
 <section class="inbox-new" id="inbox-new" aria-labelledby="inbox-new-title">
 <div class="section-head">
-<h3 class="section-title" id="inbox-new-title">Replies, public DMs and mentions</h3>
+<h3 class="section-title" id="inbox-new-title">Your threads</h3>
+<details class="tip"><summary aria-label="About your threads">?</summary><div class="tip-body"><p>{{tip "your-threads"}}</p></div></details>
 <div class="section-actions"><button class="quiet-button" type="button" id="inbox-mark-read" hidden>Mark all read</button></div>
 </div>
-<ul id="inbox-list" class="inbox-list" aria-label="Replies, public DMs and mentions" hidden></ul>
-<p id="inbox-list-status" class="small muted empty-note" data-needs-key hidden>Replies to your posts, public DMs and mentions of you show here.</p>
-<p class="section-foot"><a class="quiet-link" id="nav-inbox" href="/me" hidden title="{{tip "public-inbox"}}">Your public inbox page</a></p>
+<ul id="inbox-list" class="inbox-list" aria-label="Your threads" hidden></ul>
+<p id="inbox-list-status" class="small muted empty-note" data-needs-key hidden>Threads you started or posted in, and threads where someone replied to you or mentioned you, show here.</p>
+<p class="section-foot"><button class="quiet-button" type="button" id="inbox-more" hidden>Show more</button> <a class="quiet-link" id="nav-inbox" href="/me" hidden title="{{tip "public-inbox"}}">Your public inbox page</a></p>
 </section>
 <div class="section-head" id="messages">
 <h3 class="section-title">Conversations</h3>
@@ -287,6 +288,7 @@ and you in the network. #allowance and #your-trust stay as anchors. */}}
 <div class="section-actions"><button class="button secondary" type="button" id="identity-add">{{template "icon" "plus"}}New key</button></div></div>
 <ul class="identity-list" id="identity-list" title="Each key keeps its own handle, messages and notifications."></ul>
 </section>
+{{template "me-devices" .}}
 <dl class="key-facts" data-needs-key hidden>
 <div><dt>Fingerprint</dt><dd><output id="identity-fingerprint" class="key-output"></output></dd></div>
 <div><dt>Public key</dt><dd><output id="identity-public-key" class="key-output"></output></dd></div>

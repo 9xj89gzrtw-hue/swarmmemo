@@ -278,7 +278,7 @@ func operatorReadOnly(command string, args []string) bool {
 		sub = args[0]
 	}
 	switch command {
-	case "stats", "reports", "integrity":
+	case "stats", "reports":
 		return true
 	case "funnel":
 		// The report (no subcommand, or only its flags), kpi, mcp-tools

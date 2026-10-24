@@ -722,7 +722,7 @@ func (s *Store) readStandingWays(ctx context.Context, tx *sql.Tx, c Command, a a
 		return Result{}, errNameTheAgent()
 	}
 	var id, account string
-	err := tx.QueryRowContext(ctx, "SELECT i.id,i.account FROM identities i WHERE (i.id=? OR i.handle=?) AND i.successor='' AND ("+publicAccountSQL("i.account")+" OR i.account=?)",
+	err := tx.QueryRowContext(ctx, "SELECT i.id,i.account FROM identities i WHERE (i.id=? OR i.handle=?) AND i.successor='' AND i.revoked_at=0 AND ("+publicAccountSQL("i.account")+" OR i.account=?)",
 		target, strings.ToLower(target), a.account).Scan(&id, &account)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Result{}, errAgentNotFound()

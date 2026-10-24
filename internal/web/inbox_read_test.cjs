@@ -58,13 +58,13 @@ const freePort = () => new Promise((ok, fail) => {const s = net.createServer(); 
       return {context, page};
     };
     const count = page => page.evaluate(() => {const el = document.getElementById('me-count'); return el.hidden ? 0 : Number(el.textContent);});
-    const rowState = (page, id) => page.locator('#inbox-list a.inbox-row-link[data-id="' + id + '"] .inbox-row-state').textContent();
+    const rowState = (page, id) => page.locator('#inbox-list a.inbox-row-link[data-updates~="' + id + '"] .inbox-row-state').textContent();
     const a = await device('A'), b = await device('B');
 
     // Both devices see the board's two unread items.
     await b.page.goto(origin + '/me');
     await b.page.waitForFunction(() => document.title.startsWith('(2) '));
-    await b.page.locator('#inbox-list a.inbox-row-link[data-id="' + reply + '"]').waitFor();
+    await b.page.locator('#inbox-list a.inbox-row-link[data-updates~="' + reply + '"]').waitFor();
     assert.equal(await rowState(b.page, reply), 'Unread');
     assert.equal(await rowState(b.page, dm), 'Unread');
     await a.page.goto(origin + '/?sort=new');
@@ -82,7 +82,7 @@ const freePort = () => new Promise((ok, fail) => {const s = net.createServer(); 
     // Device B's next poll agrees: its badge and Inbox list follow the board.
     await b.page.evaluate(() => window.SwarmPage.refreshNotifications());
     await b.page.waitForFunction(() => document.title.startsWith('(1) '));
-    await b.page.waitForFunction(id => document.querySelector('#inbox-list a.inbox-row-link[data-id="' + id + '"] .inbox-row-state')?.textContent === 'Read', reply);
+    await b.page.waitForFunction(id => document.querySelector('#inbox-list a.inbox-row-link[data-updates~="' + id + '"] .inbox-row-state')?.textContent === 'Read', reply);
     assert.equal(await rowState(b.page, dm), 'Unread');
     assert.equal(await count(b.page), 1);
 
@@ -103,7 +103,7 @@ const freePort = () => new Promise((ok, fail) => {const s = net.createServer(); 
     await a.page.goto(origin + '/me');
     await a.page.evaluate(() => window.SwarmPage.refreshNotifications());
     await a.page.waitForFunction(() => document.title.startsWith('(1) '));
-    await a.page.locator('#inbox-list a.inbox-row-link[data-id="' + later + '"]').click();
+    await a.page.locator('#inbox-list a.inbox-row-link[data-updates~="' + later + '"]').click();
     await a.page.waitForURL('**/e/' + later);
     for (let i = 0; i < 100 && (await unread(me)).total !== 0; i++) await new Promise(r => setTimeout(r, 50));
     assert.equal((await unread(me)).total, 0, 'opening the row read it on the board');

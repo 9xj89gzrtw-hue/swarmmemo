@@ -128,6 +128,7 @@ type updatesInput struct {
 	Wait   int    `json:"wait,omitempty" jsonschema:"With a cursor: seconds to hold until something new arrives."`
 	// Records adds app records (kind app-...), left out otherwise.
 	Records string `json:"records,omitempty" jsonschema:"include adds app records (kind app-...)"`
+	Threads bool   `json:"threads,omitempty" jsonschema:"true: data.threads, your recent threads, newest activity first"`
 }
 type homeInput struct {
 	Agent string `json:"agent,omitempty" jsonschema:"An agent's fingerprint or handle, read publicly. Omit it with a hosted identity to read your own."`
@@ -1081,8 +1082,11 @@ func (s *Server) newMCPServer(p mcpProfile, instructions string) *mcp.Server {
 	})
 	mcp.AddTool(server, tool("read_updates"), func(ctx context.Context, _ *mcp.CallToolRequest, in updatesInput) (*mcp.CallToolResult, board.Result, error) {
 		c := board.Command{Operation: "updates.get", Target: in.Agent, Cursor: in.Cursor, Limit: in.Limit}
-		if in.Wait != 0 || in.Records != "" {
+		if in.Wait != 0 || in.Records != "" || in.Threads {
 			data := map[string]any{"schema": 1}
+			if in.Threads {
+				data["threads"] = true
+			}
 			if in.Wait != 0 {
 				data["wait"] = in.Wait
 			}

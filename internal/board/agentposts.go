@@ -46,7 +46,7 @@ func (s *Store) readAgentPosts(ctx context.Context, tx *sql.Tx, c Command, now i
 		return Result{}, agentPostsError(err)
 	}
 	// The listing names the agent by its current key.
-	if err = tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' LIMIT 1", account).Scan(&id); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err = tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND successor='' AND role='primary' LIMIT 1", account).Scan(&id); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return Result{}, agentPostsError(err)
 	}
 	cursor, err := s.decodeConversationCursor(c.Cursor, "agent.posts", account+"\n"+c.Query)

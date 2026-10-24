@@ -620,7 +620,7 @@ func (s *Store) ownedSubjects(ctx context.Context, tx *sql.Tx, accounts []string
 	}
 	if s.OfferingsEnabled() {
 		err := inChunks(accounts, func(marks string, args []any) error {
-			return scanAll(ctx, tx, `SELECT o.account,o.name,coalesce((SELECT i.handle FROM identities i WHERE i.account=o.account AND i.successor='' ORDER BY i.handle='', i.created_at DESC LIMIT 1),'')
+			return scanAll(ctx, tx, `SELECT o.account,o.name,coalesce((SELECT i.handle FROM identities i WHERE i.account=o.account AND i.successor='' AND i.role='primary' ORDER BY i.handle='', i.created_at DESC LIMIT 1),'')
  FROM offerings o WHERE o.account IN (`+marks+`) ORDER BY o.account,o.name`, args, func(r *sql.Rows) error {
 				var account, name, handle string
 				if err := r.Scan(&account, &name, &handle); err != nil {

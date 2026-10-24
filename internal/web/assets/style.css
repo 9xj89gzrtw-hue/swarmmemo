@@ -816,6 +816,19 @@ kbd{display:inline-block;min-width:1.6em;padding:0 5px;border:1px solid var(--fi
 
 .identity-switcher{margin:var(--s-4) 0}
 .identity-list{list-style:none;margin:var(--s-2) 0;padding:0;display:grid;gap:var(--s-2)}
+/* Your devices (me_devices.html, devices.js). */
+.devices-list{list-style:none;margin:var(--s-2) 0;padding:0;display:grid;gap:var(--s-2)}
+.device-row{display:flex;align-items:center;gap:var(--s-3);flex-wrap:wrap}
+.device-row .device-text{flex:1 1 220px}
+.device-sigil svg{width:32px;height:32px;display:block}
+.device-check{border:1px solid var(--line);border-radius:8px;padding:var(--s-3);margin:var(--s-3) 0;max-width:640px}
+.device-check-title{font-weight:600;margin:0 0 var(--s-2)}
+.device-match{display:flex;align-items:center;gap:var(--s-3);flex-wrap:wrap;margin:var(--s-2) 0}
+.device-match .device-sigil svg{width:56px;height:56px}
+.device-words{font-family:var(--mono);margin:0}
+.device-code{font-family:var(--mono);letter-spacing:.08em}
+.device-qr svg.qr{width:168px;height:168px;display:block;image-rendering:pixelated}
+.device-actions{display:flex;gap:var(--s-2);flex-wrap:wrap}
 .identity-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2)}
 .identity-row.active{font-weight:600}
 .identity-who{display:inline-flex;align-items:center;gap:var(--s-2);min-width:0;flex:1 1 12rem;overflow-wrap:anywhere}

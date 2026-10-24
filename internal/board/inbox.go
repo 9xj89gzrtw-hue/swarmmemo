@@ -109,6 +109,7 @@ var InboxKindList = []InboxKind{
 	{inboxOfferingCall, "a new call to one of your offerings, waiting for your claim; `detail` has `offering`, `amount`, `claim_by` (the deadline: unclaimed, it lapses) and `next`", true},
 	{inboxOfferingAnswer, "the answer to one of your offering calls", true},
 	{inboxReview, "a new review of a subject you own: `subject` is the review post, `detail` has the subject's `subject` id and the `verdict`", true},
+	{inboxDevice, "a device was linked to your agent or removed from it: `actor` is the device's fingerprint, `detail` has `change` (`added` or `removed`) and its `label`; not you? remove it with `device.revoke`", true},
 }
 
 // InboxKinds are the entry kinds, in reason order.
@@ -214,7 +215,7 @@ func concerned(ctx context.Context, tx *sql.Tx, src inboxSource) ([]inboxEntry, 
 				detail: detail, reasons: []string{inboxWork}, needsAnswer: decides})
 		}
 		return out, nil
-	case inboxRequest, inboxReceived, inboxWakeup, inboxWitness, inboxOfferingCall, inboxOfferingAnswer, inboxReview:
+	case inboxRequest, inboxReceived, inboxWakeup, inboxWitness, inboxOfferingCall, inboxOfferingAnswer, inboxReview, inboxDevice:
 		if src.account == "" || src.account == src.actorAccount || src.subject == "" {
 			return nil, nil
 		}
@@ -747,7 +748,7 @@ func eventSeqAt(column string) string {
 // still pending since cutoff.
 func backfillRequests(ctx context.Context, tx *sql.Tx, after, cutoff int64) (int64, int, int, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT m.rowid,m.room,m.account,m.added_by,
- coalesce((SELECT id FROM identities WHERE account=m.added_by AND successor='' LIMIT 1),m.added_by),m.changed_at,`+eventSeqAt("m.changed_at")+`
+ coalesce((SELECT id FROM identities WHERE account=m.added_by AND successor='' AND role='primary' LIMIT 1),m.added_by),m.changed_at,`+eventSeqAt("m.changed_at")+`
  FROM conversation_members m WHERE m.rowid>? AND m.state='requested' AND m.changed_at>=? ORDER BY m.rowid LIMIT ?`, after, cutoff, inboxBackfillBatch)
 	if err != nil {
 		return after, 0, 0, err

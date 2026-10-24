@@ -415,7 +415,7 @@ func (in trustInputs) Read(ctx context.Context, asOf int64, p trust.Params, emit
 			r, err := q.QueryContext(ctx, `SELECT l.rowid,i.account,l.kind,l.value,l.state,l.created_at,l.checked_at,
  coalesce((SELECT o.account FROM identities o WHERE l.kind='ed25519' AND o.public_key=l.value AND `+publicAccountSQL("o.account")+`),''),
  `+publicAccountSQL("i.account")+`,`+assessedSQL+`
- FROM identity_links l JOIN identities i ON i.id=l.agent`+assessedJoin+` WHERE l.rowid>? AND i.successor='' AND NOT (l.kind='x25519' AND l.state='lapsed') ORDER BY l.rowid LIMIT ?`, after, rows)
+ FROM identity_links l JOIN identities i ON i.id=l.agent`+assessedJoin+` WHERE l.rowid>? AND i.successor='' AND i.revoked_at=0 AND NOT (l.kind='x25519' AND l.state='lapsed') ORDER BY l.rowid LIMIT ?`, after, rows)
 			if err != nil {
 				return err
 			}
@@ -514,7 +514,7 @@ func (in trustInputs) Read(ctx context.Context, asOf int64, p trust.Params, emit
 		scanned := 0
 		if err := in.page(ctx, func(q allowance.Querier) error {
 			r, err := q.QueryContext(ctx, `SELECT sa.rowid,i.account,sa.root,sa.assessed,sa.created_at,sa.assessed_at,`+publicAccountSQL("i.account")+`
- FROM standing_assessments sa JOIN identities i ON i.id=sa.agent WHERE sa.rowid>? AND sa.kind='pow' AND i.successor='' ORDER BY sa.rowid LIMIT ?`, after, rows)
+ FROM standing_assessments sa JOIN identities i ON i.id=sa.agent WHERE sa.rowid>? AND sa.kind='pow' AND i.successor='' AND i.revoked_at=0 ORDER BY sa.rowid LIMIT ?`, after, rows)
 			if err != nil {
 				return err
 			}

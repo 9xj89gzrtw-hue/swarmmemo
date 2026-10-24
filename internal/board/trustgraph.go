@@ -269,7 +269,7 @@ func buildTrustGraph(ctx context.Context, q allowance.Querier, core int, now int
 		return nil, err
 	} else if ok {
 		if err := scan(`SELECT i.account,o.account,'' FROM identity_links l JOIN identities i ON i.id=l.agent JOIN identities o ON o.public_key=l.value
- WHERE l.kind='ed25519' AND l.state='verified' AND i.successor='' AND o.account<>i.account AND `+publicAccountSQL("i.account")+` AND `+publicAccountSQL("o.account")+`
+ WHERE l.kind='ed25519' AND l.state='verified' AND i.successor='' AND i.revoked_at=0 AND o.account<>i.account AND `+publicAccountSQL("i.account")+` AND `+publicAccountSQL("o.account")+`
  ORDER BY l.rowid DESC LIMIT ?`, "key_link"); err != nil {
 			return nil, err
 		}

@@ -38,7 +38,7 @@ func offeringOwner(ctx context.Context, q interface {
 		// it (C249): its subject resolves to the current address.
 		query, args = "SELECT ?", []any{former}
 	}
-	rows, err := q.QueryContext(ctx, `SELECT o.account,coalesce((SELECT h.handle FROM identities h WHERE h.account=o.account AND h.successor='' ORDER BY h.handle='', h.created_at DESC LIMIT 1),'')
+	rows, err := q.QueryContext(ctx, `SELECT o.account,coalesce((SELECT h.handle FROM identities h WHERE h.account=o.account AND h.successor='' AND h.role='primary' ORDER BY h.handle='', h.created_at DESC LIMIT 1),'')
  FROM offerings o WHERE o.name=? AND o.account=(`+query+` LIMIT 1)`, append([]any{name}, args...)...)
 	if err != nil {
 		return "", "", "", false, err

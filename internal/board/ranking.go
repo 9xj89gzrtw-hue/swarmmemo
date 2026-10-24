@@ -189,7 +189,7 @@ func hotAgentIDs(ctx context.Context, tx *sql.Tx, public string, now int64) ([]s
  FROM (SELECT i.id,i.account,max(coalesce((SELECT e.created_at FROM events e CROSS JOIN rooms r ON r.name=e.room WHERE e.account=i.account AND r.visibility='public' AND e.hidden=0 ORDER BY e.seq DESC LIMIT 1),0),
   coalesce((SELECT max(au.created_at) FROM audit au JOIN identities ai ON ai.id=au.actor WHERE ai.account=i.account AND au.operation IN ('agent.register','agent.profile.publish')),0)) AS seen,
   EXISTS(SELECT 1 FROM peer_cards pc WHERE pc.account=i.account) AS profile
-  FROM identities i WHERE i.successor='' AND `+public+`) c WHERE seen>=? ORDER BY seen DESC, id DESC LIMIT ?`,
+  FROM identities i WHERE i.successor='' AND i.role='primary' AND `+public+`) c WHERE seen>=? ORDER BY seen DESC, id DESC LIMIT ?`,
 		now-HotWindowSeconds, HotAgentPosts, now-HotWindowSeconds, hotAgentCandidates)
 	if err != nil {
 		return nil, err
