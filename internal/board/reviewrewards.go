@@ -399,7 +399,16 @@ func (s *Store) offerReviewReward(ctx context.Context, tx *sql.Tx, p *pendingRev
 	}
 	roots := map[string]bool{}
 	var subjectToday int64
-	midnight := now - now%86400
+	// The caps count the review's own UTC day and the hold starts at the
+	// review (PROTOCOL: "by the review's day", "72 hours after the review"):
+	// a tx: review verified after midnight is counted on the day it was
+	// posted, not the day it verified (newbotlabor, round 7).
+	posted := now
+	if p.createdAt > 0 && p.createdAt < now {
+		posted = p.createdAt
+	}
+	midnight := posted - posted%86400
+	next := midnight + 86400
 	for _, w := range existing {
 		if w.state == "failed" {
 			continue
@@ -407,7 +416,7 @@ func (s *Store) offerReviewReward(ctx context.Context, tx *sql.Tx, p *pendingRev
 		if w.createdAt > now-t.WindowDays*86400 {
 			roots[w.detail.Root] = true
 		}
-		if w.createdAt >= midnight {
+		if w.createdAt >= midnight && w.createdAt < next {
 			subjectToday++
 		}
 	}
@@ -415,8 +424,8 @@ func (s *Store) offerReviewReward(ctx context.Context, tx *sql.Tx, p *pendingRev
 		return noReward("no_slots_left"), nil
 	}
 	var accountToday int64
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM reviews r JOIN review_evidence v ON v.event_id=r.event_id AND v.evidence=? AND v.state<>'failed' WHERE r.account=? AND r.created_at>=?`,
-		RewardEvidence, p.account, midnight).Scan(&accountToday); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM reviews r JOIN review_evidence v ON v.event_id=r.event_id AND v.evidence=? AND v.state<>'failed' WHERE r.account=? AND r.created_at>=? AND r.created_at<?`,
+		RewardEvidence, p.account, midnight, next).Scan(&accountToday); err != nil {
 		return nil, err
 	}
 	if accountToday >= t.PerAccountPerDay {
@@ -425,7 +434,7 @@ func (s *Store) offerReviewReward(ctx context.Context, tx *sql.Tx, p *pendingRev
 	if subjectToday >= t.PerSubjectPerDay {
 		return noReward("subject_daily_cap"), nil
 	}
-	d := rewardDetail{Amount: amount, DueAt: now + t.HoldHours*3600, Root: root, Class: class, BaseCredits: t.BaseCredits, FactorPPM: factor, VPPM: v, ParamsVersion: t.version}
+	d := rewardDetail{Amount: amount, DueAt: max(posted+t.HoldHours*3600, now), Root: root, Class: class, BaseCredits: t.BaseCredits, FactorPPM: factor, VPPM: v, ParamsVersion: t.version}
 	raw, _ := json.Marshal(d)
 	if _, err = tx.ExecContext(ctx, "INSERT INTO review_evidence(event_id,evidence,class,state,checked_at,detail) VALUES(?,?,'reward','unknown',?,?)", eventID, RewardEvidence, now, string(raw)); err != nil {
 		return nil, err

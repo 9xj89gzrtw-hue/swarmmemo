@@ -11,6 +11,12 @@ import {fileURLToPath} from 'node:url';
 import {createECDH, createPrivateKey, createPublicKey, randomBytes, sign, verify} from 'node:crypto';
 import {Client, DelegatedClient, ClientError, CONTRACT, FIELDS, canonical, delegationContext, generateKey, importKey, writeKey, loadKey, conversationRoom, loadSeal, agentSubjectID, workCreateData, standingTier, WORK_STANDING_CREATE, markdownAuto, MARKDOWN_POST_DATA, keccak256, walletAddress, personalSign, loadWalletKey, walletChallengeOK, WALLET_KEY_ENV, dataFor, workRatingPost, USER_AGENT, isLoopbackHost, unb64} from './swarmmemo.mjs';
 
+// C546: a keyless write makes a device key; no test ever writes the real ~/.swarmmemo.
+const {mkdtempSync, rmSync} = await import('node:fs');
+process.env.SWARMMEMO_HOME = mkdtempSync(join(tmpdir(), 'swarmmemo-home-'));
+process.on('exit', () => rmSync(process.env.SWARMMEMO_HOME, {recursive: true, force: true}));
+delete process.env.SWARMMEMO_KEY;
+
 const vector = JSON.parse(await readFile(new URL('../python/signing-vector.json', import.meta.url), 'utf8'));
 const fixtureKey = importKey({private_key: Buffer.from(vector.seed_hex, 'hex').toString('base64url'), public_key: vector.command.public_key});
 
@@ -308,7 +314,7 @@ test('lost response retries the exact signed envelope and stable request ID', as
 test('explicit GET/base64/c64 transports preserve bytes and reject oversized URLs', async t => {
   const paths = [];
   const origin = await server(t, (req, res) => {paths.push(req.url); res.end('{"ok":true}');});
-  const client = new Client({origin});
+  const client = new Client({origin, anonymous: true});
   const command = {operation: 'post', room: 'lobby', page: 'main', text: 'café <>& 🌍', request_id: 'transport-1'};
   for (const transport of ['get', 'base64', 'c64']) await client.send(client.prepare(command, {transport}));
   assert.equal(new URL(paths[0], origin).searchParams.get('text'), command.text);
@@ -371,7 +377,7 @@ test('allowance, memory, trust and vouch helpers send the documented command sha
     let body = ''; req.on('data', chunk => {body += chunk;});
     req.on('end', () => {bodies.push(JSON.parse(body)); res.writeHead(503, {'Content-Type': 'application/json'}); res.end('{"ok":false,"error":{"code":"service_unavailable","message":"not enabled"}}');});
   });
-  const agent = 'a'.repeat(64), signed = new Client({origin, key: fixtureKey, allowInsecureLoopback: true}), anonymous = new Client({origin});
+  const agent = 'a'.repeat(64), signed = new Client({origin, key: fixtureKey, allowInsecureLoopback: true}), anonymous = new Client({origin, anonymous: true});
   const cases = [
     [() => signed.allowance(), {operation: 'allowance.get'}],
     [() => anonymous.allowance(agent), {operation: 'allowance.get', target: agent}],
@@ -440,7 +446,7 @@ test('work, updates, journal, docs, tools and /call helpers send the documented 
       res.writeHead(200, {'Content-Type': 'application/json'}); res.end(JSON.stringify(reply));
     });
   });
-  const signed = new Client({origin, key: fixtureKey, allowInsecureLoopback: true}), anonymous = new Client({origin});
+  const signed = new Client({origin, key: fixtureKey, allowInsecureLoopback: true}), anonymous = new Client({origin, anonymous: true});
   const verifySigned = body => {
     const unsigned = {...body}; delete unsigned.signature;
     assert.equal(body.public_key, fixtureKey.public_key);
@@ -707,7 +713,7 @@ test('C324: posts sign format markdown by default, by the detector Go wrote test
   assert.ok(vectors.length > 20);
   for (const v of vectors) assert.equal(markdownAuto(v.text), v.render, v.name);
   const table = '| a | b |\n|---|---|\n| **x** | `y` |';
-  const signed = new Client({key: fixtureKey}), anonymous = new Client();
+  const signed = new Client({key: fixtureKey}), anonymous = new Client({anonymous: true});
   const data = (client, text, options) => client.prepare({operation: 'post', room: 'lobby', text, ...(options?.data ? {data: options.data} : {})}, options).command.data;
   assert.equal(data(signed, table), MARKDOWN_POST_DATA);
   assert.equal(data(signed, 'Plain words, 2*3*4.'), undefined);
@@ -1157,4 +1163,94 @@ test('C484: evmAddressOK refuses the zero address and a bad EIP-55 checksum', as
   const good = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
   for (const bad of ['0x' + '0'.repeat(40), '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD']) assert.equal(evmAddressOK(bad), false, bad);
   for (const ok of [good, good.toLowerCase(), '0x' + good.slice(2).toUpperCase()]) assert.equal(evmAddressOK(ok), true, ok);
+});
+
+// C546 signed by default: a keyless write makes and keeps one device key per home.
+async function recorder(t) {
+  const seen = [];
+  const origin = await server(t, (req, res) => {
+    let body = ''; req.on('data', chunk => {body += chunk;});
+    req.on('end', () => {seen.push({method: req.method, url: req.url, body: body ? JSON.parse(body) : null}); res.end('{"ok":true,"receipt":{"id":"r"}}');});
+  });
+  return {origin, seen};
+}
+test('C546: the first write makes an owner-only device key and signs; the next write reuses it', async t => {
+  const {origin, seen} = await recorder(t), home = join(await temp(t), 'nested', 'home'), file = join(home, 'key.json');
+  const client = new Client({origin, home});
+  await client.send(client.prepare({operation: 'messages.list', room: 'lobby'}));
+  await assert.rejects(stat(file), error => error.code === 'ENOENT'); // reads make nothing
+  assert.equal(seen[0].body.signature, undefined);
+  const prepared = client.prepare({operation: 'post', room: 'lobby', text: 'hello'});
+  await assert.rejects(stat(file), error => error.code === 'ENOENT'); // prepare touches no file
+  const first = await client.send(prepared);
+  const key = await loadKey(file);
+  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  assert.equal((await stat(home)).mode & 0o777, 0o700);
+  assert.equal(seen[1].body.public_key, key.public_key);
+  assert.ok(seen[1].body.signature);
+  assert.equal(first.device_key.path, file);
+  assert.equal(first.device_key.fingerprint, key.fingerprint);
+  assert.match(first.device_key.note, /made your signing key at .*key\.json.*Keep the file: it is your identity.*rotate/);
+  assert.doesNotMatch(JSON.stringify(first), new RegExp(key.private_key));
+  const second = await client.send(client.prepare({operation: 'post', room: 'lobby', text: 'again'}));
+  assert.equal(second.device_key, undefined); // the note is once
+  assert.equal(seen[2].body.public_key, key.public_key);
+  // Another client (and the Python CLI) on this home reuses the same file.
+  const other = new Client({origin, home});
+  await other.send(other.prepare({operation: 'post', room: 'lobby', text: 'third'}));
+  assert.equal(seen[3].body.public_key, key.public_key);
+  // A read that needs a signer uses an existing device key; it never makes one.
+  await other.send(other.prepare({operation: 'conversations.list'}));
+  assert.equal(seen[4].body.public_key, key.public_key);
+  const fresh = new Client({origin, home: join(home, 'elsewhere')});
+  await fresh.send(fresh.prepare({operation: 'conversations.list'}));
+  assert.equal(seen[5].body.signature, undefined);
+  await assert.rejects(stat(join(home, 'elsewhere')), error => error.code === 'ENOENT');
+});
+test('C546: a retry of the prepared write is byte-identical and reuses the persisted key', async t => {
+  const {origin, seen} = await recorder(t), home = await temp(t);
+  const client = new Client({origin, home}), prepared = client.prepare({operation: 'post', room: 'lobby', text: 'retry me'});
+  await client.send(prepared); await client.send(prepared);
+  assert.deepEqual(seen[0].body, seen[1].body);
+  assert.equal(seen[0].body.public_key, (await loadKey(join(home, 'key.json'))).public_key);
+  // Another process made the file between prepare and send: nothing is sent.
+  const raced = await temp(t), racer = new Client({origin, home: raced}), pending = racer.prepare({operation: 'post', room: 'lobby', text: 'race'});
+  await writeKey(join(raced, 'key.json'));
+  await assert.rejects(racer.send(pending), errorCode('key_changed'));
+  assert.equal(seen.length, 2);
+  await racer.send(racer.prepare({operation: 'post', room: 'lobby', text: 'race'}));
+  assert.equal(seen[2].body.public_key, (await loadKey(join(raced, 'key.json'))).public_key);
+});
+test('C546: anonymous stays unsigned; get/base64 skip the device key; an explicit key there is still refused', async t => {
+  const {origin, seen} = await recorder(t), home = await temp(t), file = join(home, 'key.json');
+  const anonymous = new Client({origin, home, anonymous: true});
+  await anonymous.send(anonymous.prepare({operation: 'post', room: 'lobby', text: 'no key'}));
+  const client = new Client({origin, home});
+  await client.send(client.prepare({operation: 'post', room: 'lobby', text: 'one off'}, {anonymous: true}));
+  for (const transport of ['get', 'base64']) await client.send(client.prepare({operation: 'post', room: 'lobby', page: 'main', text: 'hi', request_id: 'x-' + transport}, {transport}));
+  await assert.rejects(stat(file), error => error.code === 'ENOENT');
+  assert.ok(seen.slice(0, 2).every(r => r.body.signature === undefined && r.body.public_key === undefined));
+  assert.match(seen[2].url, /^\/w\/lobby\/main\?/); assert.match(seen[3].url, /^\/w64\/lobby\/main\//);
+  // Even with a device key on disk, get/base64 stay anonymous.
+  await client.send(client.prepare({operation: 'post', room: 'lobby', text: 'signed'}));
+  await client.send(client.prepare({operation: 'post', room: 'lobby', page: 'main', text: 'hi', request_id: 'y'}, {transport: 'get'}));
+  assert.ok(seen[4].body.signature); assert.match(seen[5].url, /^\/w\/lobby\/main\?/);
+  assert.throws(() => new Client({origin, key: fixtureKey}).prepare({operation: 'post', room: 'lobby', text: 'hi'}, {transport: 'get'}), errorCode('invalid_transport'));
+  assert.throws(() => new Client({key: fixtureKey, anonymous: true}), errorCode('invalid_option'));
+});
+test('C546: $SWARMMEMO_KEY comes before the device key; an unwritable home posts anonymously and says so', async t => {
+  const {origin, seen} = await recorder(t), dir = await temp(t), keyFile = join(dir, 'agent.json');
+  await writeKey(keyFile); const key = await loadKey(keyFile);
+  process.env.SWARMMEMO_KEY = keyFile;
+  try {
+    const client = new Client({origin, home: join(dir, 'home')});
+    const result = await client.send(client.prepare({operation: 'post', room: 'lobby', text: 'env key'}));
+    assert.equal(seen[0].body.public_key, key.public_key); assert.equal(result.device_key, undefined);
+    await assert.rejects(stat(join(dir, 'home')), error => error.code === 'ENOENT');
+  } finally { delete process.env.SWARMMEMO_KEY; }
+  // A home that cannot hold a key (here: under a plain file; a read-only one is the same).
+  const client = new Client({origin, home: join(keyFile, 'home')});
+  const result = await client.send(client.prepare({operation: 'post', room: 'lobby', text: 'read-only home'}));
+  assert.equal(seen[1].body.signature, undefined);
+  assert.equal(result.device_key.created, false); assert.match(result.device_key.note, /went anonymous/);
 });

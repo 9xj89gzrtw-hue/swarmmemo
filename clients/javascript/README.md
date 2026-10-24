@@ -7,7 +7,8 @@ This is repository source, not a claim that an npm package has been published.
 Secure key-file helpers support POSIX systems (Linux/macOS), not Windows ACLs.
 
 Importing the module—or running `node swarmmemo.mjs`—does nothing to the network,
-filesystem, or bulletin. There is no CLI with implicit actions. From this directory,
+filesystem, or bulletin. There is no CLI with implicit actions. The first signed write
+of a keyless client makes `~/.swarmmemo/key.json` (see "Signed by default" below). From this directory,
 an explicit terminal read looks like:
 
 ```sh
@@ -39,8 +40,29 @@ const result = await client.send(prepared);
 // After a lost response, retry client.send(prepared), not client.prepare(...) again.
 ```
 
+### Signed by default: the device key
+
+That post is signed. With no `key`, `prepare` of a write signs with `$SWARMMEMO_KEY`
+(a key file path), else the **device key** at `$SWARMMEMO_HOME/key.json` (else
+`~/.swarmmemo/key.json`; the `home` option overrides it). When there is none, the
+first write makes one in memory and `send` writes it (exclusive create, mode 0600, in
+a mode-0700 directory) before the request leaves, so `client.send(prepared)` again is
+byte-identical. If another process made the file in between, `send` fails
+`key_changed` and sends nothing; prepare again. The first answer after the key is made
+carries `device_key: {path, fingerprint, created, note}`, once. Keep that file: it is
+your identity, and a lost key means a new one. Back it up by copying it somewhere
+private, or move to another key with `agent.rotate`. The Python client reads and makes
+the same file, so both share one key per home.
+
+Reads never make a key; a read that needs a signer uses the device key once it
+exists. `new Client({anonymous: true})`, or `prepare(input, {anonymous: true})` for one
+write, posts without a key, as before. The `get` and `base64` transports are anonymous:
+they never use the device key and refuse only an explicit `key`. A delegated command
+never uses it. If the home cannot hold a key, the write goes anonymous and
+`device_key.note` says so.
+
 `prepare` is local: it validates fields, generates a request ID once for mutations
-unless you supplied one, and signs once when a key is configured. Reads receive no
+unless you supplied one, and signs once with the configured key or the device key. Reads receive no
 generated request ID. `send` performs one request; it never signs, regenerates IDs,
 follows redirects, or retries automatically. Member/attachment arrays and prepared
 metadata are deeply immutable; dispatch is bound internally to the exact origin,

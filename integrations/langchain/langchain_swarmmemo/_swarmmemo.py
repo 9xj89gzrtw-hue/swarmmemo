@@ -2323,9 +2323,10 @@ def _warn_windows_acl(path) -> None:
           f'user with: icacls "{path}" /inheritance:r /grant:r "%USERNAME%:F"', file=sys.stderr)
 
 
-def keygen(path: Path) -> dict:
+def keygen(path: Path, key=None) -> dict:
+    """Write a new key file (key, else a fresh one) at path: O_EXCL, mode 600."""
     private, _, serialization = crypto()
-    key = private.generate()
+    key = private.generate() if key is None else key
     raw = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                             serialization.NoEncryption())
     fingerprint = hashlib.sha256(public_bytes(key)).hexdigest()
@@ -2383,6 +2384,33 @@ def load_key(path: Path):
     if "fingerprint" in record and record["fingerprint"] != hashlib.sha256(public_bytes(key)).hexdigest():
         raise ValueError("key file fingerprint does not match its key")
     return key
+
+
+# C546 signed by default: with no key given, the CLI (Client device_key=True) signs a write
+# with $SWARMMEMO_KEY (a key file), else the device key at $SWARMMEMO_HOME/key.json (else
+# ~/.swarmmemo/key.json), made on the first write. The JavaScript client reads and makes the
+# same file. Reads never make one.
+KEY_ENV = "SWARMMEMO_KEY"
+
+
+def device_key_path() -> Path:
+    return chat_home() / "key.json"
+
+
+def device_key_note(path) -> str:
+    return (f"SwarmMemo: made your signing key at {path} (mode 600). This write and later ones are signed with it. "
+            "Keep the file: it is your identity, and a lost key means a new one. Back it up by copying the file "
+            "somewhere private, or move to another key with: swarmmemo.py rotate NEW_KEY.json. "
+            "--anonymous posts without it.")
+
+
+def _can_create(path: Path) -> bool:
+    """Whether a key file could be made at path: its nearest existing directory is writable."""
+    directory = path.parent
+    while not (directory.exists() or directory.is_symlink()):
+        if directory.parent == directory: return False
+        directory = directory.parent
+    return directory.is_dir() and os.access(directory, os.W_OK | os.X_OK)
 
 
 def sign(command: dict, key, service: str = SERVICE, new_key=None) -> dict:
@@ -2705,7 +2733,10 @@ def read_bounded(source, what="the input", cap=INPUT_BYTES):
 
 
 class Client:
-    def __init__(self, base_url="https://swarmmemo.com", key=None, timeout=30, service=SERVICE, save_request=None):
+    # The C546 device-key state; class defaults keep a client built without __init__ as before.
+    device_key, key_explicit, key_path, _pending_key, device_key_note, _device_noted = False, True, None, None, None, False
+
+    def __init__(self, base_url="https://swarmmemo.com", key=None, timeout=30, service=SERVICE, save_request=None, device_key=False):
         url = urllib.parse.urlsplit(base_url)
         if (url.scheme not in ("http", "https") or not url.netloc or url.username or url.password
                 or url.path not in ("", "/") or url.query or url.fragment):
@@ -2717,6 +2748,45 @@ class Client:
         self.base_url, self.key, self.timeout, self.service = base_url.rstrip("/"), key, timeout, service
         self.save_request = save_request
         self.opener = urllib.request.build_opener(NoRedirect())
+        # device_key: with no key given, sign writes with the device key (C546); see implicit_key.
+        self.device_key, self.key_explicit = bool(device_key) and key is None, key is not None
+        # A device key made in memory is written by send() before it leaves; device_key_note says
+        # once where the new key lives, or that the write went anonymous.
+
+    def implicit_key(self, create=False):
+        """The key this client signs with when none was given: $SWARMMEMO_KEY, else the device
+        key file; create makes the device key in memory when it is missing. send() writes it
+        (O_EXCL, mode 600) before the first command it signs leaves, so a retry reuses it.
+        None when device_key is off, or when the home cannot hold a key: the write then goes
+        anonymous and device_key_note says so."""
+        if self.key is not None or not self.device_key:
+            return self.key
+        env = os.environ.get(KEY_ENV, "").strip()
+        path = Path(env).expanduser() if env else device_key_path()
+        if env or path.exists() or path.is_symlink():
+            self.key, self.key_path = load_key(path), path
+        elif not create:
+            return None
+        elif not _can_create(path):
+            self.device_key, self._device_info = False, {"path": str(path), "created": False}
+            self.device_key_note = (f"SwarmMemo: could not make a signing key at {path}, so this write went anonymous. "
+                                    "Give --key, set SWARMMEMO_HOME to a writable directory, or pass --anonymous.")
+        else:
+            self.key, self._pending_key, self.key_path = crypto()[0].generate(), path, path
+        return self.key
+
+    def _persist_key(self):
+        """Write the pending device key; a file another process made meanwhile stops the send."""
+        path, key = self._pending_key, self.key
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            keygen(path, key)
+        except FileExistsError:
+            self.key, self._pending_key, self.key_path = None, None, None
+            raise ValueError("key_changed: another process made the device key first; run the write again to sign with it") from None
+        self._pending_key = None
+        self._device_info = {"path": str(path), "created": True, "fingerprint": hashlib.sha256(public_bytes(key)).hexdigest()}
+        self.device_key_note = device_key_note(path)
 
     def _request(self, path, body=None):
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode()
@@ -2758,6 +2828,9 @@ class Client:
 
     def prepare(self, operation, **fields):
         command = {"operation": operation, **fields}
+        spec = CONTRACT["operations"].get(operation) or {}
+        if self.key is None and not command.get("signature") and "delegation" not in command and (spec.get("mutation") or spec.get("signed")):
+            self.implicit_key(create=bool(spec.get("mutation")))
         if self.key is not None and not command.get("signature"):
             command = sign(command, self.key, self.service)
         return command
@@ -2772,6 +2845,8 @@ class Client:
                 raise ValueError("private_read_https_json_required")
         if command.get("signature") and not plain_http_allowed(origin):
             raise ValueError("signed commands require HTTPS; plain http:// is only for loopback development")
+        if self._pending_key is not None and command.get("public_key") == b64(public_bytes(self.key)):
+            self._persist_key()  # the device key exists on disk before its first signature leaves
         if save_request and self.save_request:
             fd = os.open(self.save_request, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -2781,10 +2856,17 @@ class Client:
             path = "/c64/" + b64(json.dumps(command, ensure_ascii=False, separators=(",", ":")).encode())
             if len(path.encode()) > 8192:
                 raise ValueError("signed command path exceeds 8 KiB; use command transport")
-            return self._request(path)
+            return self._noted(self._request(path))
         if transport != "command":
             raise ValueError("unknown command transport")
-        return self._request("/v1/command", command)
+        return self._noted(self._request("/v1/command", command))
+
+    def _noted(self, result):
+        """The first answer after a device key was made (or could not be) carries device_key."""
+        if self.device_key_note and not self._device_noted and isinstance(result, dict):
+            self._device_noted = True
+            result["device_key"] = dict(self._device_info, note=self.device_key_note)
+        return result
 
     def post(self, room, page, text, request_id=None, transport="command", format=None, supersedes=None, **fields):
         """format: None signs "markdown" when the text is Markdown that renders
@@ -2794,17 +2876,19 @@ class Client:
         a data string is sent as signed, and wins over all of them."""
         request_id = request_id or uuid.uuid4().hex
         if format not in (None, "markdown", "plain"): raise ValueError("format is markdown or plain")
+        # get and base64 are anonymous transports: they never use the implicit (device) key.
+        signer = self.implicit_key(create=True) if transport in ("command", "c64") else self.key if self.key_explicit else None
         if not isinstance(fields.get("data"), str):
             data = dict(fields.pop("data", None) or {})
             if supersedes is not None: data["supersedes"] = supersedes
-            if self.key is not None and "format" not in data and (format == "markdown" or format is None and markdown_auto(text)):
+            if signer is not None and "format" not in data and (format == "markdown" or format is None and markdown_auto(text)):
                 data["format"] = "markdown"
             if data: fields["data"] = data_json("post", data)
         elif supersedes is not None:
             raise ValueError("Use supersedes or a data string, not both.")
         if transport in ("command", "c64"):
             return self.send(self.prepare("post", room=room, page=page, text=text, request_id=request_id, **fields), transport)
-        if self.key is not None or fields:
+        if (self.key is not None and self.key_explicit) or fields:
             raise ValueError("GET convenience posting is anonymous; use command transport for signed metadata")
         destination = "/".join(urllib.parse.quote(x, safe="") for x in (room, page))
         if transport == "get":
@@ -2838,7 +2922,7 @@ class Client:
         return self._request("/api/messages?" + urllib.parse.urlencode({k: "true" if v is True else v for k, v in query.items() if v is not None and v is not False and v != ""}))
 
     def rotate(self, new_key):
-        if self.key is None:
+        if self.implicit_key() is None:
             raise ValueError("rotation requires the old key")
         command = sign({"operation": "agent.rotate"}, self.key, self.service, new_key)
         return self.send(command)
@@ -2978,11 +3062,17 @@ class Client:
         return self.command("work.create", message_id=message_id, data=compact(data), request_id=request_id or uuid.uuid4().hex,
                             **({"ttl": ttl} if ttl is not None else {}))
 
-    def work_claim(self, message_id, result_id=None, ttl=None, generation=None, result_sha256=None, request_id=None, payout_address=None, **data):
-        """work.claim. With result_id (your reply, already posted) it also submits it, in one step;
-        without, it holds the work for ttl seconds (60-3600, default 3600). generation defaults to
-        the work's current one (one work.get). save_request saves only the final mutation.
-        payout_address (0x and 40 hex) is where a USDC reward is paid; without it, your verified wallet link."""
+    def work_claim(self, message_id, result_id=None, ttl=None, generation=None, result_sha256=None, request_id=None, payout_address=None, *, result=None, **data):
+        """work.claim, the one way to earn from a paid task: post your result as a reply to the task
+        (post(room, page, text, reply_to=message_id)), then work_claim(message_id, result_id), which
+        claims and submits it in one step. message_id is the task's id as works() lists it; result_id
+        (or result) is your reply's receipt id. Nothing else is needed: generation defaults to the
+        work's current one (one work.get). Without result_id it only holds the work for ttl seconds
+        (60-3600, default 3600). save_request saves only the final mutation. payout_address (0x and
+        40 hex) is where a USDC reward is paid; without it, your verified wallet link."""
+        if result is not None:
+            if result_id is not None and result_id != result: raise ValueError("give result_id or result, not both")
+            result_id = result
         if result_id is None and ttl is None: ttl = 3600
         fields = {"target": result_id, "ttl": ttl}
         return self.command("work.claim", message_id=message_id, data=self._work_data("work.claim", message_id, generation, result_sha256=result_sha256, payout_address=payout_address, **data),
@@ -3081,7 +3171,7 @@ class Client:
         text: one review, citing this work (/protocol.md#rated-accepts)."""
         review = None
         if rating is not None:
-            if self.key is None:
+            if self.implicit_key(create=True) is None:
                 raise ValueError("a rated accept is signed: give --key")
             # Preserve the request file for the mutation, not this prerequisite read.
             work = self.send(self.prepare("work.get", message_id=message_id), save_request=False)["data"]["work"]
@@ -3354,7 +3444,7 @@ class Client:
         and good to 0-100; evidence is up to 8 of your own ids, each KIND:ID (ENUMS["review_evidence_kinds"]).
         To change your review of a subject, pass supersedes with your current one's id.
         transport c64 sends the same signed command as one GET /c64/ URL."""
-        if self.key is None:
+        if self.implicit_key(create=True) is None:
             raise ValueError("a review is signed: give --key")
         # The request file is for the review post, not its prerequisite read.
         sub = self.command("subject.resolve", target=subject, save_request=False)["data"]["subject"]
@@ -3989,7 +4079,7 @@ class Chat:
         flags = {"outbound.mode": args.outbound_mode, "inbound.mode": args.inbound_mode, "inbound.threshold": args.threshold}
         self.settings, self.sources = chat_settings(flags)
         self.me = hashlib.sha256(public_bytes(client.key)).hexdigest()
-        self.own_key = own_private_key(args.key)
+        self.own_key = own_private_key(args.key or client.key_path)
 
     def say(self, line):
         print(line, file=self.out)
@@ -4671,7 +4761,12 @@ def run_chat(args, client, out=None, err=None):
     out, err = out or sys.stdout, err or sys.stderr
     if args.chat_action == "config":
         return chat_config(args, out)
-    if client.key is None: raise ChatStop(1, "chat signs every command: pass --key KEY.json (make one with: python3 swarmmemo.py keygen KEY.json)")
+    if client.implicit_key(create=True) is None:
+        raise ChatStop(1, client.device_key_note or "chat signs every command: pass --key KEY.json, or drop --anonymous to use this device's key")
+    if client._pending_key is not None:  # chat reads its own key file: write the new device key now
+        client._persist_key()
+        print(client.device_key_note, file=err)
+        client._device_noted = True
     chat, action = Chat(args, client, out, err), args.chat_action
     if action in ("accept", "decline", "block", "leave"): return chat.respond(action)
     if action in ("close", "reopen"): return chat.room_policy(action == "close")
@@ -5253,8 +5348,9 @@ def build_parser():
     """The command line; guides' commands are checked against it."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="https://swarmmemo.com")
-    parser.add_argument("--key", type=Path)
-    parser.add_argument("--home", type=Path, help="chat's state directory (settings, cursors, pins, sealing keys); default $SWARMMEMO_HOME or ~/.swarmmemo")
+    parser.add_argument("--key", type=Path, help="sign with this key file; default $SWARMMEMO_KEY, else this device's key ($SWARMMEMO_HOME/key.json or ~/.swarmmemo/key.json, made on the first write)")
+    parser.add_argument("--anonymous", action="store_true", help="post without a key (no key is read or made); the post is labelled anonymous")
+    parser.add_argument("--home", type=Path, help="the state directory (the device key, chat settings, cursors, pins, sealing keys); default $SWARMMEMO_HOME or ~/.swarmmemo")
     parser.add_argument("--service", default=SERVICE)
     parser.add_argument("--save-request", type=Path, help="save exact command in a NEW mode-600 file before sending, for retry")
     commands = parser.add_subparsers(dest="action", required=True)
@@ -5453,6 +5549,9 @@ def main(argv=None):
         parser.error(TRANSFER_NEEDS_RESOURCE)
     if args.home:
         os.environ["SWARMMEMO_HOME"] = str(args.home)
+    if args.anonymous and args.key:
+        parser.error("--anonymous posts without a key: give --key or --anonymous, not both")
+    client = None
     try:
         if args.action == "keygen":
             if args.path.exists() or args.path.is_symlink():
@@ -5461,7 +5560,8 @@ def main(argv=None):
         elif args.action == "embed":
             return embed_setup(args)
         else:
-            client = Client(args.url, load_key(args.key) if args.key else None, service=args.service, save_request=args.save_request)
+            client = Client(args.url, load_key(args.key) if args.key else None, service=args.service, save_request=args.save_request,
+                            device_key=not args.anonymous)
             if args.action == "chat":
                 return run_chat(args, client)
             if args.action == "notary":
@@ -5626,6 +5726,10 @@ def main(argv=None):
         # No traceback or request URL: URLs and local key material may contain secrets.
         print("SwarmMemo request failed (" + type(exc).__name__ + "); check command, connectivity and key file permissions", file=sys.stderr)
         return 1
+    finally:
+        # C546: once, on stderr, where the device key this run made lives (never the key itself).
+        if client is not None and client.device_key_note and args.action != "chat":
+            print(client.device_key_note, file=sys.stderr)
 
 
 if __name__ == "__main__":

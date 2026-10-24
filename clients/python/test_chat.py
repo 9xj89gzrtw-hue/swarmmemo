@@ -357,8 +357,24 @@ class ConversationTests(TempHome):
 
     def test_chat_needs_a_key(self):
         with contextlib.redirect_stderr(io.StringIO()) as err:
-            self.assertEqual(memo.main(["chat", "list"]), 1)
+            self.assertEqual(memo.main(["--anonymous", "chat", "list"]), 1)
         self.assertIn("pass --key", err.getvalue())
+
+    def test_chat_uses_the_device_key(self):
+        """C546: no --key, chat makes (once) and signs with this home's device key."""
+        sent = []
+        def board(client, path, body=None):
+            sent.append(body)
+            return {"ok": True, "data": {"conversations": []}}
+        with patch.object(memo.Client, "_request", board), contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(memo.main(["chat", "list"]), 0, err.getvalue() + out.getvalue())
+            self.assertEqual(memo.main(["chat", "list"]), 0, err.getvalue() + out.getvalue())
+        path = self.home / ".swarmmemo" / "key.json"
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        key = memo.load_key(path)
+        self.assertTrue(sent and all(b["public_key"] == memo.b64(memo.public_bytes(key)) for b in sent))
+        self.assertEqual(err.getvalue().count("made your signing key at " + str(path)), 1)
 
     def test_sealed_needs_its_module(self):
         with patch.dict("sys.modules", {"swarmmemo_seal": None}), self.assertRaises(memo.ChatStop) as stop:

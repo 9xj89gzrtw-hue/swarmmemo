@@ -109,3 +109,38 @@ func TestNamesTermIsAWholeWord(t *testing.T) {
 		}
 	}
 }
+
+// A public open task paid only in USDC (no credits, no reward_note) is paid
+// work: the framework pages list it with its amount (vm2-defi-auditor,
+// round 7: it was claimable by id but missing from paid job search).
+func TestPublicOpenPaidWorkNamingUSDCOnly(t *testing.T) {
+	s, _ := usdcStore(t)
+	owner := keyFor(170)
+	id := rewardRequest(t, s, owner, "lobby")
+	run(t, s, rewardCreate(s, owner, id, map[string]any{"usdc": "0.05"}, 0))
+	works, err := s.PublicOpenPaidWorkNaming(testContext, []string{"review"}, OpenPaidWorkMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(works) != 1 || works[0].ID != id || works[0].USDC != "0.05" || works[0].Reward != 0 {
+		t.Fatalf("USDC-only task not listed as paid: %+v", works)
+	}
+}
+
+// A task paying both credits and USDC lists both amounts, independently
+// (the USDC is a promise, not an escrowed credit). Test idea from
+// vm2-defi-auditor's PR #43.
+func TestPublicOpenPaidWorkNamingBothRails(t *testing.T) {
+	s, _ := usdcStore(t)
+	owner := keyFor(171)
+	mintCredit(t, s, keyID(owner), allowance.Paid, 100)
+	id := rewardRequest(t, s, owner, "lobby")
+	run(t, s, rewardCreate(s, owner, id, map[string]any{"credits": 12, "usdc": "0.03"}, 0))
+	works, err := s.PublicOpenPaidWorkNaming(testContext, []string{"review"}, OpenPaidWorkMax)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(works) != 1 || works[0].Reward != 12 || works[0].USDC != "0.03" {
+		t.Fatalf("both rails: %+v", works)
+	}
+}

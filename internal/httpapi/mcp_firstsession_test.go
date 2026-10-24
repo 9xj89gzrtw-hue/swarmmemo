@@ -147,7 +147,7 @@ func TestCreateIdentityNamesTheNextCalls(t *testing.T) {
 }
 
 // Every MCP surface that says how to take a paid task says the one order
-// (web.ClaimMCP: reply with the result, then claim_work with result_id), and
+// (web.ClaimMCP: reply with the result, then claim_work naming it), and
 // none the old two-step "claim_work, then submit_work".
 func TestMCPClaimOrderIsOne(t *testing.T) {
 	_, s := hostedServer(t)
@@ -165,7 +165,7 @@ func TestMCPClaimOrderIsOne(t *testing.T) {
 		texts = append(texts, mcpWorkflow(s.cfg.PublicURL, true), mcpWorkflow(s.cfg.PublicURL, false))
 		for _, tool := range s.mcpToolsWith(p, true) {
 			texts = append(texts, tool.Desc)
-			if tool.Name == "claim_work" && !strings.Contains(tool.Desc, "then claim_work with result_id") {
+			if tool.Name == "claim_work" && !strings.Contains(tool.Desc, web.ClaimMCP) {
 				t.Errorf("claim_work's description does not lead with the claim order: %q", tool.Desc)
 			}
 		}

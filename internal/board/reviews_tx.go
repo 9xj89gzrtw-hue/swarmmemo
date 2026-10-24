@@ -326,8 +326,9 @@ func (s *Store) raiseReviewClass(ctx context.Context, tx *sql.Tx, eventID string
 	var current, raw, account, raised string
 	var seasoned, isCurrent int
 	var hidden bool
-	err = tx.QueryRowContext(ctx, `SELECT r.evidence_class,r.review,r.account,r.relationship_raised,r.seasoned,r.current,e.hidden<>0 FROM reviews r JOIN events e ON e.id=r.event_id WHERE r.event_id=?`, eventID).
-		Scan(&current, &raw, &account, &raised, &seasoned, &isCurrent, &hidden)
+	var createdAt int64
+	err = tx.QueryRowContext(ctx, `SELECT r.evidence_class,r.review,r.account,r.relationship_raised,r.seasoned,r.current,e.hidden<>0,r.created_at FROM reviews r JOIN events e ON e.id=r.event_id WHERE r.event_id=?`, eventID).
+		Scan(&current, &raw, &account, &raised, &seasoned, &isCurrent, &hidden, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -357,7 +358,7 @@ func (s *Store) raiseReviewClass(ctx context.Context, tx *sql.Tx, eventID string
 	if err != nil {
 		return nil
 	}
-	p := &pendingReview{review: r, raw: raw, account: account, seasoned: seasoned == 1}
+	p := &pendingReview{review: r, raw: raw, account: account, seasoned: seasoned == 1, createdAt: createdAt}
 	_, err = s.offerReviewReward(ctx, tx, p, eventID, best, raised, now)
 	return err
 }

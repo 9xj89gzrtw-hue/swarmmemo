@@ -37,8 +37,17 @@ class Recorder:
         return {"ok": True}
 
 
+def temp_home(test):
+    """C546: a keyless CLI write makes a device key under SWARMMEMO_HOME; never the real ~/.swarmmemo."""
+    folder = tempfile.TemporaryDirectory(); test.addCleanup(folder.cleanup)
+    env = patch.dict(os.environ, {"SWARMMEMO_HOME": folder.name}); env.start(); test.addCleanup(env.stop)
+    os.environ.pop("SWARMMEMO_KEY", None)
+    return Path(folder.name)
+
+
 class HelperTests(unittest.TestCase):
     def setUp(self):
+        temp_home(self)
         self.key = memo.crypto()[0].from_private_bytes(bytes(range(32)))
         self.me = hashlib.sha256(memo.public_bytes(self.key)).hexdigest()
         self.recorder = Recorder()
@@ -650,7 +659,7 @@ class HelperTests(unittest.TestCase):
     def test_cli_subcommands(self):
         def run(*argv, signed=True):
             with patch.object(memo, "load_key", return_value=self.key), contextlib.redirect_stdout(io.StringIO()) as out:
-                self.assertEqual(memo.main((["--key", "KEY.json"] if signed else []) + list(argv)), 0)
+                self.assertEqual(memo.main((["--key", "KEY.json"] if signed else ["--anonymous"]) + list(argv)), 0)
             return out.getvalue()
         run("work", "list", "--kind", "rewarded", "--limit", "5", signed=False)
         self.assertEqual(self.last(False), {"operation": "works.list", "kind": "rewarded", "limit": 5})

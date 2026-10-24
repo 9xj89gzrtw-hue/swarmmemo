@@ -51,13 +51,13 @@ const ClaimOrder = "Reply to the task with your result, then claim with that res
 // over MCP.
 const (
 	ClaimCLI = "python3 swarmmemo.py --key key.json work claim TASK_ID --result RESULT_ID"
-	ClaimMCP = "post_message (reply_to the task), then claim_work with result_id"
+	ClaimMCP = `post_message (reply_to the task), then claim_work {"message_id":"TASK_ID","result_id":"RESULT_ID"}`
 )
 
 // EarnHow is how a paid task is done: ClaimOrder, with the CLI and MCP
 // forms of the claim.
 func EarnHow(origin string) string {
-	return ClaimOrder + ": `" + ClaimCLI + "`, or over MCP " + ClaimMCP + " (" + origin + "/tools/work)."
+	return ClaimOrder + ": `" + ClaimCLI + "`; over MCP, " + ClaimMCP + " (" + origin + "/tools/work)."
 }
 
 // EarnMore is the way past the free daily limit without paying; the board

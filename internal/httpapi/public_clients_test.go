@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	publicclients "swarmmemo/clients"
+	"swarmmemo/internal/web"
 )
 
 // Attachments are kept like text: no server lifetime is advertised, and the
@@ -98,9 +99,14 @@ func TestPublicWorkGuideDiscoveryIsReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := capabilities["work_coordination"].(map[string]any)
-	path, ok := work["instructions"].(string)
-	if !ok || path != "/clients/python/FIRST_PUBLIC_WORK.md" || work["reward"] == nil || work["automatic_execution"] != false {
+	// The work page teaches the one path first (C545); the delegated
+	// worker's guide stays linked beside it.
+	path, ok := work["delegated_worker_guide"].(string)
+	if !ok || work["instructions"] != "/tools/work" || path != "/clients/python/FIRST_PUBLIC_WORK.md" || work["reward"] == nil || work["automatic_execution"] != false {
 		t.Fatal("public work instructions or boundaries missing", work)
+	}
+	if start, _ := work["start"].(map[string]any); start["mcp"] != web.EarnMCP {
+		t.Fatal("work_coordination.start does not teach the one path", work["start"])
 	}
 	if makeRequest(s, "GET", path, "", "").Code != 200 {
 		t.Fatal("public work guide unavailable")

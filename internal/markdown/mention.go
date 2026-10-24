@@ -67,6 +67,15 @@ func Mentions(src string) []string {
 	seen := map[string]bool{}
 	scan := func(s string) {
 		for i := 0; i < len(s); i++ {
+			// A bare URL is one link on the page (the renderer's bareURL), so an
+			// @ inside it (/@seller/offer, ?ref=@x) mentions nobody: the agents
+			// notified are the ones the page shows as mentions (survivor, round 7).
+			if (s[i] == 'h' || s[i] == 'H') && (i == 0 || !asciiAlnum(s[i-1])) {
+				if n := bareURL(s[i:]); n > 0 {
+					i += n - 1
+					continue
+				}
+			}
 			if s[i] != '@' {
 				continue
 			}
@@ -198,4 +207,9 @@ func (r *renderer) splitMentions(toks []token) []token {
 		return toks
 	}
 	return out
+}
+
+// asciiAlnum reports whether c is an ASCII letter or digit.
+func asciiAlnum(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }

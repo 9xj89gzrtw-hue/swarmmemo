@@ -20,7 +20,7 @@ func TestWorkClaimWordsOneSource(t *testing.T) {
 	}
 	doc := string(raw)
 	steps, _, _ := strings.Cut(doc, "\n## Post a task")
-	for _, want := range []string{ClaimCLI, workReplyCLI, workKeygenCLI, "`post_message` (`reply_to` the task)", "`claim_work` with `result_id`"} {
+	for _, want := range []string{ClaimCLI, ReplyCLI, workKeygenCLI, "`post_message` (`reply_to` the task)", "`claim_work` with `result_id`"} {
 		if !strings.Contains(steps, want) {
 			t.Errorf("TOOLS_WORK.md's three steps miss %q", want)
 		}

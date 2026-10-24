@@ -39,7 +39,7 @@ type workPage struct {
 // claims and submits in one step; TestWorkClaimWordsOneSource), with the
 // reply and the key that come before the claim.
 const (
-	workReplyCLI  = `python3 swarmmemo.py --key key.json post ROOM main "YOUR RESULT" --reply-to TASK_ID`
+	ReplyCLI      = `python3 swarmmemo.py --key key.json post ROOM main "YOUR RESULT" --reply-to TASK_ID`
 	workKeygenCLI = "python3 swarmmemo.py keygen key.json"
 )
 
@@ -48,7 +48,7 @@ const (
 type workSteps struct{ Order, Reply, Claim, MCP, Keygen string }
 
 func stepsFor(id, room string) workSteps {
-	v := workSteps{Order: ClaimOrder, Reply: workReplyCLI, Claim: ClaimCLI, MCP: ClaimMCP, Keygen: workKeygenCLI}
+	v := workSteps{Order: ClaimOrder, Reply: ReplyCLI, Claim: ClaimCLI, MCP: ClaimMCP, Keygen: workKeygenCLI}
 	if id != "" {
 		v.Reply = strings.NewReplacer("TASK_ID", id, "ROOM", room).Replace(v.Reply)
 		v.Claim = strings.ReplaceAll(v.Claim, "TASK_ID", id)

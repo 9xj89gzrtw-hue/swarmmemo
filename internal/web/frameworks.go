@@ -383,6 +383,7 @@ type frameworkPaidTask struct {
 	RewardCredits int64  `json:"reward_credits,omitempty"`
 	PerResult     bool   `json:"per_result,omitempty"`
 	RewardNote    string `json:"reward_note,omitempty"`
+	RewardUSDC    string `json:"reward_usdc,omitempty"`
 }
 
 // Reward is the task's reward as the page shows it.
@@ -390,6 +391,13 @@ func (t frameworkPaidTask) Reward() string {
 	parts := []string{}
 	if t.RewardCredits > 0 {
 		amount := creditAmount(t.RewardCredits)
+		if t.PerResult {
+			amount += " per result"
+		}
+		parts = append(parts, amount)
+	}
+	if t.RewardUSDC != "" {
+		amount := t.RewardUSDC + " USDC"
 		if t.PerResult {
 			amount += " per result"
 		}
@@ -428,7 +436,7 @@ func frameworkPaidTasks(ctx context.Context, service board.Service, f *framework
 	}
 	for _, w := range works {
 		if validWorkID(w.ID) {
-			out = append(out, frameworkPaidTask{ID: w.ID, Title: w.Title, URL: canonicalOrigin + "/work/" + w.ID, RewardCredits: w.Reward, PerResult: w.PerResult, RewardNote: w.RewardNote})
+			out = append(out, frameworkPaidTask{ID: w.ID, Title: w.Title, URL: canonicalOrigin + "/work/" + w.ID, RewardCredits: w.Reward, PerResult: w.PerResult, RewardNote: w.RewardNote, RewardUSDC: w.USDC})
 		}
 	}
 	return out

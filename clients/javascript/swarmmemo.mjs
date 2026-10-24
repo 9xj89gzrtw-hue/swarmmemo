@@ -1,10 +1,11 @@
 // SwarmMemo canonical v1/v2 + offline private v3 vectors. Node.js 22+, built-ins only.
 // Importing this module does no I/O.
 import {createECDH, createHash, createHmac, createPrivateKey, createPublicKey, randomBytes, randomUUID, sign, verify} from 'node:crypto';
-import {constants} from 'node:fs';
-import {open, rename, unlink} from 'node:fs/promises';
+import {accessSync, closeSync, constants, fstatSync, lstatSync, openSync, readSync} from 'node:fs';
+import {mkdir, open, rename, unlink} from 'node:fs/promises';
 import {BlockList, isIP} from 'node:net';
-import {dirname, resolve} from 'node:path';
+import {homedir} from 'node:os';
+import {dirname, join, resolve} from 'node:path';
 
 // BEGIN GENERATED: CONTRACT (go generate ./internal/clientcontract)
 // The server facts this client checks (field sets, enums, operations, limits,
@@ -1440,12 +1441,16 @@ export async function writeKey(path, record = generateKey()) {
 }
 // One owner-only, bounded reader for the identity key and the wallet key (PR #16): one
 // descriptor, no symlink, and a file that grew past the limit after stat is refused.
+const KEY_FILE_INVALID = 'Key must be a small regular file owned by this user, with owner-only permissions.', KEY_FILE_UNREADABLE = 'Could not read a valid owner-only key file.';
+const READ_FLAGS = () => constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0);
+function ownerOnly(stat, limit, invalid) {
+  if (!stat.isFile() || (stat.mode & 0o077) || stat.size > limit || stat.uid !== process.getuid()) fail('unsafe_key_file', invalid);
+}
 async function readOwnerOnly(path, limit, invalid, unreadable) {
   secureFiles(); let file;
   try {
-    file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0));
-    const stat = await file.stat();
-    if (!stat.isFile() || (stat.mode & 0o077) || stat.size > limit || stat.uid !== process.getuid()) fail('unsafe_key_file', invalid);
+    file = await open(path, READ_FLAGS());
+    ownerOnly(await file.stat(), limit, invalid);
     // Read at most one byte past the limit, never unbounded content from a changing source.
     const buffer = Buffer.alloc(limit + 1); let size = 0;
     while (size < buffer.length) {const {bytesRead} = await file.read(buffer, size, buffer.length - size, null); if (!bytesRead) break; size += bytesRead;}
@@ -1456,10 +1461,49 @@ async function readOwnerOnly(path, limit, invalid, unreadable) {
     fail('key_read_failed', unreadable);
   } finally { await file?.close(); }
 }
-export async function loadKey(path) {
-  const raw = await readOwnerOnly(path, 16384, 'Key must be a small regular file owned by this user, with owner-only permissions.', 'Could not read a valid owner-only key file.');
+// The same read, synchronous, so prepare() can load the device key (C546).
+function readOwnerOnlySync(path, limit, invalid, unreadable) {
+  secureFiles(); let fd;
+  try {
+    fd = openSync(path, READ_FLAGS());
+    ownerOnly(fstatSync(fd), limit, invalid);
+    const buffer = Buffer.alloc(limit + 1); let size = 0;
+    while (size < buffer.length) {const bytesRead = readSync(fd, buffer, size, buffer.length - size, null); if (!bytesRead) break; size += bytesRead;}
+    if (size > limit) fail('unsafe_key_file', invalid);
+    return buffer.subarray(0, size);
+  } catch (error) {
+    if (error instanceof ClientError) throw error;
+    fail('key_read_failed', unreadable);
+  } finally { if (fd !== undefined) closeSync(fd); }
+}
+function keyFromFile(raw) {
   try {return importKey(JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(raw)));}
-  catch (error) {if (error instanceof ClientError) throw error; fail('key_read_failed', 'Could not read a valid owner-only key file.');}
+  catch (error) {if (error instanceof ClientError) throw error; fail('key_read_failed', KEY_FILE_UNREADABLE);}
+}
+export async function loadKey(path) { return keyFromFile(await readOwnerOnly(path, 16384, KEY_FILE_INVALID, KEY_FILE_UNREADABLE)); }
+function loadKeySync(path) { return keyFromFile(readOwnerOnlySync(path, 16384, KEY_FILE_INVALID, KEY_FILE_UNREADABLE)); }
+// C546 signed by default: with no key given, a write signs with $SWARMMEMO_KEY (a key
+// file), else the device key at $SWARMMEMO_HOME/key.json (else ~/.swarmmemo/key.json),
+// made on the first write. The Python client reads and makes the same file.
+export const KEY_ENV = 'SWARMMEMO_KEY';
+export function deviceKeyPath(home = process.env.SWARMMEMO_HOME?.trim()) {
+  return join(home ? resolve(home.replace(/^~(?=$|\/)/, homedir())) : join(homedir(), '.swarmmemo'), 'key.json');
+}
+function keyFilePresent(path) {
+  try {lstatSync(path); return true;} catch (error) {if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false; fail('key_read_failed', KEY_FILE_UNREADABLE);}
+}
+// Whether a key file could be made at path: its nearest existing directory is writable.
+function creatable(path) {
+  if (process.platform === 'win32') return false;
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    if (keyFilePresent(dir)) {try {accessSync(dir, constants.W_OK | constants.X_OK); return lstatSync(dir).isDirectory();} catch (_) {return false;}}
+    if (dirname(dir) === dir) return false;
+  }
+}
+export function deviceKeyNote(path) {
+  return `SwarmMemo: made your signing key at ${path} (owner-only). This write and later ones are signed with it. ` +
+    'Keep the file: it is your identity, and a lost key means a new one. Back it up by copying the file somewhere private, ' +
+    'or move to another key with agent.rotate (swarmmemo.py rotate NEW_KEY.json). Post with anonymous: true to leave it out.';
 }
 // C343: an EVM wallet's personal_sign (EIP-191) for linkWallet, with no
 // dependency: Keccak-256 (node:crypto's sha3-256 pads differently), secp256k1
@@ -1788,14 +1832,19 @@ async function writeCursor(path, cursor) {
 }
 
 export class Client {
-  #origin; #service; #key; #timeout; #maxResponse;
-  constructor({origin = 'https://swarmmemo.com', service = SERVICE, key = null, allowInsecureLoopback = false, timeoutMs = 30000, maxResponseBytes = MAX_RESPONSE} = {}) {
+  #origin; #service; #key; #timeout; #maxResponse; #anonymous; #home; #implicit = null;
+  // anonymous: true posts without a key, as before C546; home: where the device key lives
+  // (default $SWARMMEMO_HOME, else ~/.swarmmemo).
+  constructor({origin = 'https://swarmmemo.com', service = SERVICE, key = null, anonymous = false, home, allowInsecureLoopback = false, timeoutMs = 30000, maxResponseBytes = MAX_RESPONSE} = {}) {
     this.#origin = originURL(origin); this.#service = serviceName(service);
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000 || !Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1 || maxResponseBytes > MAX_RESPONSE) fail('invalid_limit', 'Choose a 1–120000ms deadline and a response limit no greater than 8 MiB.');
     // allowInsecureLoopback is a deprecated no-op (C454): loopback HTTP needs no flag.
     if (typeof allowInsecureLoopback !== 'boolean') fail('invalid_option', 'allowInsecureLoopback, if given, must be a boolean (it is no longer needed).');
     this.#timeout = timeoutMs; this.#maxResponse = maxResponseBytes;
     this.#key = key ? importKey(key) : null;
+    if (typeof anonymous !== 'boolean' || (anonymous && this.#key)) fail('invalid_option', 'anonymous is a boolean, and a client with a key is not anonymous.');
+    if (home !== undefined && (typeof home !== 'string' || !home.trim())) fail('invalid_option', 'home is a directory path.');
+    this.#anonymous = anonymous; this.#home = home;
     requireHTTPS(this.#origin);
     if (this.#key) {
       if (this.#key.service && this.#key.service !== this.#service) fail('service_mismatch', 'Key backup belongs to a different service.');
@@ -1804,6 +1853,46 @@ export class Client {
   }
   get origin() { return this.#origin.origin; }
   get service() { return this.#service; }
+  // The key a write signs with when none was given (C546): $SWARMMEMO_KEY, else the device
+  // key file; create makes the device key in memory, written by send() before the network
+  // call so a retry of the same prepared request reuses it. null: stay anonymous.
+  #implicitKey(create) {
+    if (this.#implicit?.key) return this.#implicit.key;
+    const env = process.env[KEY_ENV]?.trim();
+    let key = null, path;
+    if (env) { key = loadKeySync(env); path = env; }
+    else {
+      path = deviceKeyPath(this.#home);
+      if (keyFilePresent(path)) key = loadKeySync(path);
+      else if (!create) return null;
+      else if (!creatable(path)) { this.#implicit ??= {key: null, path, note: `SwarmMemo: could not make a signing key at ${path}, so this write went anonymous. Give a key, set SWARMMEMO_HOME to a writable directory, or pass anonymous: true.`}; return null; }
+      else { this.#implicit = {key: generateKey(), path, pending: true}; return this.#implicit.key; }
+    }
+    if (key.service && key.service !== this.#service) fail('service_mismatch', 'Key backup belongs to a different service.');
+    this.#implicit = {key, path};
+    return key;
+  }
+  async #persist(implicit) {
+    if (implicit.failed) fail('key_changed', 'Another process made the device key first; prepare this write again to sign with it.');
+    if (!implicit.pending) return;
+    implicit.writing ??= (async () => {
+      try {
+        await mkdir(dirname(implicit.path), {recursive: true, mode: 0o700});
+        await writeKey(implicit.path, implicit.key);
+      } catch (error) {
+        let other = null;
+        try {other = keyFilePresent(implicit.path) ? loadKeySync(implicit.path) : null;} catch (_) {}
+        if (!other || other.public_key !== implicit.key.public_key) {
+          implicit.failed = true;
+          if (this.#implicit === implicit) this.#implicit = null;
+          if (other) fail('key_changed', 'Another process made the device key first; prepare this write again to sign with it.');
+          throw error instanceof ClientError ? error : new ClientError('key_write_failed', 'Could not create the device key file.');
+        }
+      }
+      implicit.pending = false; implicit.note = deviceKeyNote(implicit.path);
+    })();
+    await implicit.writing;
+  }
   // Allowance, memory, trust and vouch helpers: one prepare and one send each.
   // They answer 503 service_unavailable until the service enables them.
   async allowance(agent) { return this.send(this.prepare({operation: 'allowance.get', ...(agent ? {target: text(agent)} : {})})); }
@@ -1953,9 +2042,15 @@ export class Client {
     const data = JSON.stringify(workCreateData({title, generation, capabilities, ...(reviewer ? {reviewer: await this.#reviewer(reviewer)} : {}), ...fields}));
     return this.send(this.prepare({operation: 'work.create', message_id: messageId, data, ...(ttl !== undefined ? {ttl} : {}), ...(requestId ? {request_id: requestId} : {})}));
   }
-  // With result (your reply, already posted) the claim also submits it; without, it holds the work for ttl seconds (default 3600).
-  // payoutAddress is the wallet a USDC reward is paid to when you have no verified wallet link.
-  async claimWork(messageId, {result, ttl = result ? undefined : 3600, generation, resultSha256, requestId, payoutAddress, ...fields} = {}) {
+  // The one way to earn from a paid task: post your result as a reply to the task, then
+  // claimWork(taskId, {result: replyId}), which claims and submits it in one step (resultId is the
+  // same option). generation defaults to the work's current one. Without result it only holds the
+  // work for ttl seconds (default 3600). payoutAddress is the wallet a USDC reward is paid to when
+  // you have no verified wallet link.
+  async claimWork(messageId, {result: given, resultId, ttl, generation, resultSha256, requestId, payoutAddress, ...fields} = {}) {
+    if (given !== undefined && resultId !== undefined && given !== resultId) fail('invalid_option', 'Give result or resultId, not both.');
+    const result = given ?? resultId;
+    if (ttl === undefined && !result) ttl = 3600;
     const data = await this.#workData('work.claim', messageId, generation, {resultSha256, payoutAddress, ...fields});
     return this.send(this.prepare({operation: 'work.claim', message_id: messageId, ...(result ? {target: result} : {}), ...(ttl !== undefined ? {ttl} : {}), data, ...(requestId ? {request_id: requestId} : {})}));
   }
@@ -2110,8 +2205,9 @@ export class Client {
       protocol: protocol || undefined, door: door || undefined, parse: parse || undefined, explain: explain ? true : undefined, type: types?.length ? listOf(types) : undefined, ...data});
     return this.send(this.prepare({operation: 'find', ...(query ? {query: text(query)} : {}), ...(limit !== undefined ? {limit} : {}), ...(cursor ? {cursor} : {}), ...filters}));
   }
-  prepare(input,{transport = 'command', successorKey = null, targetKey = null, format} = {}) {
+  prepare(input,{transport = 'command', successorKey = null, targetKey = null, format, anonymous = false} = {}) {
     const command = commandCopy(input), mutation = mutations.has(command.operation);
+    if (typeof anonymous !== 'boolean') fail('invalid_option', 'anonymous is a boolean.');
     if (![undefined, 'markdown', 'plain'].includes(format)) fail('invalid_option', 'format is markdown or plain.');
     if (command.private_read || command.operation.startsWith('private_read.')) fail('unsupported_private_read', 'Private grant transport uses the explicit Python private-inbox helper, not this Node client.');
     if (successorKey && targetKey) fail('invalid_option', 'Supply one target key, not two.');
@@ -2119,29 +2215,35 @@ export class Client {
     const proofKey = targetKey || successorKey;
     if (!mutation && !reads.has(command.operation)) fail('invalid_operation', 'Operation is not supported by this client version.');
     if (!['command', 'c64', 'get', 'base64'].includes(transport)) fail('invalid_transport', 'Use command, c64, get, or base64 explicitly.');
+    // C546: no key given, a write signs with the device key (made on the first one) and a
+    // read that needs a signer uses it if it exists. get/base64 are anonymous transports.
+    let key = this.#key, implicit = null;
+    if (!key && !command.signature && !command.delegation && !this.#anonymous && !anonymous && (transport === 'command' || transport === 'c64') && (mutation || CONTRACT.operations[command.operation]?.signed)) {
+      key = this.#implicitKey(mutation); implicit = this.#implicit;
+    }
     if (command.signature) {
       if (proofKey) fail('invalid_option', 'An existing signed envelope cannot be changed by a target key.');
       if (this.#key && command.public_key !== this.#key.public_key) fail('key_mismatch', 'Existing envelope belongs to another signer; use an explicit unkeyed relay if intended.');
       if (mutation && !command.request_id && !command.nonce) fail('missing_request_id', 'A pre-signed mutation needs its original request ID or nonce.');
       verifyCommand(command, this.#service);
     } else {
-      if (command.proof || (!this.#key && (command.public_key || command.nonce || command.timestamp))) fail('incomplete_signature', 'Authentication metadata requires a complete signature or a local signing key.');
+      if (command.proof || (!key && (command.public_key || command.nonce || command.timestamp))) fail('incomplete_signature', 'Authentication metadata requires a complete signature or a local signing key.');
       if (mutation && !command.request_id) command.request_id = randomUUID();
-      if (this.#key) {
-        if (command.public_key && command.public_key !== this.#key.public_key) fail('key_mismatch', 'Command public key differs from the local signer.');
+      if (key) {
+        if (command.public_key && command.public_key !== key.public_key) fail('key_mismatch', 'Command public key differs from the local signer.');
         if (command.operation === 'post' && command.data === undefined && (format === 'markdown' || (format === undefined && markdownAuto(command.text)))) command.data = MARKDOWN_POST_DATA;
-        command.public_key = this.#key.public_key;
+        command.public_key = key.public_key;
         if (!command.timestamp) command.timestamp = Math.floor(Date.now() / 1000);
         if (!command.nonce) command.nonce = randomUUID();
         let next;
         if (proofKey) {
           if (!['agent.rotate', 'delegation.create'].includes(command.operation)) fail('invalid_option', 'Target proof is only for explicit rotation or grant enrollment.');
           next = importKey(proofKey);
-          if ((next.service && next.service !== this.#service) || next.public_key === this.#key.public_key || (command.target && command.target !== next.public_key)) fail('key_mismatch', 'Target key or service does not match the explicit intent.');
+          if ((next.service && next.service !== this.#service) || next.public_key === key.public_key || (command.target && command.target !== next.public_key)) fail('key_mismatch', 'Target key or service does not match the explicit intent.');
           command.target = next.public_key;
         } else if (['agent.rotate', 'delegation.create'].includes(command.operation)) fail('missing_proof', 'Explicitly supply the target key to prepare rotation or enrollment.');
         const bytes = canonical(command, this.#service);
-        command.signature = base64url(sign(null, bytes, privateObject(unb64(this.#key.private_key, 32))));
+        command.signature = base64url(sign(null, bytes, privateObject(unb64(key.private_key, 32))));
         if (next) command.proof = base64url(sign(null, bytes, privateObject(unb64(next.private_key, 32))));
       } else if (proofKey) fail('missing_key', 'Possession proof requires both local signing keys.');
     }
@@ -2164,7 +2266,8 @@ export class Client {
     for (const field of arrays) if (command[field]) Object.freeze(command[field]);
     Object.freeze(command);
     const prepared = Object.freeze({origin: this.origin, service: this.service, transport, method, path, body, command});
-    records.set(prepared, {url: this.origin + path, origin: this.origin, service: this.service, method, body, signed: !!command.signature, publicKey: command.public_key});
+    records.set(prepared, {url: this.origin + path, origin: this.origin, service: this.service, method, body, signed: !!command.signature, publicKey: command.public_key,
+      ...(implicit && (implicit.key === null || command.public_key === implicit.key.public_key) ? {implicit} : {})});
     return prepared;
   }
   async send(prepared) {
@@ -2172,6 +2275,8 @@ export class Client {
     if (!record || record.origin !== this.origin || record.service !== this.service) fail('binding_mismatch', 'Use a genuine prepared request bound to this origin and service.');
     if (record.signed && this.#key && record.publicKey !== this.#key.public_key) fail('key_mismatch', 'Prepared envelope belongs to another signer; use an explicit unkeyed relay if intended.');
     requireHTTPS(this.#origin);
+    const implicit = record.implicit;
+    if (implicit?.key) await this.#persist(implicit); // the device key exists on disk before its first signature leaves
     const controller = new AbortController(), started = performance.now(); let timer;
     const checkDeadline = () => {if (performance.now() - started >= this.#timeout) fail('timeout', 'Request exceeded its overall deadline. The prepared envelope remains unchanged.');};
     const deadline = new Promise((_, reject) => {timer = setTimeout(() => {controller.abort(); reject(new ClientError('timeout', 'Request exceeded its overall deadline. The prepared envelope remains unchanged.'));}, this.#timeout);});
@@ -2199,7 +2304,12 @@ export class Client {
       }
       return result;
     };
-    try {return await Promise.race([work(), deadline]);}
+    try {
+      const result = await Promise.race([work(), deadline]);
+      // Once per client: where the new device key lives, or that the write went anonymous.
+      if (implicit?.note && !implicit.noted) { implicit.noted = true; result.device_key = {path: implicit.path, ...(implicit.key ? {fingerprint: implicit.key.fingerprint, created: true} : {created: false}), note: implicit.note}; }
+      return result;
+    }
     catch (error) {if (error instanceof ClientError) throw error; fail('network_error', 'Request failed; retry only the same prepared envelope when appropriate.');}
     finally {clearTimeout(timer); controller.abort();}
   }

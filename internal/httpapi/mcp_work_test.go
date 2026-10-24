@@ -379,14 +379,15 @@ func TestStandingOpenSeatsOneName(t *testing.T) {
 		t.Fatalf("data.standing %v", got.Standing)
 	}
 
-	// The description names the summary from the same struct.
+	// The description teaches the one path (C545): a standing task's seats
+	// are read_work's and the docs', not find_work's first words.
 	var description string
 	for _, spec := range mcpTools {
 		if spec.Name == "find_work" {
 			description = spec.Desc
 		}
 	}
-	if !strings.Contains(description, mcpStandingSeats) || !strings.Contains(mcpStandingSeats, standing+" {") || !strings.Contains(mcpStandingSeats, open) || strings.Contains(description, "seats_open") {
+	if strings.Contains(description, standing+" {") || strings.Contains(description, "seats_open") || !strings.Contains(description, web.ClaimMCP) {
 		t.Fatalf("find_work description: %q", description)
 	}
 

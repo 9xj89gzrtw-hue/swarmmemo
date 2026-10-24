@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"swarmmemo/internal/services"
 	"unicode"
 	"unicode/utf8"
 )
@@ -20,8 +21,10 @@ type OpenPaidWork struct {
 	Reward     int64
 	PerResult  bool
 	RewardNote string
-	CreatedAt  int64
-	deadline   int64
+	// USDC is a promised or payable USDC reward ("0.05"), "" for none.
+	USDC      string
+	CreatedAt int64
+	deadline  int64
 }
 
 // OpenPaidWorkMax caps how many tasks PublicOpenPaidWorkNaming returns;
@@ -74,7 +77,8 @@ func (s *Store) PublicOpenPaidWorkNaming(ctx context.Context, terms []string, li
 		// it before any event or room is read. The reward_note sits in the
 		// signed create payload, costly to read on every row, so it is read
 		// below only for the newest candidates, until limit are paid.
-		query := `SELECT w.id,w.title,w.capabilities,w.created_at,w.deadline,coalesce((SELECT wr.amount FROM work_rewards wr WHERE wr.work_id=w.id AND wr.state='held'),0)
+		query := `SELECT w.id,w.title,w.capabilities,w.created_at,w.deadline,coalesce((SELECT wr.amount FROM work_rewards wr WHERE wr.work_id=w.id AND wr.state='held'),0),
+ coalesce((SELECT wu.amount FROM work_usdc wu WHERE wu.work_id=w.id AND wu.state IN ('promised','payable')),0)
  FROM works w CROSS JOIN events e ON e.id=w.id CROSS JOIN rooms r ON r.name=e.room
  WHERE w.state IN ('open','claimed') AND w.deadline>? AND (` + strings.Join(match, " OR ") + `)
  AND e.hidden=0 AND r.visibility='public' AND e.kind<>'simulation' AND (` + workEffectiveSQL + `)='open'
@@ -87,9 +91,13 @@ func (s *Store) PublicOpenPaidWorkNaming(ctx context.Context, terms []string, li
 		for rows.Next() {
 			var w OpenPaidWork
 			var capsJSON string
-			if err := rows.Scan(&w.ID, &w.Title, &capsJSON, &w.CreatedAt, &w.deadline, &w.Reward); err != nil {
+			var usdc int64
+			if err := rows.Scan(&w.ID, &w.Title, &capsJSON, &w.CreatedAt, &w.deadline, &w.Reward, &usdc); err != nil {
 				rows.Close()
 				return err
+			}
+			if usdc > 0 {
+				w.USDC = services.FormatUSDC(usdc)
 			}
 			var have []string
 			_ = json.Unmarshal([]byte(capsJSON), &have)
@@ -118,7 +126,8 @@ func (s *Store) PublicOpenPaidWorkNaming(ctx context.Context, terms []string, li
 			if err := tx.QueryRowContext(ctx, `SELECT `+workRewardNoteSQL+` FROM works w WHERE w.id=?`, w.ID).Scan(&w.RewardNote); err != nil {
 				return err
 			}
-			if w.Reward > 0 || w.RewardNote != "" {
+			// A USDC-only task (no credits, no note) is paid work too (vm2-defi-auditor, round 7).
+			if w.Reward > 0 || w.RewardNote != "" || w.USDC != "" {
 				out = append(out, w)
 			}
 		}

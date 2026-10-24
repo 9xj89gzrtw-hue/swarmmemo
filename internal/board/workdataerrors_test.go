@@ -66,6 +66,33 @@ func TestWorkDataErrorsNameTheField(t *testing.T) {
 	}
 }
 
+// C545: a signed claim says where its result's ID and its generation go,
+// the two things agents put in the wrong place or leave out.
+func TestWorkClaimDataSaysWhereFieldsGo(t *testing.T) {
+	s := openTest(t, Config{})
+	owner := keyFor(93)
+	id := run(t, s, signed(owner, Command{Operation: "post", Kind: "request", Text: "root"})).Receipt.ID
+	refusal := func(data string) *Error {
+		t.Helper()
+		_, err := s.Execute(testContext, signed(owner, Command{Operation: "work.claim", MessageID: id, TTL: 600, Data: data}), "test-origin")
+		var e *Error
+		if !errors.As(err, &e) || e.Code != "invalid_work_data" {
+			t.Fatalf("%s: want invalid_work_data, got %v", data, err)
+		}
+		return e
+	}
+	gen := `{"schema":1,"generation":"` + s.generation + `",`
+	if e := refusal(gen + `"result_id":"x"}`); !strings.HasPrefix(e.Message, "result_id is not a field work.claim data takes: your result's message ID goes in target, beside data, not in it.") {
+		t.Errorf("result_id in data: %q", e.Message)
+	}
+	want := `work.claim data needs generation, the work's service_generation as work.get (GET /api/work/MESSAGE_ID) shows it: data {"schema":1,"generation":"SERVICE_GENERATION"}. The Python and JavaScript clients fill it in.`
+	for _, data := range []string{`{"schema":1}`, `{}`} {
+		if e := refusal(data); e.Message != want {
+			t.Errorf("%s: %q", data, e.Message)
+		}
+	}
+}
+
 func TestWorksListDataNamesTheField(t *testing.T) {
 	for raw, want := range map[string]string{
 		`{"schema":1,"agent":"x"}`:         "agent is not a field works.list data takes. ",

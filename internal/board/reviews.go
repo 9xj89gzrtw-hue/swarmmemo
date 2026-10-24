@@ -161,6 +161,9 @@ type pendingReview struct {
 	// it reviewed, so its review weighs at least a whole vote (the vote
 	// floor, trust.Params.FlooredVoteWeight).
 	seasoned bool
+	// createdAt is when the review was posted, when that is not now: a
+	// review whose tx: evidence verifies later is capped by its own day.
+	createdAt int64
 }
 
 type reviewEvidenceRow struct {

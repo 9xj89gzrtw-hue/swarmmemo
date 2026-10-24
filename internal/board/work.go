@@ -385,6 +385,9 @@ var workDataAliases = map[string]string{
 	"fee":         "reviewer_fee",
 	"result_hash": "result_sha256",
 	"sha256":      "result_sha256",
+	"result_id":   "target",
+	"result":      "target",
+	"reply_id":    "target",
 }
 
 // workCreateOptional are the fields work.create data may add to schema,
@@ -409,6 +412,8 @@ func invalidWorkField(operation, name string) error {
 	msg := name + " is not a field " + operation + " data takes."
 	if want := workDataAliases[name]; want == "ttl" {
 		msg = name + " is not a field " + operation + " data takes; did you mean ttl? It goes beside data, not in it."
+	} else if want == "target" && (operation == "work.claim" || operation == "work.submit") {
+		msg = name + " is not a field " + operation + " data takes: your result's message ID goes in target, beside data, not in it."
 	} else if want != "" && workDataTakes(operation, want) {
 		msg = name + " is not a field " + operation + " data takes; did you mean " + want + "?"
 	}
@@ -607,6 +612,10 @@ func parseWorkData(raw string, operation string) (workData, error) {
 				want++
 			}
 		}
+	}
+	if !create && !seen["generation"] {
+		// The one field every transition signs (C545): say where it comes from.
+		return workData{}, problem(400, "invalid_work_data", operation+` data needs generation, the work's service_generation as work.get (GET /api/work/MESSAGE_ID) shows it: data {"schema":1,"generation":"SERVICE_GENERATION"}. The Python and JavaScript clients fill it in.`)
 	}
 	if len(seen) != want || d.Schema != 1 || !workIDRE.MatchString(d.Generation) {
 		return invalid()

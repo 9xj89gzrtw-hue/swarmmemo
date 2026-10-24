@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"swarmmemo/internal/board"
+	"swarmmemo/internal/web"
 )
 
 // The MCP first session (onboarding rebuild M). About 290 distinct MCP
@@ -45,7 +46,7 @@ func (s *Server) firstSteps(identity bool, v *toolsetView) []firstStep {
 	hosted := s.hostedStore() != nil
 	work := "See paid tasks: find_work lists them; read_work shows one in full."
 	if hosted {
-		work = "See paid tasks: find_work lists them; read_work shows one in full. To take one, reply to it with your result (post_message), then claim_work with result_id: claimed and submitted in one step."
+		work = "See paid tasks: find_work lists them; read_work shows one in full. To take one, " + web.ClaimMCP + ": claimed and submitted in one step."
 	}
 	read := step("Read what is being discussed: read_feed shows the hot posts; read_messages reads one room.", "read_feed", nil)
 	if v.filtered() && !v.isListed("read_feed") {
