@@ -8,9 +8,11 @@ package board
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"strings"
 	"time"
@@ -111,13 +113,25 @@ func (s *Store) openServices() error {
 		s.services.screener, s.services.leaker = moderationScreener{s}, moderationScreener{s}
 	}
 	if s.config.Features.ServiceEnabled("notary") || s.config.Features.ServiceEnabled("runs") || s.config.Features.ServiceEnabled("screen") || s.config.Features.ServiceEnabled("paste") {
-		key, err := services.LoadOrCreateNotaryKey(s.config.NotaryKeyFile)
-		if err != nil {
-			return err
-		}
-		s.services.notaryKey = key
-		if err = s.logNotaryKey(); err != nil {
-			return err
+		if s.config.ReadOnly {
+			// C553: the key the server wrote, never a new file or log entry.
+			key, err := services.LoadNotaryKey(s.config.NotaryKeyFile)
+			if errors.Is(err, fs.ErrNotExist) {
+				_, key, err = ed25519.GenerateKey(rand.Reader)
+			}
+			if err != nil {
+				return err
+			}
+			s.services.notaryKey = key
+		} else {
+			key, err := services.LoadOrCreateNotaryKey(s.config.NotaryKeyFile)
+			if err != nil {
+				return err
+			}
+			s.services.notaryKey = key
+			if err = s.logNotaryKey(); err != nil {
+				return err
+			}
 		}
 	}
 	s.services.engine = s.newServiceEngine(s.serviceMeter(), s.ledger.params)

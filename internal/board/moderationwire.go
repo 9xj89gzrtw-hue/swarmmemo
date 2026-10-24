@@ -43,6 +43,7 @@ func (s *Store) openModeration() error {
 	}
 	e, err := moderation.New(moderation.Options{
 		DB:         s.db,
+		ReadOnly:   s.config.ReadOnly,
 		Params:     s.ledger.params, // the one store; its moderation namespace validates with ParseParamsBody
 		PolicyFile: s.config.Moderation.PolicyFile,
 		JevKeyFile: s.config.Moderation.JevKeyFile,

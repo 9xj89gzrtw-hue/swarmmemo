@@ -213,6 +213,9 @@ type Alert struct {
 // Options configure an Engine. DB is required; everything else is optional.
 type Options struct {
 	DB *sql.DB
+	// ReadOnly is an engine over a read-only database (an operator read):
+	// New creates no tables, as a read-only connection refuses the DDL.
+	ReadOnly bool
 	// Params is the RFC0012 parameter store; namespace "moderation" holds the
 	// policy when it is available. Otherwise PolicyFile, otherwise version 0.
 	Params     allowance.ParamsSource
@@ -259,8 +262,10 @@ func New(o Options) (*Engine, error) {
 		o.Workers = 2
 	}
 	o.Workers = min(o.Workers, 8)
-	if _, err := o.DB.Exec(Schema); err != nil {
-		return nil, fmt.Errorf("moderation: schema: %w", err)
+	if !o.ReadOnly {
+		if _, err := o.DB.Exec(Schema); err != nil {
+			return nil, fmt.Errorf("moderation: schema: %w", err)
+		}
 	}
 	e := &Engine{db: o.DB, opts: o, now: o.Now, actors: map[Surface]Actuator{}, wake: make(chan struct{}, 1)}
 	e.jev = newJevClient(o)

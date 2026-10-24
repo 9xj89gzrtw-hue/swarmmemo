@@ -576,6 +576,16 @@ type Config struct {
 	// Bond is the refundable standing bond's range and cooling period
 	// (proofbond.go); the zero value means the defaults.
 	Bond BondConfig
+	// Operator marks a second process beside the live server (the operator
+	// CLI): Open runs no crash recovery, since the rows a crash would leave
+	// "settling" or "verifying" may be the live server's calls in flight.
+	Operator bool
+	// ReadOnly opens the database read-only (mode=ro, query_only) for
+	// operator reads (C553): no migration, no upkeep, no meta or key file
+	// writes, no timers, so the read can never hold the write lock the live
+	// server needs. It refuses a database whose schema is not SchemaVersion.
+	// Implies Operator.
+	ReadOnly bool
 }
 
 // Service is shared by HTML, HTTP compatibility adapters and future tool adapters.

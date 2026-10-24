@@ -213,7 +213,7 @@ func (s *Store) openProofs() error {
 	if _, err := rand.Read(secret); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec("INSERT OR IGNORE INTO meta(key,value) VALUES('proof_pkce_key',?)", base64.RawURLEncoding.EncodeToString(secret)); err != nil {
+	if err := s.ensureMeta("proof_pkce_key", base64.RawURLEncoding.EncodeToString(secret)); err != nil {
 		return err
 	}
 	var encoded string

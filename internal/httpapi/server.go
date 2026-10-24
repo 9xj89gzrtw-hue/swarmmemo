@@ -1773,6 +1773,12 @@ func apiError(e error) *board.Error {
 		if goingAway(e) {
 			return errGoingAway()
 		}
+		// Another process held the write lock past busy_timeout (C553):
+		// the transaction rolled back, so the caller retries.
+		if board.IsBusy(e) {
+			slog.Warn("database busy", "err", e)
+			return board.ErrBusy()
+		}
 		// The caller sees nothing of the cause; the operator log keeps it
 		// (the error text only: never the request, its body or a key).
 		slog.Error("internal error", "err", e)

@@ -95,6 +95,9 @@ func (s *Store) BondEnabled() bool { return s.config.Topup != nil && s.config.Wo
 
 // openBonds turns bonds a crash left settling into unknown, for the operator.
 func (s *Store) openBonds() error {
+	if s.config.Operator {
+		return nil // crash recovery belongs to the serving process (C553)
+	}
 	res, err := s.db.Exec("UPDATE proof_bonds SET state='unknown',reason='interrupted' WHERE state='settling'")
 	if err != nil {
 		return err

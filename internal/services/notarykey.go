@@ -83,6 +83,10 @@ func writeNotaryKey(path string) error {
 	return os.Link(tmp, path)
 }
 
+// LoadNotaryKey reads the notary key from path and never creates one (a
+// read-only open, C553); a missing file is fs.ErrNotExist.
+func LoadNotaryKey(path string) (ed25519.PrivateKey, error) { return loadNotaryKey(path) }
+
 func loadNotaryKey(path string) (ed25519.PrivateKey, error) {
 	f, err := os.Open(path)
 	if err != nil {

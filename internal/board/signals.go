@@ -151,7 +151,7 @@ func (s *Store) openSignals(path string) error {
 		key = make([]byte, 32)
 		_, err = rand.Read(key)
 	} else {
-		key, err = loadOrCreateHexKey(keyFile, "signals")
+		key, err = s.hexKeyFile(keyFile, "signals")
 	}
 	if err != nil {
 		return err
@@ -196,6 +196,21 @@ func loadOrCreateHexKey(path, label string) ([]byte, error) {
 		return nil, err
 	}
 	return readHexKey(path, label)
+}
+
+// hexKeyFile is loadOrCreateHexKey, except that a read-only open (C553)
+// creates no file: it reads the key the server wrote, and without one uses a
+// key of its own that nothing can be stored under.
+func (s *Store) hexKeyFile(path, label string) ([]byte, error) {
+	if !s.config.ReadOnly {
+		return loadOrCreateHexKey(path, label)
+	}
+	key, err := readHexKey(path, label)
+	if errors.Is(err, fs.ErrNotExist) {
+		key = make([]byte, 32)
+		_, err = rand.Read(key)
+	}
+	return key, err
 }
 
 func readHexKey(path, label string) ([]byte, error) {

@@ -42,6 +42,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
 	mrand "math/rand/v2"
@@ -637,9 +638,15 @@ func (s *Store) openTransparency(path string) error {
 	if keyFile == "" && path != ":memory:" {
 		keyFile = filepath.Join(filepath.Dir(path), tlog.KeyFileName)
 	}
-	if keyFile == "" {
+	switch {
+	case keyFile == "":
 		_, key, err = ed25519.GenerateKey(rand.Reader)
-	} else {
+	case s.config.ReadOnly:
+		// C553: no key file is created; nothing can be signed into the log.
+		if key, err = tlog.LoadKey(keyFile); errors.Is(err, fs.ErrNotExist) {
+			_, key, err = ed25519.GenerateKey(rand.Reader)
+		}
+	default:
 		key, err = tlog.LoadOrCreateKey(keyFile)
 	}
 	if err != nil {

@@ -46,6 +46,10 @@ func LoadOrCreateKey(path string) (ed25519.PrivateKey, error) {
 	return loadKey(path)
 }
 
+// LoadKey reads the log's signing key from path and never creates one (a
+// read-only open, C553); a missing file is fs.ErrNotExist.
+func LoadKey(path string) (ed25519.PrivateKey, error) { return loadKey(path) }
+
 func writeKey(path string) error {
 	seed := make([]byte, ed25519.SeedSize)
 	if _, err := rand.Read(seed); err != nil {

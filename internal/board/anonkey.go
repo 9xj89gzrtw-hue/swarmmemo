@@ -258,6 +258,9 @@ func (s *Store) scheduleSaltExpiry() {
 // (a stored salt would let a backup recompute pseudonyms) and, with
 // ANON_PREFIX on, arms the daily expiry timer.
 func (s *Store) openSalt() error {
+	if s.config.ReadOnly {
+		return nil // no write, and no expiry timer (C553)
+	}
 	if _, err := s.db.Exec("DELETE FROM meta WHERE key IN ('anon_salt','anon_salt_day','anon_salt_prev')"); err != nil {
 		return err
 	}

@@ -27,7 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 
 	"swarmmemo/internal/b64"
 	"swarmmemo/internal/gate"
@@ -373,7 +374,21 @@ const SchemaVersion = 46
 
 // connPragmas are the per-connection PRAGMAs, in modernc.org/sqlite's DSN
 // syntax. journal_mode=WAL is stored in the database file and set at Open.
-const connPragmas = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(FULL)"
+//
+// _txlock=immediate (C553) begins every read-write transaction with BEGIN
+// IMMEDIATE (the driver keeps sql.TxOptions{ReadOnly: true} deferred). A
+// deferred transaction that has read and then writes while another process
+// (the operator CLI) holds the write lock fails at once with SQLITE_BUSY:
+// SQLite skips the busy handler when a read transaction upgrades, and once
+// that process has committed it fails with SQLITE_BUSY_SNAPSHOT. IMMEDIATE
+// takes the write lock at BEGIN, where busy_timeout waits. With one
+// connection in this process nothing is serialized that was not already.
+const connPragmas = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(FULL)&_txlock=immediate"
+
+// readOnlyPragmas open the database for Config.ReadOnly: mode=ro and
+// query_only refuse every write, and transactions stay deferred (BEGIN
+// IMMEDIATE would need the write lock).
+const readOnlyPragmas = "mode=ro&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=query_only(1)"
 
 func Open(path string, config Config) (*Store, error) {
 	if config.ServiceID == "" {
@@ -416,7 +431,21 @@ func Open(path string, config Config) (*Store, error) {
 		}
 	}
 	config.ReservedDomains = reserved
-	if path != ":memory:" {
+	ro := config.ReadOnly
+	if ro {
+		config.Operator = true
+		if path == ":memory:" {
+			return nil, errors.New("a read-only open needs a database file")
+		}
+		// Nothing is created or chmodded: the live server owns the files.
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("database path must be a regular file")
+		}
+	} else if path != ":memory:" {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return nil, err
 		}
@@ -446,13 +475,17 @@ func Open(path string, config Config) (*Store, error) {
 	// every connection it opens: database/sql replaces the connection after
 	// a query is interrupted (a context ends mid-statement), and a replacement
 	// opened without them would run with no busy timeout and no foreign keys.
-	dsn := path + "?" + connPragmas
+	pragmas := connPragmas
+	if ro {
+		pragmas = readOnlyPragmas
+	}
+	dsn := path + "?" + pragmas
 	if path != ":memory:" {
 		abs, err := filepath.Abs(path)
 		if err != nil {
 			return nil, err
 		}
-		dsn = (&url.URL{Scheme: "file", Path: abs, RawQuery: connPragmas}).String()
+		dsn = (&url.URL{Scheme: "file", Path: abs, RawQuery: pragmas}).String()
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -463,42 +496,12 @@ func Open(path string, config Config) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	fail := func(err error) (*Store, error) { _ = db.Close(); return nil, err }
-	if _, err = db.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); err != nil {
-		return fail(err)
+	if ro {
+		err = checkReadOnlySchema(db)
+	} else {
+		err = prepareWritable(db, config)
 	}
-	var version int
-	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		return fail(err)
-	}
-	if version > SchemaVersion {
-		return fail(fmt.Errorf("database schema %d is newer than supported version %d", version, SchemaVersion))
-	}
-	migration, err := db.Begin()
 	if err != nil {
-		return fail(err)
-	}
-	defer migration.Rollback()
-	// The versioned schema (migrate.go): nothing at all on a current database.
-	if version < SchemaVersion {
-		if err = migrateSchema(migration, version); err != nil {
-			return fail(err)
-		}
-		// Schema 34 (C255): versions from each offering's revision history.
-		if version > 0 && version < 34 {
-			if err = backfillOfferingVersions(context.Background(), migration, subjectOptionsFor(config.ServiceID)); err != nil {
-				return fail(err)
-			}
-		}
-	}
-	// Every start: data upkeep that is idempotent and keyed on the data
-	// itself, never schema.
-	if err = upkeepData(migration); err != nil {
-		return fail(err)
-	}
-	if err = migration.Commit(); err != nil {
-		return fail(err)
-	}
-	if _, err = db.Exec("INSERT OR IGNORE INTO meta(key,value) VALUES('generation',?)", randomID()); err != nil {
 		return fail(err)
 	}
 	if config.NotaryKeyFile == "" && path != ":memory:" {
@@ -546,7 +549,7 @@ func Open(path string, config Config) (*Store, error) {
 	if _, err = rand.Read(secret); err != nil {
 		return fail(err)
 	}
-	if _, err = db.Exec("INSERT OR IGNORE INTO meta(key,value) VALUES('cursor_key',?)", base64.RawURLEncoding.EncodeToString(secret)); err != nil {
+	if err = s.ensureMeta("cursor_key", base64.RawURLEncoding.EncodeToString(secret)); err != nil {
 		return fail(err)
 	}
 	var encodedSecret string
@@ -566,12 +569,96 @@ func Open(path string, config Config) (*Store, error) {
 	if err != nil {
 		return fail(err)
 	}
-	if path != ":memory:" {
+	if !ro && path != ":memory:" {
 		if err = os.Chmod(path, 0600); err != nil {
 			return fail(err)
 		}
 	}
 	return s, nil
+}
+
+// prepareWritable is a read-write Open's database work: WAL, the versioned
+// schema (migrate.go), every start's idempotent data upkeep and the
+// generation.
+func prepareWritable(db *sql.DB, config Config) error {
+	if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); err != nil {
+		return err
+	}
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version > SchemaVersion {
+		return fmt.Errorf("database schema %d is newer than supported version %d", version, SchemaVersion)
+	}
+	migration, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer migration.Rollback()
+	// The versioned schema (migrate.go): nothing at all on a current database.
+	if version < SchemaVersion {
+		if err = migrateSchema(migration, version); err != nil {
+			return err
+		}
+		// Schema 34 (C255): versions from each offering's revision history.
+		if version > 0 && version < 34 {
+			if err = backfillOfferingVersions(context.Background(), migration, subjectOptionsFor(config.ServiceID)); err != nil {
+				return err
+			}
+		}
+	}
+	// Every start: data upkeep that is idempotent and keyed on the data
+	// itself, never schema.
+	if err = upkeepData(migration); err != nil {
+		return err
+	}
+	if err = migration.Commit(); err != nil {
+		return err
+	}
+	_, err = db.Exec("INSERT OR IGNORE INTO meta(key,value) VALUES('generation',?)", randomID())
+	return err
+}
+
+// checkReadOnlySchema refuses a read-only open of a database this binary
+// would migrate: it reads only a database at exactly SchemaVersion.
+func checkReadOnlySchema(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version != SchemaVersion {
+		return fmt.Errorf("database schema %d is not this binary's %d: a read-only open never migrates; run the matching binary, or open it read-write", version, SchemaVersion)
+	}
+	return nil
+}
+
+// ensureMeta stores a meta key's first value (INSERT OR IGNORE); a read-only
+// open writes nothing and reads the value already stored.
+func (s *Store) ensureMeta(key, value string) error {
+	if s.config.ReadOnly {
+		return nil
+	}
+	_, err := s.db.Exec("INSERT OR IGNORE INTO meta(key,value) VALUES(?,?)", key, value)
+	return err
+}
+
+// IsBusy reports whether err is SQLite's "database is locked" (SQLITE_BUSY or
+// SQLITE_LOCKED, any extended code): another process held the write lock
+// past busy_timeout (C553). Transports answer it 503 busy with Retry-After.
+func IsBusy(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	code := se.Code() & 0xff
+	return code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED
+}
+
+// ErrBusy is the answer to a command that met IsBusy: its transaction rolled
+// back, and commands are request_id deduplicated, so a retry is safe.
+func ErrBusy() *Error {
+	return &Error{Status: 503, Code: "busy", Message: "The database is busy. Retry shortly.", RetryAfter: 1}
 }
 
 func (s *Store) Close() error {

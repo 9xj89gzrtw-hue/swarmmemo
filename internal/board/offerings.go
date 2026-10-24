@@ -167,15 +167,19 @@ type offeringState struct {
 // moved nothing (failed, may be presented again); one left settling may have
 // settled, so it is unknown, for the operator. Both lose their authorization.
 func (s *Store) openOfferings(path string) error {
-	if res, err := s.db.Exec("UPDATE offering_calls SET state='failed',reason='interrupted',retryable=1,auth='',closed_at=? WHERE state='verifying'", time.Now().Unix()); err != nil {
-		return err
-	} else if n, _ := res.RowsAffected(); n > 0 {
-		slog.Warn("Offering calls interrupted while verifying were failed (nothing moved)", "count", n)
-	}
-	if res, err := s.db.Exec("UPDATE offering_calls SET state='unknown',reason='interrupted',auth='' WHERE state='settling'"); err != nil {
-		return err
-	} else if n, _ := res.RowsAffected(); n > 0 {
-		slog.Error("Offering calls were interrupted while settling: resolve each with swarmmemo offering resolve", "count", n)
+	// Crash recovery belongs to the serving process: beside a live server
+	// (the operator CLI) these rows are calls in flight (C553).
+	if !s.config.Operator {
+		if res, err := s.db.Exec("UPDATE offering_calls SET state='failed',reason='interrupted',retryable=1,auth='',closed_at=? WHERE state='verifying'", time.Now().Unix()); err != nil {
+			return err
+		} else if n, _ := res.RowsAffected(); n > 0 {
+			slog.Warn("Offering calls interrupted while verifying were failed (nothing moved)", "count", n)
+		}
+		if res, err := s.db.Exec("UPDATE offering_calls SET state='unknown',reason='interrupted',auth='' WHERE state='settling'"); err != nil {
+			return err
+		} else if n, _ := res.RowsAffected(); n > 0 {
+			slog.Error("Offering calls were interrupted while settling: resolve each with swarmmemo offering resolve", "count", n)
+		}
 	}
 	if s.config.Offerings == nil {
 		return nil
@@ -190,7 +194,7 @@ func (s *Store) openOfferings(path string) error {
 		key = make([]byte, 32)
 		_, err = randRead(key)
 	} else {
-		key, err = loadOrCreateHexKey(keyFile, "offerings")
+		key, err = s.hexKeyFile(keyFile, "offerings")
 	}
 	if err != nil {
 		return err

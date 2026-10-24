@@ -140,7 +140,11 @@ func operator(command string) error {
 	if err != nil {
 		return err
 	}
-	store, err := board.Open(path, board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), Features: features, Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE")})
+	// The operator CLI runs beside the live server: no crash recovery, and
+	// its reads open the database read-only, so they never hold the write
+	// lock a server transaction needs (C553).
+	store, err := board.Open(path, board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), Features: features, Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"),
+		Operator: true, ReadOnly: operatorReadOnly(command, os.Args[2:])})
 	if err != nil {
 		return err
 	}
@@ -258,6 +262,55 @@ func operator(command string) error {
 		fmt.Println("Recovery generation rotated. Reapply any newer removal records before opening traffic.")
 	}
 	return nil
+}
+
+// operatorReadOnly reports whether an operator command only reads, so it
+// opens the database read-only (board.Config.ReadOnly, C553). A command not
+// listed here keeps the read-write open; a listed one that tried to write
+// would fail ("attempt to write a readonly database"), never write.
+func operatorReadOnly(command string, args []string) bool {
+	sub := ""
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch command {
+	case "stats", "reports", "integrity":
+		return true
+	case "funnel":
+		// The report (no subcommand, or only its flags), kpi, mcp-tools
+		// and exclude list; backfill, recompute and exclude add|rm write.
+		switch sub {
+		case "backfill", "recompute":
+			return false
+		case "exclude":
+			return len(args) == 2 && args[1] == "list"
+		}
+		return true
+	case "feedback":
+		return sub == "list"
+	case "params":
+		return sub == "show"
+	case "moderation":
+		switch sub {
+		case "queue", "show", "log", "stats", "alerts", "spend", "policy":
+			return true
+		}
+	case "sanction":
+		return sub == "list" || sub == "ladder"
+	case "fetch":
+		return sub == "denylist"
+	case "signals":
+		return sub == "account" || sub == "message" || sub == "cluster"
+	case "feed":
+		return sub == "replay"
+	case "offering", "topup":
+		return sub == "unknown"
+	case "bonds":
+		return len(args) == 0
+	case "room":
+		return len(args) == 3 && args[1] == "asset" && args[2] == "list"
+	}
+	return false
 }
 
 // operatorAsset is "room ROOM asset put FILE" (prints the new asset's ID, for
@@ -513,7 +566,7 @@ func serve() error {
 		err := server.Shutdown(shutdown)
 		api.FlushReaderCounts()
 		flush, cancelFlush := context.WithTimeout(context.Background(), 4*time.Second) // normally milliseconds
-		_ = store.FlushFunnel(flush) // the funnel's last 30 seconds
+		_ = store.FlushFunnel(flush)                                                   // the funnel's last 30 seconds
 		cancelFlush()
 		// Feedback screens in flight store their outcome before the database
 		// closes (each is bounded by its own screen and store deadlines).

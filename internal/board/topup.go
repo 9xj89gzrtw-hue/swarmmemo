@@ -76,7 +76,7 @@ func (s *Store) openTopup() error {
 	if _, err := rand.Read(secret); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec("INSERT OR IGNORE INTO meta(key,value) VALUES('topup_quote_key',?)", base64.RawURLEncoding.EncodeToString(secret)); err != nil {
+	if err := s.ensureMeta("topup_quote_key", base64.RawURLEncoding.EncodeToString(secret)); err != nil {
 		return err
 	}
 	var encoded string
@@ -88,6 +88,9 @@ func (s *Store) openTopup() error {
 		return errors.New("topup: the stored quote key is malformed")
 	}
 	s.topupKey = key
+	if s.config.Operator {
+		return nil // crash recovery belongs to the serving process (C553)
+	}
 	res, err := s.db.Exec("UPDATE credit_topups SET state='unknown',reason='interrupted' WHERE state='settling'")
 	if err != nil {
 		return err
