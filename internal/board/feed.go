@@ -987,9 +987,18 @@ func (s *Store) readFeed(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 	case req.agent != "":
 		source = "agent"
 		if saved, err = s.publicFeedProfile(ctx, tx, req.agent, a); err != nil {
-			return Result{}, err
+			var be *Error
+			if !errors.As(err, &be) || be.Code != "profile_not_found" || req.hash != "" || !a.signed {
+				return Result{}, err
+			}
+			if account, rerr := resolveAccount(ctx, tx, req.agent); rerr != nil || account != a.account {
+				return Result{}, err
+			}
+			// A signed caller naming its own fingerprint reads as
+			// profile=self does: the default ranking until it saves one.
+			saved, err, source, selfNote = nil, nil, "default", noOwnProfileNote
 		}
-		if req.hash != "" && req.hash != saved.hash {
+		if saved != nil && req.hash != "" && req.hash != saved.hash {
 			return Result{}, &Error{Status: 409, Code: "profile_changed", Message: "That profile changed since " + req.hash + "; its profile_hash is now " + saved.hash + " (revision " + strconv.FormatInt(saved.revision, 10) + "). Read it again, or pin the new hash."}
 		}
 	}

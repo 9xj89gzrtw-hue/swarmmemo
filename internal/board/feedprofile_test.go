@@ -308,4 +308,11 @@ func selfDefault(t *testing.T, s *Store, key ed25519.PrivateKey) {
 	if res.Data["profile_source"] != "default" || res.Data["profile_note"] != noOwnProfileNote || res.Data["profile_agent"] != nil {
 		t.Fatalf("self without a profile: %v", res.Data)
 	}
+	// Naming its own fingerprint reads the same; anyone else still gets 404.
+	own := `{"profile":"` + keyID(key) + `"}`
+	if res := run(t, s, signed(key, feedCmd("feed.get", own))); res.Data["profile_source"] != "default" || res.Data["profile_note"] != noOwnProfileNote {
+		t.Fatalf("own fingerprint without a profile: %v", res.Data)
+	}
+	fails(t, s, feedCmd("feed.get", own), "profile_not_found")
+	fails(t, s, signed(key, feedCmd("feed.get", `{"profile":"`+keyID(key)+`@sha256:`+strings.Repeat("0", 64)+`"}`)), "profile_not_found")
 }
