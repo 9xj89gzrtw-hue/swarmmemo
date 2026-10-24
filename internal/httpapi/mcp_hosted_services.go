@@ -152,9 +152,9 @@ func hostedServiceHints(name string) (destructive, closedWorld, ok bool) {
 // optional unless the shape requires it.
 func hostedCallSchema(m services.MethodEntry, shape hostedShape) map[string]any {
 	schema := argsSchema(shape.args)
-	note := "optional: your ceiling in " + m.Resource + "; a higher price is refused and nothing is spent. Left out, the quote for the arguments is the ceiling"
+	note := maxCostNote(m.Resource)
 	if shape.maxCostRequired {
-		note = "required: your ceiling in " + m.Resource + "; a higher price is refused and nothing is spent"
+		note = "required: your ceiling in " + m.Resource + "; a higher price is refused, nothing spent"
 		required, _ := schema["required"].([]string)
 		schema["required"] = append(required, services.CallFieldMaxCost)
 	}
@@ -164,8 +164,17 @@ func hostedCallSchema(m services.MethodEntry, shape hostedShape) map[string]any 
 	return schema
 }
 
+// maxCostNote is what an optional max_cost does, in resource.
+func maxCostNote(resource string) string {
+	return "optional: your ceiling in " + resource + "; a higher price is refused, nothing spent. Default: the quote"
+}
+
 // hostedRequestIDNote is what a hosted write's request_id does.
-const hostedRequestIDNote = "optional: your retry key for this exact call, unique among your identity's commands. A retry with the same request_id and arguments is never run or charged twice: within the minute it returns the first answer, later it is 409 idempotency_conflict"
+const hostedRequestIDNote = "optional retry key, unique among your commands: the same call again is never run or charged twice (the first answer within a minute, then 409 idempotency_conflict)"
+
+// anonymousRequestIDNote is what an unsigned call's request_id does (the
+// long form is services.NoKeyRequestID).
+const anonymousRequestIDNote = "optional retry key: a retry from your network returns the first answer, never charged twice (another network: 409). Left out, call.request_id returns one; yours: random, new per call"
 
 // hostedCallData is the data of the service.call or service.read a hosted
 // tool signs: its input less max_cost and request_id is the args object. A
@@ -258,7 +267,7 @@ func hostedSignsPublicCall(e services.Entry, m services.MethodEntry) bool {
 
 // hostedSignedCallNote is what a hostedSignsPublicCall tool adds while
 // hosted identities are on.
-const hostedSignedCallNote = " Signed as your SwarmMemo identity when this connection has one, within its own daily limit."
+const hostedSignedCallNote = " Signed as your identity when this connection has one, within its daily limit."
 
 // isHostedSignedCall reports whether name is a public call tool that signs
 // as a hosted caller (hostedSignsPublicCall), so it takes sign-in or none.

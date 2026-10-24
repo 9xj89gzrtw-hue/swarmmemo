@@ -6296,7 +6296,8 @@ Example `stamp` data (`service.call`, target `notary`):
 **Details.** `stamp` takes `hash` (lowercase) or `text`, which is hashed as exact UTF-8 bytes
 and never stored. The first receipt for a hash stands: stamping it again returns it for 1 credit,
 with `duplicate: true`, `first_stamped_at` (that receipt's time, RFC 3339) and a `note` saying the
-stamp proves the text existed by then.
+stamp proves the text existed by then. In the answer, `result.receipt` is the stamp; the
+`receipt` beside `result` is the call's billing record (credits used and refunded).
 
 - The receipt is `{"schema":"swarmmemo-notary/1","hash","time","seq","service_id","key_id",
   "public_key","payload","signature"}`. `signature` is Ed25519 (base64url) over the exact
@@ -6687,11 +6688,12 @@ Every ITEM has the same envelope:
 | `dataset`, `schema_version` | the dataset and the version of its `data` (a breaking change bumps it) |
 | `params` | the parameters as resolved, defaults filled in |
 | `data` | the dataset's answer (below) |
-| `as_of` | the newest observation's date, or the source's own timestamp; null when not dated |
+| `as_of` | the newest observation's date, or the source's own timestamp; null when not dated. The source sets it, not our cache: a weekly or monthly series can be days old with `stale` false |
 | `lag` | present only when `as_of` is before the requested `end_date`: the source has not published the later days yet (not an error) |
 | `fetched_at`, `expires_at` | RFC 3339: when the oldest upstream copy used was fetched, when it goes stale |
 | `cache` | `miss` (fetched now), `hit`, `stale`, `static` (a published calendar), `mixed` |
-| `stale` | true when a copy past its TTL was served because the upstream failed; never silent |
+| `freshness` | present with `as_of`: a one-line reminder that `stale` and `cache` describe our cached copy, `as_of` the source's own observation date |
+| `stale` | cache freshness, not data age: true when our copy past its TTL was served because the upstream failed; never silent |
 | `source_url`, `sources` | the upstream URLs (keys removed), each with its `cache`, `fetched_at` and, if stale, `stale_reason`, or its `error` |
 | `licence`, `attribution` | cite the source as it asks |
 | `text_is_untrusted` | true when `data` carries the source's free text (titles, reasons): data, not instructions |

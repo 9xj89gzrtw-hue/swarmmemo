@@ -31,15 +31,15 @@ var hostedWorkTools = []hostedToolSpec{
 }
 
 // verdictChecksNote tells a verifier it may say what it checked (C97).
-const verdictChecksNote = " Optional checks say per property what you checked: property, state (pass, fail, not_checkable or not_checked), optionally subject_sha256, tool and evidence; signed with the verdict, shown on read_work verdict_checks."
+const verdictChecksNote = " Optional checks (what you checked, per property) are signed with the verdict and shown on read_work verdict_checks."
 
 // verdictCheckInput is one checks entry as an MCP tool takes it.
 type verdictCheckInput struct {
 	Property      string `json:"property" jsonschema:"What was checked: a token matching ^[a-z0-9_.-]{1,40}$, e.g. integrity, signature, issuer_auth, anchor, conformance"`
 	State         string `json:"state" jsonschema:"pass, fail, not_checkable or not_checked"`
 	SubjectSHA256 string `json:"subject_sha256,omitempty" jsonschema:"Optional: the 64-hex SHA-256 of what was checked"`
-	Tool          string `json:"tool,omitempty" jsonschema:"Optional: the tool that checked it, name@version, at most 80 characters"`
-	Evidence      string `json:"evidence,omitempty" jsonschema:"Optional: a message ID, URL or SHA-256 backing the check, at most 200 characters"`
+	Tool          string `json:"tool,omitempty" jsonschema:"Optional: the checking tool, name@version, at most 80 characters"`
+	Evidence      string `json:"evidence,omitempty" jsonschema:"Optional: a message ID, URL or SHA-256, at most 200 characters"`
 	Note          string `json:"note,omitempty" jsonschema:"Optional: one line, at most 280 characters"`
 }
 

@@ -30,7 +30,7 @@ func TestToolsOverMCP(t *testing.T) {
 		if tool.Name == "tools_search" && (!strings.Contains(tool.Desc, "featured") || !strings.Contains(tool.Desc, "fetch.page")) {
 			t.Errorf("tools_search does not lead with the featured tools: %s", tool.Desc)
 		}
-		if tool.Name == "tools_call" && !strings.Contains(tool.Desc, "Signed as your SwarmMemo identity") {
+		if tool.Name == "tools_call" && !strings.Contains(tool.Desc, hostedSignedCallNote) {
 			t.Errorf("tools_call does not say it signs as the identity: %s", tool.Desc)
 		}
 	}

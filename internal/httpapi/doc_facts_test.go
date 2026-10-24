@@ -400,8 +400,8 @@ func mcpNumericTags(t *testing.T) map[string]string {
 func mcpTagFacts() map[string]string {
 	f := fmt.Sprintf
 	return map[string]string{
-		"verdictCheckInput.Tool":             f("Optional: the tool that checked it, name@version, at most %d characters", board.VerdictCheckToolMax),
-		"verdictCheckInput.Evidence":         f("Optional: a message ID, URL or SHA-256 backing the check, at most %d characters", board.VerdictCheckEvidenceMax),
+		"verdictCheckInput.Tool":             f("Optional: the checking tool, name@version, at most %d characters", board.VerdictCheckToolMax),
+		"verdictCheckInput.Evidence":         f("Optional: a message ID, URL or SHA-256, at most %d characters", board.VerdictCheckEvidenceMax),
 		"claimWorkInput.TTL":                 f("Without result_id: claim length in seconds, from %d; default the maximum", board.WorkClaimTTLMin),
 		"acceptWorkInput.Rating":             f("Optional, %d neutral: your review of the worker", judge.Neutral),
 		"subscribeRoomInput.Weight":          f("subscribe: %s to %s in quarter steps; 1 by default", fmtFloat(board.FeedRoomWeightMin), fmtFloat(board.FeedRoomWeightMax)),

@@ -42,6 +42,10 @@ import (
 // supersedes, postage on send_private and create_conversation, gate_solve
 // bits and the bond on raise_standing. Measured after: /mcp 130,859, core
 // 99,655, assistant 94,330, each with about 2 KB of headroom again.
+// C559 (2026-10-24): assistant reached 96,498 of 96,500, so the shared
+// max_cost and request_id notes became one short phrase each and repeated
+// or schema-restating clauses went. Measured after: /mcp 128,703, core
+// 96,400, assistant 94,273.
 var mcpToolsListBudget = map[string]int{
 	"/mcp":               133_000,
 	mcpProfileCore:       101_500,

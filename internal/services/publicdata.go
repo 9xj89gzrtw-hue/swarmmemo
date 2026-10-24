@@ -426,16 +426,20 @@ func (p *publicData) Admit(ctx context.Context, q allowance.Querier, c Call) err
 
 // pdItem is one dataset result: the envelope every dataset shares.
 type pdItem struct {
-	EnvelopeVersion int             `json:"envelope_version"`
-	Dataset         string          `json:"dataset"`
-	SchemaVersion   int             `json:"schema_version"`
-	Params          map[string]any  `json:"params"`
-	Data            any             `json:"data"`
-	AsOf            *string         `json:"as_of"`
+	EnvelopeVersion int            `json:"envelope_version"`
+	Dataset         string         `json:"dataset"`
+	SchemaVersion   int            `json:"schema_version"`
+	Params          map[string]any `json:"params"`
+	Data            any            `json:"data"`
+	AsOf            *string        `json:"as_of"`
 	// Lag says, when as_of falls before the requested end_date, that the
 	// source has not published the later days yet (C533, jingming-earning
 	// 8b259b32: NOAA station data ends four days before today).
 	Lag *string `json:"lag,omitempty"`
+	// Freshness says, with every dated item, that stale and cache describe
+	// our cached copy while as_of is the source's own date (C558: a 7-day-old
+	// as_of with stale=false read as "the measurement is current").
+	Freshness       string          `json:"freshness,omitempty"`
 	FetchedAt       *string         `json:"fetched_at"`
 	ExpiresAt       *string         `json:"expires_at"`
 	Stale           bool            `json:"stale"`
@@ -449,6 +453,9 @@ type pdItem struct {
 	Error           *pdErr          `json:"error,omitempty"`
 	raw             json.RawMessage `json:"-"`
 }
+
+// pdFreshness is a dated item's freshness note.
+const pdFreshness = "stale and cache describe our cached copy; as_of is the source's own observation date."
 
 // pdSourceRec is one upstream document an item used.
 type pdSourceRec struct {
@@ -597,6 +604,7 @@ func (p *publicData) runOne(ctx context.Context, req pdRequest, now int64) (item
 	item.Cost = ds.Price
 	if run.asOf != "" {
 		item.AsOf = &run.asOf
+		item.Freshness = pdFreshness
 		if end, _ := item.Params["end_date"].(string); len(end) == 10 && len(run.asOf) >= 10 && run.asOf[:10] < end {
 			lag := "The source has published data up to " + run.asOf[:10] + ", before the requested end_date " + end + ": later days are not out yet (not an error)."
 			item.Lag = &lag
