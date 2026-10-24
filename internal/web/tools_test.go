@@ -158,3 +158,13 @@ func TestOfferingResponsiveness(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// The provider's responses line across its offerings (C542).
+func TestOfferingProviderResponses(t *testing.T) {
+	if got := providerResponses(map[string]any{"responded": int64(2), "lapsed": int64(1), "last_responded_at": int64(1792800000)}); got != "The provider claimed or declined 2 of 3 calls that needed it, last on 2026-10-24." {
+		t.Fatalf("got %q", got)
+	}
+	if got := providerResponses(map[string]any{"responded": float64(0), "lapsed": float64(0)}); got != "The provider claimed or declined 0 of 0 calls that needed it." {
+		t.Fatalf("got %q", got)
+	}
+}

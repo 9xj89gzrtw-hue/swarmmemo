@@ -16,35 +16,13 @@ import (
 // answer and how many tools it lists. It lists over an in-memory session, as
 // an anonymous client would.
 func (s *Server) CoreToolsList(ctx context.Context) (size, tools int, err error) {
-	ctx, cancel := context.WithCancel(localMCPContext(ctx))
-	defer cancel()
-	serverSide, clientSide := mcp.NewInMemoryTransports()
-	served, err := s.mcpCore.Connect(ctx, serverSide, nil)
+	all, err := listedMCPTools(ctx, s.mcpCore)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer served.Close()
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "tools-list-size", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": &mcp.ListToolsResult{Tools: all}})
 	if err != nil {
 		return 0, 0, err
 	}
-	defer session.Close()
-	all := &mcp.ListToolsResult{Tools: []*mcp.Tool{}}
-	params := &mcp.ListToolsParams{}
-	for {
-		page, err := session.ListTools(ctx, params)
-		if err != nil {
-			return 0, 0, err
-		}
-		all.Tools = append(all.Tools, page.Tools...)
-		if page.NextCursor == "" {
-			break
-		}
-		params.Cursor = page.NextCursor
-	}
-	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": all})
-	if err != nil {
-		return 0, 0, err
-	}
-	return len(raw), len(all.Tools), nil
+	return len(raw), len(all), nil
 }

@@ -124,10 +124,6 @@ const (
 	// OfferingCallsPageMax bounds one offering.calls page and one
 	// offering.list page.
 	OfferingCallsPageMax = 50
-	// OfferingCallsPollSeconds is how often offering.calls' answer (its
-	// data.next) and the MCP tool offering_calls suggest a provider poll
-	// the list: one call without a name covers every offering.
-	OfferingCallsPollSeconds = 60
 	// OfferingClaimMinimum is how long an authorization must leave to claim
 	// in: a payment valid for less is refused at intake.
 	OfferingClaimMinimum int64 = 60
@@ -708,7 +704,8 @@ func (s *Store) effectiveClaimWindow(w int64) int64 {
 }
 
 // offeringView is a listing as every read shows it: the signed revision,
-// the payment terms and, with record, its public 30-day record.
+// the payment terms and, with record, its public 30-day record, its
+// provider's responses and whether it is listed (offering_responses.go).
 func (s *Store) offeringView(ctx context.Context, tx *sql.Tx, o offeringRow, record bool, now int64) (map[string]any, error) {
 	agent, handle, err := providerOf(ctx, tx, o.Account)
 	if err != nil {
@@ -739,6 +736,14 @@ func (s *Store) offeringView(ctx context.Context, tx *sql.Tx, o offeringRow, rec
 	if record {
 		if v["record"], err = offeringRecord(ctx, tx, o.Account, o.Name, now); err != nil {
 			return nil, err
+		}
+		responses, responsive, err := offeringResponses(ctx, tx, o.Account, now)
+		if err != nil {
+			return nil, err
+		}
+		v["responses"], v["listed"] = responses, o.State == "active" && responsive
+		if o.State == "active" && !responsive {
+			v["unlisted"] = "Not in listings: " + OfferingListedRule + ". It is still callable here."
 		}
 	}
 	return v, nil
@@ -855,7 +860,7 @@ func (s *Store) readOfferings(ctx context.Context, tx *sql.Tx, c Command, a acto
 		}
 		offset = n
 	}
-	where, args := []string{"state='active'"}, []any{}
+	where, args := []string{offeringListedTerm(now)}, []any{}
 	if c.Target != "" {
 		account, err := offeringProvider(ctx, tx, c.Target)
 		if err != nil {
@@ -868,11 +873,9 @@ func (s *Store) readOfferings(ctx context.Context, tx *sql.Tx, c Command, a acto
 		where = append(where, `(name LIKE ? ESCAPE '\' OR lower(json_extract(listing,'$.title')) LIKE ? ESCAPE '\' OR lower(json_extract(listing,'$.description')) LIKE ? ESCAPE '\')`)
 		args = append(args, like, like, like)
 	}
-	// Ranked by the record: offerings whose calls were paid (from wallets
-	// other than the provider's own, see offeringRecord) first, then newest.
-	rows, err := tx.QueryContext(ctx, "SELECT "+offeringCols+" FROM offerings o WHERE "+strings.Join(where, " AND ")+
-		` ORDER BY (SELECT count(*) FROM offering_calls c WHERE c.account=o.account AND c.name=o.name AND c.created_at>=? AND c.state IN ('paid','answered','overdue','refunded')) DESC, updated_at DESC, account, name LIMIT ? OFFSET ?`,
-		append(args, now-OfferingRecordDays*86400, limit+1, offset)...)
+	// Listed and ranked as every listing is (offering_responses.go).
+	rows, err := tx.QueryContext(ctx, "SELECT "+offeringCols+" FROM offerings o WHERE "+strings.Join(where, " AND ")+offeringListOrder(now)+" LIMIT ? OFFSET ?",
+		append(args, limit+1, offset)...)
 	if err != nil {
 		return Result{}, err
 	}
@@ -931,6 +934,11 @@ func (s *Store) OfferingsCapabilities() map[string]any {
 		"headers":    map[string]string{"required": "PAYMENT-REQUIRED", "payment": "PAYMENT-SIGNATURE (or X-PAYMENT)"},
 		"custody":    false,
 		"inbox_kind": inboxOfferingCall,
+		"alert": map[string]any{"entry": inboxOfferingCall, "detail": []string{"offering", "amount", "claim_by", "next"}, "next": OfferingCallNext,
+			"webhook": "every subscription without kinds, or one that names " + inboxOfferingCall, "wakeup": `on:"received"`},
+		"listing": map[string]any{"rule": OfferingListedRule, "respond_days": OfferingRespondDays, "record_days": OfferingRecordDays, "order": OfferingListOrder,
+			"responded": "a call the provider claimed or declined", "responses": "responded, lapsed, rate and last_responded_at over record_days, on every read of a listing",
+			"unlisted": "still readable and callable by offering.get and its page, which say listed false; nothing is deleted"},
 		"answer": map[string]any{"operation": "offering.answer", "max_bytes": OfferingAnswerBytes, "content_types": OfferingAnswerTypes, "states": []string{"paid", "overdue"},
 			"screened": "like a post, unless the listing's screen_answer is false", "stamp": OfferingAnswerSchema, "notary": "/api/notary/HASH",
 			"caller_inbox_kind": inboxOfferingAnswer, "poll_days": OfferingPollDays},

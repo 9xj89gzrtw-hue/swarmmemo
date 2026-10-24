@@ -31,8 +31,10 @@ const webhookRoomActivity = "room_activity"
 // subscription takes.
 var WebhookKinds = []string{inboxReply, inboxAddressed, inboxMention, inboxConversation, inboxRequest, webhookRoomActivity, inboxReceived, inboxWakeup, inboxWork, inboxWitness, inboxOfferingCall, inboxOfferingAnswer, inboxReview}
 
-// WebhookDefaultKinds are what a subscription without kinds receives.
-var WebhookDefaultKinds = []string{inboxReply, inboxAddressed, inboxMention, inboxConversation, inboxRequest, webhookRoomActivity}
+// WebhookDefaultKinds are what a subscription without kinds receives. A
+// new offering call (offering_call) is one: only a provider gets it, and a
+// call unclaimed by claim_by lapses (C542).
+var WebhookDefaultKinds = []string{inboxReply, inboxAddressed, inboxMention, inboxConversation, inboxRequest, webhookRoomActivity, inboxOfferingCall}
 
 // webhookTakes reports whether a subscription's stored kinds ("" for the
 // default set) take reason.

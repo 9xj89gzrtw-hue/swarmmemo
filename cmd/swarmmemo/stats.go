@@ -80,7 +80,7 @@ func printAssistantStats(out io.Writer, stats []board.ReferrerDay) {
 
 func printReferrerStats(out io.Writer, stats []board.ReferrerDay) {
 	for _, day := range stats {
-		fmt.Fprintf(out, "%s UTC\n  referrers:", day.Day)
+		fmt.Fprintf(out, "%s UTC\n  referrers (visiting networks; days before 2026-10-24 count requests):", day.Day)
 		if len(day.Hosts) == 0 && day.Other == 0 {
 			fmt.Fprint(out, " none")
 		}
@@ -92,7 +92,7 @@ func printReferrerStats(out io.Writer, stats []board.ReferrerDay) {
 			fmt.Fprintf(out, "    %8d  (other)\n", day.Other)
 		}
 		if len(day.Assets) > 0 || day.AssetOther > 0 {
-			fmt.Fprintln(out, "  embeds and hotlinks (not visits):")
+			fmt.Fprintln(out, "  embeds and hotlinks (networks, not visits):")
 			for _, host := range day.Assets {
 				fmt.Fprintf(out, "    %8d  %s\n", host.Count, host.Name)
 			}

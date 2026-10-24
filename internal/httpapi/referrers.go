@@ -2,6 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"net"
 	"net/http"
 	"net/url"
@@ -23,7 +27,14 @@ import (
 // same set ?ref= uses, refLanding); every other Referer-bearing request
 // (images, API calls, non-landing pages) counts as "asset:DOMAIN" instead, so
 // an embed or hotlink on DOMAIN stays visible without being mistaken for a
-// visit. The header values themselves are discarded at once. Totals are
+// visit. Both count once per domain per client network (IPv4 /24, IPv6 /48,
+// as reader counters tell networks apart) per UTC day, so the numbers are
+// visiting networks, not requests: on 10-23 one cloud /16 sending
+// "Referer: www.google.com" on every page fetch read as 19,058 Google visits
+// a day. The pair is kept only as 8 bytes of HMAC-SHA256 under a random key
+// that is replaced each UTC day, in memory, at most referrerSeenMax pairs
+// (past it, requests count as before). The header values themselves are
+// discarded at once. Totals are
 // written in the background like the reader counters, and memory is bounded:
 // at most referrerPendingHosts "host:" domains, referrerPendingHosts "asset:"
 // domains and referrerPendingRefs venues per day are held between writes,
@@ -46,6 +57,8 @@ const (
 	referrerPendingFetch = 200
 	referrerHeaderBytes  = 2048
 	userAgentBytes       = 512
+	// referrerSeenMax bounds the (domain, network) pairs held for today.
+	referrerSeenMax = 200_000
 )
 
 type referrerStatsStore interface {
@@ -61,6 +74,34 @@ type referrerCounter struct {
 	interval  time.Duration
 	now       func() time.Time
 	own       []string // this service's domains, never counted
+
+	// The day's (domain, network) pairs already counted; c.mu guards them.
+	seenDay string
+	seenKey [32]byte
+	seen    map[uint64]struct{}
+}
+
+// firstFromNetwork reports whether key (a "host:" or "asset:" key) has not
+// yet been counted today from network, and remembers it; c.mu is held.
+func (c *referrerCounter) firstFromNetwork(day, key, network string) bool {
+	if c.seenDay != day || c.seen == nil {
+		c.seenDay, c.seen = day, map[uint64]struct{}{}
+		if _, err := rand.Read(c.seenKey[:]); err != nil {
+			return true
+		}
+	}
+	m := hmac.New(sha256.New, c.seenKey[:])
+	m.Write([]byte(key))
+	m.Write([]byte{0})
+	m.Write([]byte(network))
+	h := binary.BigEndian.Uint64(m.Sum(nil))
+	if _, held := c.seen[h]; held {
+		return false
+	}
+	if len(c.seen) < referrerSeenMax {
+		c.seen[h] = struct{}{}
+	}
+	return true
 }
 
 func newReferrerCounter(publicURL string) *referrerCounter {
@@ -217,8 +258,16 @@ func (s *Server) countReferrer(r *http.Request) {
 	defer func() { _ = recover() }()
 	c := s.referrers
 	keys := make([]string, 0, 3)
-	if key := c.referrerKey(r); key != "" {
-		keys = append(keys, key)
+	visit, network := c.referrerKey(r), ""
+	if strings.HasPrefix(visit, "host:") || strings.HasPrefix(visit, "asset:") {
+		prefix, own := s.networkPrefix(s.peer(r))
+		if own {
+			visit = ""
+		}
+		network = prefix
+	}
+	if visit != "" {
+		keys = append(keys, visit)
 	}
 	if key := refKey(r); key != "" {
 		keys = append(keys, key)
@@ -238,6 +287,9 @@ func (s *Server) countReferrer(r *http.Request) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for _, key := range keys {
+			if key == visit && network != "" && !c.firstFromNetwork(day, key, network) {
+				continue
+			}
 			c.day(day).add(key, 1)
 		}
 		if now.Sub(c.lastFlush) < c.interval {

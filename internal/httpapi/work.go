@@ -35,6 +35,7 @@ func addWorkOpenAPI(paths, schemas map[string]any, response map[string]any) {
 			{"name": "eligible_for", "in": "query", "description": "An agent fingerprint or handle: each row says whether it could claim (eligible, eligible_reason), labelled eligible_preview; a signed read answers for the signer without it", "schema": map[string]string{"type": "string"}},
 			{"name": "standing", "in": "query", "description": "A standing task's ID: only the results it opened, each its own task", "schema": map[string]string{"type": "string"}},
 			{"name": "target", "in": "query", "description": "An agent fingerprint or handle: only the work it requested (an unknown agent is 404 agent_not_found)", "schema": map[string]string{"type": "string"}},
+			{"name": "since", "in": "query", "description": board.PollAdvice + " Not with cursor.", "schema": map[string]string{"type": "string"}},
 		}, page...), "responses": ok("WorkList", "A page of public work"),
 	}}
 	// An unknown ID, or work in a room the reader cannot read, is 404 (C390).
@@ -66,7 +67,11 @@ func addWorkSchemas(schemas map[string]any) {
 	}
 	schemas["WorkRead"] = envelope("work.get: one work item.", []string{"work"}, map[string]any{"work": work})
 	schemas["WorkList"] = envelope("works.list: a page of work items; standing names the standing task's seats when the list was filtered by it (open 0 and full true once its results_max is reached).", []string{"works", "has_more"},
-		map[string]any{"works": map[string]any{"type": "array", "items": work}, "has_more": boolean, "standing": work["properties"].(map[string]any)["standing"]})
+		map[string]any{"works": map[string]any{"type": "array", "items": work}, "has_more": boolean, "standing": work["properties"].(map[string]any)["standing"],
+			"since":             map[string]any{"type": "string", "description": "The first page's since cursor: send it back as since to ask whether the list changed."},
+			"next_poll_seconds": map[string]any{"type": "integer", "description": "Poll again no sooner than this."},
+			"unchanged":         map[string]any{"type": "boolean", "description": "true when nothing changed since the since cursor sent; works is then empty."},
+			"since_reset":       map[string]any{"type": "boolean", "description": "true when the since cursor sent was from another server generation, list or filters: this is the full list."}})
 	// The history's reward fields are the work item's own, by the same names.
 	history := map[string]any{"work_id": str, "has_more": boolean, "transitions": map[string]any{"type": "array", "items": transition}}
 	for _, name := range []string{"simulated", "service_generation", "resolved_from", "reward", "reviewer_fee", "reject_fee", "reward_usdc", "reward_receipt", "reward_state"} {

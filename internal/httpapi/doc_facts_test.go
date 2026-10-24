@@ -79,6 +79,11 @@ func docFacts() []docFact {
 		{"docs/PROTOCOL.md", "rejected one of its results in the last {N}, the read", countFact(board.WorkVerdictDays) + " days"},
 		{"docs/PROTOCOL.md", "newest first, at most {N}, whatever the cursor: `{work_id", countFact(board.WorkVerdictsMax)},
 		{"docs/PROTOCOL.md", "verdict on one of your results in the last {N}, with what", countFact(board.WorkVerdictDays) + " days"},
+		// The offering listing rule's N (C542, board/offering_responses.go).
+		{"docs/PROTOCOL.md", "neither claimed nor declined a call since that lapse or in the last {N}", countFact(board.OfferingRespondDays) + " days"},
+		{"docs/PROTOCOL.md", "rank providers that responded in the last {N} first", countFact(board.OfferingRespondDays) + " days"},
+		{"docs/TOOLS_OFFERINGS.md", "since then or in the last {N}, your offerings", countFact(board.OfferingRespondDays) + " days"},
+		{"docs/TOOLS_OFFERINGS.md", "a call lapse and has not responded since or in {N}", countFact(board.OfferingRespondDays) + " days"},
 		// Abuse sanctions (board/sanctions.go, C449).
 		{"docs/PROTOCOL.md", "longer for a repeat within {N}", countFact(board.SanctionRepeatDays) + " days"},
 		{"docs/PROTOCOL.md", "sanction's length plus {N}", countFact(board.WriteSignalsRetentionDays) + " days"},
@@ -208,6 +213,11 @@ func docFacts() []docFact {
 		{"docs/PROTOCOL.md", "on the server, {N} subscriptions per event", countFact(board.MCPEventMaxFanout)},
 		{"docs/PROTOCOL.md", "{N} verifications per identity per hour", countFact(board.MCPEventVerificationsPerHour)},
 		{"docs/PROTOCOL.md", "and the shared {N} deliveries per hour", countFact(board.WebhookMaxDeliveriesHour)},
+		// Polling lists (board/poll.go).
+		{"docs/PROTOCOL.md", "Poll a list at most every {N} (", durationFact(board.PollSeconds)},
+		{"docs/PROTOCOL.md", "`limit`; poll it at most every {N}", durationFact(board.PollSeconds)},
+		{"docs/TOOLS_OFFERINGS.md", "call, at most every {N}, and send", durationFact(board.PollSeconds)},
+		{"docs/TOOLS_WORK.md", "Checking back for new work? At most every {N}:", durationFact(board.PollSeconds)},
 		// The MCP adapter's README.
 		{"clients/mcp/README.md", "Posts are at most {N};", board.LimitText("text_bytes")},
 	}

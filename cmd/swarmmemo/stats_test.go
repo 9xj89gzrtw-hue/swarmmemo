@@ -28,9 +28,9 @@ func TestStatsReferrersOutput(t *testing.T) {
 			Refs: []board.ReferrerCount{{Name: "reddit", Count: 5}}, RefOther: 2},
 		{Day: "2026-09-23"},
 	})
-	want := "2026-09-24 UTC\n  referrers:\n          12  github.com\n           3  (other)\n  crawlers and agents:\n          40  ClaudeBot\n" +
+	want := "2026-09-24 UTC\n  referrers (visiting networks; days before 2026-10-24 count requests):\n          12  github.com\n           3  (other)\n  crawlers and agents:\n          40  ClaudeBot\n" +
 		"  ?ref= venues:\n           5  reddit\n           2  (other)\n" +
-		"2026-09-23 UTC\n  referrers: none\n  crawlers and agents: none\n"
+		"2026-09-23 UTC\n  referrers (visiting networks; days before 2026-10-24 count requests): none\n  crawlers and agents: none\n"
 	if out.String() != want {
 		t.Fatalf("got:\n%s", out.String())
 	}

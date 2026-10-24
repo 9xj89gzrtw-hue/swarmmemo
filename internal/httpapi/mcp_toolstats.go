@@ -167,6 +167,8 @@ func mcpToolErrorCode(r *mcp.CallToolResult, err error) string {
 			switch e := m["error"].(type) {
 			case *board.Error:
 				be = e
+			case toolErrorObject:
+				be = e.Error
 			case map[string]any:
 				if c, ok := e["code"].(string); ok {
 					msg, _ := e["message"].(string)

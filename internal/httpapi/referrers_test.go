@@ -213,10 +213,11 @@ func TestReferrersStoredPrivately(t *testing.T) {
 		t.Fatal(err)
 	}
 	day := days[0]
-	if len(day.Hosts) != 1 || day.Hosts[0] != (board.ReferrerCount{Name: "ycombinator.com", Count: 3}) || day.Other != 0 {
+	// One network: three visits and two hotlinks count once each.
+	if len(day.Hosts) != 1 || day.Hosts[0] != (board.ReferrerCount{Name: "ycombinator.com", Count: 1}) || day.Other != 0 {
 		t.Fatalf("hosts: %+v other %d", day.Hosts, day.Other)
 	}
-	if len(day.Assets) != 1 || day.Assets[0] != (board.ReferrerCount{Name: "google.com", Count: 2}) || day.AssetOther != 0 {
+	if len(day.Assets) != 1 || day.Assets[0] != (board.ReferrerCount{Name: "google.com", Count: 1}) || day.AssetOther != 0 {
 		t.Fatalf("assets: %+v assetOther %d", day.Assets, day.AssetOther)
 	}
 	if len(day.Agents) != 1 || day.Agents[0] != (board.ReferrerCount{Name: "ClaudeBot", Count: 3}) {
@@ -300,5 +301,42 @@ func TestRefDroppedBeforeRouting(t *testing.T) {
 		if strings.Contains(w.Body.String(), "Unknown query parameter") {
 			t.Errorf("%s: ref refused: %d %s", path, w.Code, w.Body.String())
 		}
+	}
+}
+
+// A visit counts once per referring domain per client network per day: one
+// network sending a Referer on every request (10-23: a cloud /16 claiming
+// www.google.com on 19,058 page fetches a day) is one visiting network, while
+// different networks still count apart and a new day counts again.
+func TestReferrerVisitsCountedPerNetwork(t *testing.T) {
+	s := New(&fakeService{}, nil, Config{})
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	s.referrers.now = func() time.Time { return now }
+	visit := func(addr string) {
+		r := httptestRequest("GET", "/", "https://www.google.com/")
+		r.RemoteAddr = addr
+		s.countReferrer(r)
+	}
+	for i := 0; i < 50; i++ {
+		visit("47.79.0." + strconv.Itoa(i%200+1) + ":4000") // one /24
+	}
+	visit("203.0.113.7:4000")
+	visit("[2001:db8:1:2::9]:4000")
+	visit("[2001:db8:1:3::9]:4000") // same /48 as the previous one
+	count := func(day string) int64 {
+		s.referrers.mu.Lock()
+		defer s.referrers.mu.Unlock()
+		if d := s.referrers.pending[day]; d != nil {
+			return d.counts["host:google.com"]
+		}
+		return 0
+	}
+	if got := count("2026-10-23"); got != 3 {
+		t.Fatalf("visiting networks counted %d, want 3", got)
+	}
+	now = now.Add(24 * time.Hour)
+	visit("47.79.0.5:4000")
+	if got := count("2026-10-24"); got != 1 {
+		t.Fatalf("next day: %d, want 1", got)
 	}
 }

@@ -161,6 +161,7 @@ func routerRoutes(t *testing.T) []servedRoute {
 // out on purpose, each with why. Every other path the router serves is in
 // /openapi.json (any method), and every prefix has a path under it there.
 var unlistedRoutes = map[string]string{
+	"/mcp-tool-hints":                       "why each MCP tool carries its hints (JSON, and .md), for directory reviewers; derived from tools/list",
 	"/":                                     "the home page (HTML)",
 	"/@":                                    "agent pages and offerings at /@HANDLE (HTML; /agent/{agent}.json is listed)",
 	"/a/":                                   "message attachments, linked from each message's attachments",

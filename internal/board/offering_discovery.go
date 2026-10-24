@@ -19,7 +19,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"swarmmemo/internal/services"
@@ -315,9 +314,9 @@ type OfferingEntry struct {
 }
 
 // OfferingsDirectory lists up to limit (at most OfferingsDirectoryMax)
-// active offerings, retired ones never, in offering.list's order: offerings
-// with paid calls in their record window first, then the newest. Nil while
-// offerings are off.
+// listed offerings (retired ones and a quiet provider's never), in
+// offering.list's order (offering_responses.go). Nil while offerings are
+// off.
 func (s *Store) OfferingsDirectory(ctx context.Context, limit int) ([]OfferingEntry, error) {
 	if !s.OfferingsEnabled() {
 		return nil, nil
@@ -330,9 +329,8 @@ func (s *Store) OfferingsDirectory(ctx context.Context, limit int) ([]OfferingEn
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT "+offeringCols+" FROM offerings o WHERE state='active'"+
-		` ORDER BY (SELECT count(*) FROM offering_calls c WHERE c.account=o.account AND c.name=o.name AND c.created_at>=? AND c.state IN ('paid','answered','overdue','refunded')) DESC, updated_at DESC, account, name LIMIT ?`,
-		time.Now().Unix()-OfferingRecordDays*86400, limit)
+	now := s.now().Unix()
+	rows, err := tx.QueryContext(ctx, "SELECT "+offeringCols+" FROM offerings o WHERE "+offeringListedTerm(now)+offeringListOrder(now)+" LIMIT ?", limit)
 	if err != nil {
 		return nil, err
 	}

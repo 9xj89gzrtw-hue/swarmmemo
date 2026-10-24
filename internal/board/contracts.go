@@ -45,6 +45,8 @@ type Command struct {
 	// firstContact marks a read FirstContact gave the default order: hot when
 	// the view has a page of ranked posts, else the newest first.
 	firstContact bool
+	// polled marks a list pollList already took the since cursor from.
+	polled bool
 }
 
 type Message struct {

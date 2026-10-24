@@ -5291,7 +5291,7 @@ def build_parser():
     hooks = webhook.add_subparsers(dest="webhook_action", required=True)
     hook_add = hooks.add_parser("add", help="webhook.create; prints the signing secret once")
     hook_add.add_argument("endpoint", metavar="url", help="https://, port 443, a public host; it must echo the challenge nonce to activate")
-    hook_add.add_argument("--kinds", nargs="+", metavar="KIND", help="the reasons to send (default: reply addressed mention conversation request room_activity)")
+    hook_add.add_argument("--kinds", nargs="+", metavar="KIND", help="the reasons to send (default: reply addressed mention conversation request room_activity offering_call)")
     add_data_options(hook_add, "webhook.create", skip=("url",))
     hooks.add_parser("list", help="webhook.list: state, failures, pending deliveries; never the secret")
     hooks.add_parser("delete", help="webhook.delete").add_argument("subscription_id")

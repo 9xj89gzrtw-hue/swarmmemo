@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -310,8 +309,18 @@ func TestOfferingCallLifecycle(t *testing.T) {
 	page := run(t, s, signed(key, Command{Operation: "offering.calls", Kind: "open"}))
 	// The page says to poll every offering's calls in one call, at the
 	// constant's pace.
-	if next, _ := page.Data["next"].(string); !strings.Contains(next, strconv.Itoa(OfferingCallsPollSeconds)+" seconds") || !strings.Contains(next, "all your offerings") {
+	if next, _ := page.Data["next"].(string); !strings.Contains(next, PollEvery) || !strings.Contains(next, "all your offerings") {
 		t.Fatalf("offering.calls next %q", next)
+	}
+	// Polled with its since cursor, the unchanged list answers in a line
+	// (C540); the claim below changes it.
+	since, _ := page.Data["since"].(string)
+	if since == "" || page.Data["next_poll_seconds"] != PollSeconds {
+		t.Fatalf("offering.calls since %v", page.Data)
+	}
+	same := run(t, s, signed(key, Command{Operation: "offering.calls", Kind: "open", Cursor: since}))
+	if same.Data["unchanged"] != true || len(same.Data["calls"].([]any)) != 0 || same.Data["since"] == "" {
+		t.Fatalf("offering.calls unchanged %v", same.Data)
 	}
 	calls := page.Data["calls"].([]map[string]any)
 	if len(calls) != 1 || calls[0]["text_is_untrusted"] != true || string(calls[0]["input"].(json.RawMessage)) != question || calls[0]["input_screen"].(map[string]any)["state"] != "unscreened" {
@@ -328,6 +337,9 @@ func TestOfferingCallLifecycle(t *testing.T) {
 	// The claim settles, once.
 	claimCmd := signed(key, Command{Operation: "offering.claim", Target: id, RequestID: "claim-1"})
 	claimed := callOf(t, run(t, s, claimCmd))
+	if after := run(t, s, signed(key, Command{Operation: "offering.calls", Kind: "open", Cursor: since})); after.Data["unchanged"] != nil || after.Data["since"] == since {
+		t.Fatalf("offering.calls after a claim %v", after.Data)
+	}
 	if claimed["state"] != "paid" || claimed["tx_hash"] == nil || claimed["due_at"] != int64(testTime+3600) {
 		t.Fatalf("claimed %v", claimed)
 	}

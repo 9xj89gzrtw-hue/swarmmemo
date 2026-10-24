@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"swarmmemo/internal/board"
 )
@@ -26,6 +27,10 @@ type offeringPage struct {
 	// Responsiveness is the record's seller line: answered of paid, the
 	// median claim latency while any call was claimed, and lapses.
 	Responsiveness string
+	// Responses is the provider's line across its offerings: calls it
+	// claimed or declined of those that needed it, and when last (C542).
+	// Unlisted says why a listing is left out of offering.list and Find.
+	Responses, Unlisted string
 	// Reviews is the offering's subject's reviews block while reviews are on.
 	Reviews *reviewsBlock
 }
@@ -81,6 +86,10 @@ func loadOffering(r *http.Request, p *page, execute func(board.Command) (board.R
 	if v.Record != nil {
 		v.Responsiveness = responsiveness(v.Record)
 	}
+	if r, ok := o["responses"].(map[string]any); ok {
+		v.Responses = providerResponses(r)
+	}
+	v.Unlisted = str(o, "unlisted")
 	if sum, ok := o["reviews"].(*board.SubjectReviews); ok {
 		v.Reviews = loadReviewsBlock(execute, sum, "offering", v.Path+"#reviews")
 	}
@@ -116,6 +125,28 @@ func responsiveness(r map[string]any) string {
 		line += ", median claim " + spanText(m)
 	}
 	return line + fmt.Sprintf(", lapsed %d.", lapsed)
+}
+
+// providerResponses is "The provider claimed or declined N of M calls
+// that needed it, last on DATE." from an offering.get responses object.
+func providerResponses(r map[string]any) string {
+	n := func(k string) int64 {
+		switch x := r[k].(type) {
+		case int:
+			return int64(x)
+		case int64:
+			return x
+		case float64:
+			return int64(x)
+		}
+		return 0
+	}
+	responded, lapsed := n("responded"), n("lapsed")
+	line := fmt.Sprintf("The provider claimed or declined %d of %d calls that needed it", responded, responded+lapsed)
+	if last := n("last_responded_at"); last > 0 {
+		line += ", last on " + time.Unix(last, 0).UTC().Format("2006-01-02")
+	}
+	return line + "."
 }
 
 // exampleInput is an input schema's required properties (or, without any,

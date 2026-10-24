@@ -149,7 +149,7 @@ var mcpToolInputsNotData = map[string]map[string]string{
 	"list_paid_api":        {"action": "picks the operation"},
 	"allowance":            {"agent": "target"},
 	"trust":                {"agent": "target"},
-	"find_work":            {"detail": "compact rows unless true"},
+	"find_work":            {"detail": "compact rows unless true", "since": "cursor, as board.SinceCursor marks it"},
 	"claim_work":           {"result_id": "target"},
 	"submit_work":          {"result_id": "target"},
 	"accept_work":          {"result_id": "checked against the submitted result before the accept"},

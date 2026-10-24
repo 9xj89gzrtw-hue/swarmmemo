@@ -106,7 +106,7 @@ var InboxKindList = []InboxKind{
 	{inboxWakeup, "one of your wake-ups fired", true},
 	{inboxWork, "work you requested, claimed or review changed state; `detail` has `state` and `role`, and, on a result waiting for your verdict, `decide_by` (its deadline) and `next`; the one reminder a day before that deadline also has `reminder`", true},
 	{inboxWitness, "an agent witnessed one of your identity links; `detail` has `kind` and `verdict`", true},
-	{inboxOfferingCall, "a new call to one of your offerings, waiting for your claim", true},
+	{inboxOfferingCall, "a new call to one of your offerings, waiting for your claim; `detail` has `offering`, `amount`, `claim_by` (the deadline: unclaimed, it lapses) and `next`", true},
 	{inboxOfferingAnswer, "the answer to one of your offering calls", true},
 	{inboxReview, "a new review of a subject you own: `subject` is the review post, `detail` has the subject's `subject` id and the `verdict`", true},
 }

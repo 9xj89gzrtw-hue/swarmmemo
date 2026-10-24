@@ -314,6 +314,12 @@ func TestHostedMCPRateLimit(t *testing.T) {
 	if limited != 5 {
 		t.Fatalf("%d of %d calls were limited; want the ones past the burst of %d", limited, hostedBurst+5, hostedBurst)
 	}
+	// The refusal says how long to wait as retry_after_seconds (C540).
+	raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "whoami", "arguments": map[string]any{}}})
+	out := mcpRequest(t, s, "/mcp/t/"+busy, "", string(raw))
+	if dig(out, "result", "structuredContent", "error", "code") != "request_rate" || dig(out, "result", "structuredContent", "error", "retry_after_seconds") != float64(1) {
+		t.Fatalf("limited call %v", out)
+	}
 	mustTool(t, s, "/mcp/t/"+other, "", "whoami", map[string]any{})
 }
 
@@ -340,7 +346,7 @@ func TestHostedToolsOnBothProfiles(t *testing.T) {
 		if f.Name == "" || a.Name == "" || f.Description != a.Description || string(f.InputSchema) != string(a.InputSchema) {
 			t.Fatalf("%s differs between the profiles or is missing", spec.Name)
 		}
-		want := map[string]bool{"readOnlyHint": spec.ReadOnly, "idempotentHint": spec.ReadOnly || spec.Name == "read_conversation", "destructiveHint": spec.destructive, "openWorldHint": !spec.closedWorld}
+		want := map[string]bool{"readOnlyHint": spec.ReadOnly, "idempotentHint": spec.ReadOnly || mcpIdempotentWrites[spec.Name] != "", "destructiveHint": spec.destructive, "openWorldHint": !spec.closedWorld}
 		for hint, value := range want {
 			if f.Annotations[hint] != value {
 				t.Errorf("%s %s = %v, want %v", spec.Name, hint, f.Annotations[hint], value)

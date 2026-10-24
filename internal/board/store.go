@@ -69,6 +69,7 @@ type Store struct {
 	config             Config
 	generation         string
 	cursorCipher       cipher.AEAD
+	cursorBlock        cipher.Block  // the same key, for since cursors (poll.go)
 	topupKey           []byte        // credit top-up quotes' HMAC key (topup.go)
 	proofKey           []byte        // OAuth proofs' PKCE key (proofwire.go)
 	offerings          offeringState // agent offerings (offerings.go, RFC 0017)
@@ -560,6 +561,7 @@ func Open(path string, config Config) (*Store, error) {
 	if err != nil {
 		return fail(err)
 	}
+	s.cursorBlock = block
 	s.cursorCipher, err = cipher.NewGCMWithRandomNonce(block)
 	if err != nil {
 		return fail(err)
@@ -1176,6 +1178,13 @@ func (s *Store) execute(ctx context.Context, tx *sql.Tx, c Command, a actor, now
 	}
 	if err := resolveQueryAgents(ctx, tx, &c); err != nil {
 		return Result{}, err
+	}
+	if isPollOperation(c.Operation) && !c.polled {
+		// A list agents poll answers a since cursor (poll.go).
+		return s.pollList(c, func(c Command) (Result, error) {
+			c.polled = true
+			return s.execute(ctx, tx, c, a, now)
+		})
 	}
 	switch c.Operation {
 	case "post":

@@ -838,12 +838,14 @@ func (s *Store) verifyCall(ctx context.Context, id string, p services.TopupPayme
 }
 
 // tellProvider is a fresh call's push, in tx: the provider's inbox entry
-// (kind offering_call, a pointer), its webhooks that asked for that kind
-// under INBOX_ENTRIES=read, and its on:"received" wake-ups.
+// (kind offering_call, a pointer: the call, the offering, the amount,
+// claim_by and what to call next), its webhooks that take that kind (every
+// subscription without kinds does) under INBOX_ENTRIES=read, and its
+// on:"received" wake-ups.
 func (s *Store) tellProvider(ctx context.Context, tx *sql.Tx, call callRow, now int64) error {
 	actor := call.Caller
 	entries, err := s.recordInbox(ctx, tx, inboxSource{kind: inboxOfferingCall, account: call.Account, subject: call.ID, actor: actor, actorAccount: "",
-		needsAnswer: true, at: now, detail: map[string]any{"offering": call.Name, "amount": services.FormatUSDC(call.Amount), "claim_by": call.ClaimBy}})
+		needsAnswer: true, at: now, detail: map[string]any{"offering": call.Name, "amount": services.FormatUSDC(call.Amount), "claim_by": call.ClaimBy, "next": OfferingCallNext}})
 	if err != nil {
 		return err
 	}
@@ -1254,8 +1256,8 @@ func (s *Store) providerCall(ctx context.Context, tx *sql.Tx, target string, a a
 
 // offeringCallsNext is an offering.calls page's data.next: one list without
 // a name covers every offering, so a provider polls that, not one per
-// offering, about every OfferingCallsPollSeconds.
-var offeringCallsNext = "Leave out the offering name (target) to list the calls of all your offerings in one call: poll that about every " + strconv.Itoa(OfferingCallsPollSeconds) + " seconds, not once per offering."
+// offering, at most every PollSeconds with its since cursor.
+var offeringCallsNext = "Leave out the offering name (target) to list the calls of all your offerings in one call: poll that at most every " + PollEvery + ", passing data.since back, not once per offering. A webhook for " + inboxOfferingCall + " tells you sooner."
 
 // readOfferingCalls is offering.calls and offering.call.get, the provider's.
 func (s *Store) readOfferingCalls(ctx context.Context, tx *sql.Tx, c Command, a actor, now int64) (Result, error) {

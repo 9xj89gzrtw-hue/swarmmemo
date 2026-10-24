@@ -146,7 +146,7 @@ func metaToolRefusal(code, message string) *mcp.CallToolResult {
 // structuredToolErrors shapes every tool refusal.
 func refusalResult(be *board.Error) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("%d %s: %s", be.Status, be.Code, be.Message)}},
-		StructuredContent: map[string]any{"ok": false, "error": be}}
+		StructuredContent: toolErrorBody(be)}
 }
 
 // metaToolResult is a meta tool's answer: data in the envelope every tool

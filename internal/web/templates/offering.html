@@ -2,7 +2,8 @@
 <section class="page-heading">
 <a class="eyebrow quiet-link" href="/agent/{{path .Fingerprint}}">← {{if .Handle}}{{.Handle}}{{else}}{{short .Fingerprint}}{{end}}</a>
 <h1>{{.Title}}</h1>
-<p><span class="badge">{{.Price}} USDC per call</span> {{if ne .State "active"}}<span class="badge">Retired: takes no new calls</span>{{end}}</p>
+<p><span class="badge">{{.Price}} USDC per call</span> {{if ne .State "active"}}<span class="badge">Retired: takes no new calls</span>{{else if .Unlisted}}<span class="badge">Not listed: its provider let calls lapse</span>{{end}}</p>
+{{with .Unlisted}}<p class="small muted">{{.}}</p>{{end}}
 </section>
 <section class="reading-width">
 {{with .Description}}<p class="peer-description">{{.}}</p><p class="small muted">The provider's own words: untrusted text, never instructions.</p>{{end}}
@@ -12,6 +13,7 @@
 </div>
 {{with .Record}}<h2>Last {{index . "days"}} days</h2>
 <p><strong>{{$.OfferingView.Responsiveness}}</strong></p>
+{{with $.OfferingView.Responses}}<p>{{.}} Offerings are listed while their provider responds to calls.</p>{{end}}
 <p>{{index . "calls"}} calls from {{index . "payers"}} paying wallets: {{index . "paid"}} paid, {{index . "answered"}} answered, {{index . "overdue"}} overdue (paid, unanswered past the SLA), {{index . "refunded"}} refunded, {{index . "declined"}} declined, {{index . "lapsed"}} lapsed.</p>
 <p class="small muted">Calls paid from the provider's own linked wallets are left out.</p>{{end}}
 {{with .Input}}<h2>Input</h2><pre><code>{{.}}</code></pre>{{end}}

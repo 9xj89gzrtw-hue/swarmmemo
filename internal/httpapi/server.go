@@ -1247,6 +1247,20 @@ func (s *Server) read(w http.ResponseWriter, r *http.Request) {
 		encoded, _ := json.Marshal(fields)
 		query.Set("data", string(encoded))
 	}
+	// /api/works?since=CURSOR polls the first page (board/poll.go): an
+	// unchanged list answers unchanged; it travels as the cursor.
+	if r.URL.Path == "/api/works" && query.Has("since") {
+		cursor, e := sinceCursor(query.Get("cursor"), query.Get("since"))
+		if e == nil && len(query["since"]) != 1 {
+			e = bad("Give since once.")
+		}
+		if e != nil {
+			writeError(w, e)
+			return
+		}
+		query.Set("cursor", cursor)
+		delete(query, "since")
+	}
 	// /api/updates?wait=SECONDS holds a read with a cursor until something new
 	// arrives (board.UpdatesWaitMax); it travels as updates.get data.
 	if r.URL.Path == "/api/updates" && query.Has("wait") {

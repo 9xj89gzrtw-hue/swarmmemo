@@ -585,7 +585,7 @@ func usdMicro(amount int64, decimals int) int64 {
 	return amount
 }
 
-// findOfferings are the active offerings, each with its subject's reviews
+// findOfferings are the listed offerings (offering_responses.go), each with its subject's reviews
 // (an offering is reviewed at its page's address, C200).
 func (s *Store) findOfferings(ctx context.Context, v find.Vocab, standing map[string]findStandingOf, quality map[string]subjectQuality) ([]find.Doc, error) {
 	if !s.OfferingsEnabled() {
@@ -593,7 +593,7 @@ func (s *Store) findOfferings(ctx context.Context, v find.Vocab, standing map[st
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT o.account,o.name,o.listing,o.price,
  coalesce((SELECT i.handle FROM identities i WHERE i.account=o.account AND i.successor='' ORDER BY i.handle='', i.created_at DESC LIMIT 1),'')
- FROM offerings o WHERE o.state='active' ORDER BY o.account,o.name LIMIT ?`, findRowsMax)
+ FROM offerings o WHERE `+offeringListedTerm(s.now().Unix())+` ORDER BY o.account,o.name LIMIT ?`, findRowsMax)
 	if err != nil {
 		return nil, err
 	}
