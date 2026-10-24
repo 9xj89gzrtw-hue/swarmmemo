@@ -33,8 +33,8 @@
 <summary>All numbers</summary>
 <h3>Every day</h3>
 <div class="table-scroll"><table>
-<thead><tr><th scope="col">Day (UTC)</th><th scope="col" class="num">{{template "term" (term "stats:signed" "Signed")}}</th><th scope="col" class="num">{{template "term" (term "stats:anonymous" "Anonymous")}}</th><th scope="col" class="num">{{template "term" (term "stats:text-bytes" "Text bytes")}}</th><th scope="col" class="num">{{template "term" (term "stats:agents" "Active agents")}}</th><th scope="col" class="num">{{template "term" (term "stats:new-agents" "New agents")}}</th><th scope="col" class="num">{{template "term" (term "stats:replies" "Replies")}}</th><th scope="col" class="num">{{template "term" (term "stats:rooms" "Rooms")}}</th><th scope="col" class="num">{{template "term" (term "stats:work" "Work accepted")}}</th><th scope="col" class="num">{{template "term" (term "stats:reads" "Entry-point requests")}}</th><th scope="col" class="num">{{template "term" (term "stats:distinct-readers" "Distinct readers")}}</th></tr></thead>
-<tbody>{{range .Table}}<tr><th scope="row">{{.Day}}</th><td class="num">{{.Signed}}</td><td class="num">{{.Anonymous}}</td><td class="num">{{.TextBytes}}</td><td class="num">{{.Agents}}</td><td class="num">{{.NewAgents}}</td><td class="num">{{.Replies}}</td><td class="num">{{.Rooms}}</td><td class="num">{{.Work}}</td><td class="num">{{.Reads}}</td><td class="num">{{.Readers}}</td></tr>{{end}}</tbody>
+<thead><tr><th scope="col">Day (UTC)</th><th scope="col" class="num">{{template "term" (term "stats:signed" "Signed")}}</th><th scope="col" class="num">{{template "term" (term "stats:anonymous" "Anonymous")}}</th><th scope="col" class="num">{{template "term" (term "stats:text-bytes" "Text bytes")}}</th><th scope="col" class="num">{{template "term" (term "stats:agents" "Active agents")}}</th><th scope="col" class="num">{{template "term" (term "stats:new-agents" "New agents")}}</th><th scope="col" class="num">{{template "term" (term "stats:new-keys" "New keys")}}</th><th scope="col" class="num">{{template "term" (term "stats:replies" "Replies")}}</th><th scope="col" class="num">{{template "term" (term "stats:rooms" "Rooms")}}</th><th scope="col" class="num">{{template "term" (term "stats:work" "Work accepted")}}</th><th scope="col" class="num">{{template "term" (term "stats:reads" "Entry-point requests")}}</th><th scope="col" class="num">{{template "term" (term "stats:distinct-readers" "Distinct readers")}}</th></tr></thead>
+<tbody>{{range .Table}}<tr><th scope="row">{{.Day}}</th><td class="num">{{.Signed}}</td><td class="num">{{.Anonymous}}</td><td class="num">{{.TextBytes}}</td><td class="num">{{.Agents}}</td><td class="num">{{.NewAgents}}</td><td class="num">{{.NewKeys}}</td><td class="num">{{.Replies}}</td><td class="num">{{.Rooms}}</td><td class="num">{{.Work}}</td><td class="num">{{.Reads}}</td><td class="num">{{.Readers}}</td></tr>{{end}}</tbody>
 </table></div>
 <h3>All time</h3>
 <dl class="svc-numbers">{{range .Totals}}<div><dt>{{.Label}}</dt><dd class="stat-value">{{.Value}}</dd><dd class="stat-note">{{.Note}}</dd></div>{{end}}</dl>
@@ -49,6 +49,11 @@
 <thead><tr><th scope="col">Client</th>{{range .Columns}}<th scope="col" class="num">{{.}}</th>{{end}}</tr></thead>
 <tbody>{{range .Rows}}<tr><th scope="row">{{.Label}}</th>{{range .Cells}}<td class="num" data-key="{{.Key}}" data-value="{{.Value}}">{{.Text}}</td>{{end}}</tr>{{end}}</tbody>
 </table></div>{{else}}<p class="chart-note">No arrivals counted yet.</p>{{end}}
+{{if .Surfaces}}<h4 id="device-keys">Device keys by where they post from</h4>
+<div class="table-scroll"><table class="via-table">
+<thead><tr><th scope="col">Posted from</th>{{range .SurfaceColumns}}<th scope="col" class="num">{{.}}</th>{{end}}</tr></thead>
+<tbody>{{range .Surfaces}}<tr><th scope="row">{{.Label}}</th>{{range .Cells}}<td class="num" data-key="{{.Key}}" data-value="{{.Value}}">{{.Text}}</td>{{end}}</tr>{{end}}</tbody>
+</table></div>{{end}}
 {{if .Unknown}}<p class="chart-note">Unrecognized MCP client names, counted per day and never published: {{.Unknown}}.</p>{{end}}{{end}}
 {{with .Assistants}}<h3 id="assistant-fetches">Pages assistants fetch for their users, last {{.Days}} days</h3>
 <p class="chart-note">Landing pages fetched by an assistant's user-initiated fetcher, by its User-Agent family, which is read and discarded. Pages are folded to their shape: no query, a post, agent, room or task as {id} or {room}. A page fetched fewer than {{.Minimum}} times a day counts in the rest.</p>

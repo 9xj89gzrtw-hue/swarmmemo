@@ -23,6 +23,7 @@ import (
 //	client:YYYY-MM-DD:family:FAMILY:METRIC           one of ClientMetrics
 //	client:YYYY-MM-DD:family:FAMILY:service:SERVICE  accepted calls of one service
 //	client:YYYY-MM-DD:unknown_mcp_clients            distinct MCP client names no family matched
+//	client:YYYY-MM-DD:surface:SURFACE:METRIC         a signed write's DeviceKeySurfaces, one of DeviceKeyMetrics (devicekeys.go)
 //
 // No address, key, fingerprint, pseudonym, User-Agent or client name is
 // stored. The subjects that are told apart (to count each once a day) are
@@ -127,6 +128,8 @@ func validClientKey(key string) bool {
 		}
 	case len(parts) == 4 && parts[0] == "family" && validClientFamily(parts[1]) && parts[2] == "service":
 		return validServiceKey(parts[3])
+	case len(parts) == 3 && parts[0] == "surface" && validDeviceKeySurface(parts[1]):
+		return validDeviceKeyMetric(parts[2])
 	}
 	return false
 }
@@ -361,8 +364,19 @@ func (s *Store) countClientCommand(ctx context.Context, a actor, cmd Command, so
 	c.mu.Unlock()
 	counts := map[string]int64{}
 	add := func(metric string) { counts["family:"+family+":"+metric]++ }
+	// The same key facts by the surface that sent the write (devicekeys.go).
+	surface := ""
+	if a.signed {
+		surface = deviceKeySurface(ctx)
+	}
+	bySurface := func(metric string) {
+		if surface != "" {
+			counts["surface:"+surface+":"+metric]++
+		}
+	}
 	if newKey {
 		add("new_keys")
+		bySurface("new_keys")
 	}
 	if contact {
 		add("anonymous_subjects")
@@ -389,10 +403,13 @@ func (s *Store) countClientCommand(ctx context.Context, a actor, cmd Command, so
 		switch now/86400 - lastWrite/86400 {
 		case 1:
 			add("returning_1d")
+			bySurface("returning_1d")
 		case 3:
 			add("returning_3d")
+			bySurface("returning_3d")
 		case 7:
 			add("returning_7d")
+			bySurface("returning_7d")
 		}
 	}
 	s.addClientCounts(day, counts, t)
@@ -462,6 +479,9 @@ type ClientDay struct {
 	Day string
 	// Families holds only the families with a published count that day.
 	Families map[string]ClientFamilyDay
+	// Surfaces holds the published DeviceKeyMetrics of each surface that
+	// has one that day (devicekeys.go).
+	Surfaces map[string]map[string]int64
 	// UnknownMCPClients is how many distinct MCP client names no family
 	// matched were seen that day: at most 100 per process; restarts reset the
 	// cap and can recount names. The names are never published.
@@ -481,9 +501,16 @@ func (s *Store) ReadClientStats(ctx context.Context, end time.Time, days int) ([
 	out := make([]ClientDay, days)
 	for i := range out {
 		day := start.AddDate(0, 0, i).Format("2006-01-02")
-		out[i] = ClientDay{Day: day, Families: map[string]ClientFamilyDay{}, UnknownMCPClients: raw[i]["unknown_mcp_clients"]}
+		out[i] = ClientDay{Day: day, Families: map[string]ClientFamilyDay{}, Surfaces: map[string]map[string]int64{}, UnknownMCPClients: raw[i]["unknown_mcp_clients"]}
 		for key, n := range raw[i] {
 			parts := strings.Split(key, ":")
+			if parts[0] == "surface" && len(parts) == 3 && clientPublished(parts[2], n, day < today) {
+				if out[i].Surfaces[parts[1]] == nil {
+					out[i].Surfaces[parts[1]] = map[string]int64{}
+				}
+				out[i].Surfaces[parts[1]][parts[2]] = n
+				continue
+			}
 			if parts[0] != "family" || !clientPublished(parts[2], n, day < today) {
 				continue
 			}

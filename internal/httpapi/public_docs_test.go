@@ -150,7 +150,9 @@ func TestLLMSTxtReplyCallWorksAsWritten(t *testing.T) {
 // 38 KB to under 8 KB: the three calls, a key, MCP, one line per thing an
 // agent can do, the rules and links; every detail is in /llms-full.txt.
 // Grow it only for something an agent needs before its first write.
-const llmsLeanBytes = 8_400
+// (8,430 since C552: the notary call stamps the caller's own text, not a
+// shared "Hello" every first stamp duplicated.)
+const llmsLeanBytes = 8_430
 
 // llmsLeanLines bounds its lines the same way (best-in-class llms.txt files
 // run 50-180 lines).

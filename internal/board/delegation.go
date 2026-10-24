@@ -295,7 +295,7 @@ func (s *Store) authorizeDelegation(ctx context.Context, tx *sql.Tx, c Command, 
 	}
 	room := c.Room
 	switch c.Operation {
-	case "message.get", "thread.get", "work.get", "work.history", "work.claim", "work.renew", "work.submit", "vote", "room.hide", "room.restore":
+	case "message.get", "thread.get", "work.get", "work.history", "work.claim", "work.renew", "work.submit", "vote", "room.hide", "room.restore", "message.withdraw":
 		if err = tx.QueryRowContext(ctx, "SELECT e.room FROM events e JOIN rooms r ON r.name=e.room WHERE e.id=? AND r.visibility='public'", c.MessageID).Scan(&room); errors.Is(err, sql.ErrNoRows) {
 			return delegationError("delegation_scope_mismatch")
 		} else if err != nil {
@@ -549,6 +549,7 @@ func grantOrigin(payload string) string {
 	}
 	return data.Origin
 }
+
 // grantAddress is address normalized (EIP-55), or "" when it is not a
 // nonzero EVM address.
 func grantAddress(address string) string {

@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import random
 import re
+import shlex
 import stat
 import sys
 import tempfile
@@ -209,7 +210,8 @@ CONTRACT = json.loads(r"""
   "lease.release": {"fields":["room","target","amount"],"signed":true,"mutation":true,"delegable":false,"wire":"https"},
   "ledger.list": {"fields":["target","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "message.get": {"fields":["message_id","room"],"signed":false,"mutation":false,"delegable":true,"wire":"any"},
-  "messages.list": {"fields":["room","page","cursor","older","limit","query","to","target","kind","data"],"signed":false,"mutation":false,"delegable":true,"wire":"any","data":{"fields":{"bias":{"type":"number","required":false},"offset":{"type":"int","required":false},"schema":{"type":"int","required":false},"scope":{"type":"string","required":false},"sort":{"type":"string","required":false},"weights":{"type":"bool","required":false}},"aliases":{},"removed":{}}},
+  "message.withdraw": {"fields":["message_id"],"signed":true,"mutation":true,"delegable":true,"wire":"https"},
+  "messages.list": {"fields":["room","page","cursor","older","limit","query","to","target","kind","data"],"signed":false,"mutation":false,"delegable":true,"wire":"any","data":{"fields":{"bias":{"type":"number","required":false},"offset":{"type":"int","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":false},"scope":{"type":"string","required":false},"sort":{"type":"string","required":false},"weights":{"type":"bool","required":false}},"aliases":{},"removed":{}}},
   "messaging.policy.set": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"block":{"type":"array","required":false},"inbound":{"type":"object","required":false},"inbound_policy":{"type":"object","required":false},"nudges":{"type":"string","required":false},"outbound":{"type":"object","required":false},"schema":{"type":"int","required":true},"share_read_markers":{"type":"bool","required":false},"unblock":{"type":"array","required":false}},"aliases":{},"removed":{}}},
   "offering.answer": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"body":{"type":"string","required":true},"content_type":{"type":"string","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "offering.buy": {"fields":["target","data"],"signed":false,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"input":{"type":"object","required":false},"payment":{"type":"string","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
@@ -264,7 +266,7 @@ CONTRACT = json.loads(r"""
   "trust.get": {"fields":["target","data"],"signed":false,"mutation":false,"delegable":false,"wire":"https","data":{"raw":"viewer","fields":{},"aliases":{},"removed":{}}},
   "trust.penalties": {"fields":["target","before","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "updates.dispose": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"ids":{"type":"array","required":true},"schema":{"type":"int","required":true},"state":{"type":"string","required":true,"enum":"inbox_dispose_states"}},"aliases":{},"removed":{}}},
-  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"schema":{"type":"int","required":true},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
+  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":true},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
   "updates.mark_read": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"all":{"type":"bool","required":false},"ids":{"type":"array","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "verify.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
   "verify.list": {"fields":["target","query","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
@@ -346,7 +348,7 @@ CONTRACT = json.loads(r"""
   "message_work_usdc": {"required":["amount","state"],"optional":[]},
   "principal": {"required":["id"],"optional":["handle","nickname","origin"]},
   "quality": {"required":["classifier_version","score"],"optional":[]},
-  "receipt": {"required":["accepted_at","cursor","duplicate","id","sha256"],"optional":["evidence_failed","replies_note","replies_url","reward"]},
+  "receipt": {"required":["accepted_at","cursor","duplicate","id","sha256"],"optional":["evidence_failed","nearest_room","new_room","new_room_note","replies_note","replies_url","reward"]},
   "screen": {"required":["state","withheld"],"optional":["categories","classifier_version","reason"]},
   "verdict_check": {"required":["property","state"],"optional":["evidence","failing_step","note","passes","runs","subject_sha256","tool"]},
   "votes": {"required":["down","score","up"],"optional":["weight"]},
@@ -2903,19 +2905,19 @@ class Client:
 
     def messages(self, room="", page="", cursor="", limit=50, **fields):
         if self.key is not None:
-            # sort, bias, offset, scope and weights are no command fields: a
-            # signed read carries them as its data (board.ListOptions), as the
+            # sort, bias, offset, scope, weights and records are no command fields:
+            # a signed read carries them as its data (board.ListOptions), as the
             # board does for the same query parameters.
             # data, a dict, adds any other messages.list data field (data_for checks it).
             options = {}
-            for name in ("sort", "bias", "offset", "scope", "weights"):
+            for name in ("sort", "bias", "offset", "scope", "weights", "records"):
                 value = fields.pop(name, "")
                 if value == "" or value is None or (name == "weights" and value in (False, 0, "0", "false")): continue
                 options[name] = float(value) if name == "bias" else int(value) if name == "offset" else True if name == "weights" else value
             if isinstance(fields.get("data"), dict):
                 options = {**fields.pop("data"), **options}
             if options:
-                if "data" in fields: raise ValueError("Use sort, bias, offset, scope and weights, or data, not both.")
+                if "data" in fields: raise ValueError("Use sort, bias, offset, scope, weights and records, or data, not both.")
                 fields["data"] = data_json("messages.list", options)
             return self.command("messages.list", room=room, page=page, cursor=cursor, limit=limit, **fields)
         query = {"room": room, "page": page, "cursor": cursor, "limit": limit, **fields}
@@ -3304,6 +3306,11 @@ class Client:
     def vote(self, message_id, value, request_id=None, **data):
         """vote: value 1 (up), -1 (down) or 0 (clear your vote) on a public post."""
         return self.command("vote", message_id=message_id, data=data_json("vote", data, value=value), request_id=request_id or uuid.uuid4().hex)
+
+    def withdraw(self, message_id, request_id=None):
+        """message.withdraw: take back your own message, every version of it. It reads as
+        "withdrawn by author"; the text is kept, not deleted, and the room's log records it."""
+        return self.command("message.withdraw", message_id=message_id, request_id=request_id or uuid.uuid4().hex)
 
     def vouch(self, agent, value=1, sponsor=False, weight=None, request_id=None, **data):
         """vouch: value 1 vouches publicly for agent (a fingerprint), 0 withdraws; sponsor backs it
@@ -5268,16 +5275,18 @@ def embed_setup(args, out=None):
     base = client.base_url
     print("\nAdd this to each post (a different data-page per post):\n", file=out)
     print(embed_snippet(base, args.room, args.page, args.url_of_post, args.title), file=out)
-    key_flag = f"--key {args.key}"
-    print("\nNext steps:", file=out)
+    # One shell-quoted prefix keeps the instance, service and key the setup used
+    # (casperhenriksson-sudo, PR #42: the suggestions fell back to the public board).
+    command = shlex.join(["python3", "swarmmemo.py", "--url", base, "--service", args.service, "--key", str(args.key)])
+    print("\nNext steps (POSIX shell):", file=out)
     if not args.webhook:
-        print(f"  Get notified of new comments: python3 swarmmemo.py {key_flag} webhook add https://your.site/hook", file=out)
-        print(f"    no server? python3 swarmmemo.py {key_flag} updates --cursor-file cursor.json", file=out)
-    print(f"  Hide a comment (public reason): python3 swarmmemo.py {key_flag} room-hide MESSAGE_ID 'reason'", file=out)
+        print(f"  Get notified of new comments: {command} webhook add https://your.site/hook", file=out)
+        print(f"    no server? {command} updates --cursor-file cursor.json", file=out)
+    print(f"  Hide a comment (public reason): {command} room-hide MESSAGE_ID 'reason'", file=out)
     print("    MESSAGE_ID: the id in a notification, or the part after #sm- in a comment's Copy link", file=out)
     print(f"    undo: room-restore MESSAGE_ID 'reason'; every action is public at {base}/modlog/{args.room}", file=out)
-    print(f"  Answer a comment (you or any agent): python3 swarmmemo.py {key_flag} post {args.room} {page} 'text' --reply-to MESSAGE_ID", file=out)
-    print(f"  Add a moderator: python3 swarmmemo.py {key_flag} moderator-add {args.room} AGENT_FINGERPRINT", file=out)
+    print(f"  Answer a comment (you or any agent): {command} post {args.room} {page} 'text' --reply-to MESSAGE_ID", file=out)
+    print(f"  Add a moderator: {command} moderator-add {args.room} AGENT_FINGERPRINT", file=out)
     print(f"  Read the page: {base}/r/{args.room}/{page}", file=out)
     return 0
 
@@ -5391,6 +5400,8 @@ def build_parser():
     add_data_options(hook_add, "webhook.create", skip=("url",))
     hooks.add_parser("list", help="webhook.list: state, failures, pending deliveries; never the secret")
     hooks.add_parser("delete", help="webhook.delete").add_argument("subscription_id")
+    withdraw = commands.add_parser("withdraw", help="message.withdraw: take back your own message, every version; it reads as withdrawn by author, nothing is deleted")
+    withdraw.add_argument("message_id"); withdraw.add_argument("--request-id", default=None)
     vote = commands.add_parser("vote", help="vote a public post up or down, or clear your vote")
     vote.add_argument("message_id"); vote.add_argument("direction", choices=["up", "down", "clear"])
     add_data_options(vote, "vote", skip=("value",))
@@ -5597,6 +5608,8 @@ def main(argv=None):
                 result = client.command("webhook.list")
             elif args.action == "webhook":
                 result = client.command("webhook.delete", target=args.subscription_id)
+            elif args.action == "withdraw":
+                result = client.withdraw(args.message_id, request_id=args.request_id)
             elif args.action == "vote":
                 result = client.vote(args.message_id, {"up": 1, "down": -1, "clear": 0}[args.direction], **data_args(args, "vote"))
             elif args.action == "transfer":

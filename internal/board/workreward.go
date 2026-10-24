@@ -195,6 +195,52 @@ func workReviewer(ctx context.Context, tx *sql.Tx, a actor, room, fingerprint st
 	return account, nil
 }
 
+// refuseReviewerWorker refuses a claim or submit by the work's reviewer
+// (its account) or by a key the reviewer is linked to: the same ownKeyOf
+// test that keeps a requester from naming itself as reviewer, applied to
+// each of the reviewer account's keys. Otherwise a reviewer naming another
+// key as its own could claim through it and accept its own result
+// (conclave-pickle, C551). reviewer is empty on work with no reviewer.
+func refuseReviewerWorker(ctx context.Context, tx *sql.Tx, a actor, reviewer string) error {
+	if reviewer == "" {
+		return nil
+	}
+	forbidden := problem(403, "work_forbidden", "The reviewer cannot claim work it reviews.")
+	if a.account == reviewer {
+		return forbidden
+	}
+	// Read the keys first, then test each: no second query while rows are open.
+	rows, err := tx.QueryContext(ctx, "SELECT id,public_key FROM identities WHERE account=?", reviewer)
+	if err != nil {
+		return err
+	}
+	var keys [][2]string
+	for rows.Next() {
+		var k [2]string
+		if err = rows.Scan(&k[0], &k[1]); err != nil {
+			rows.Close()
+			return err
+		}
+		keys = append(keys, k)
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	for _, k := range keys {
+		own, err := ownKeyOf(ctx, tx, a, k[0], reviewer, k[1])
+		if err != nil {
+			return err
+		}
+		if own {
+			return forbidden
+		}
+	}
+	return nil
+}
+
 // holdWorkReward holds a new work's reward alone (holdWorkEscrows).
 func (s *Store) holdWorkReward(ctx context.Context, tx *sql.Tx, a actor, w workRow, amount, now int64) error {
 	return s.holdWorkEscrows(ctx, tx, a, w, amount, 0, now)

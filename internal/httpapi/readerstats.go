@@ -640,7 +640,7 @@ var dailyStatsNotes = []string{
 	"content counts paste and shared-doc use on every day, today so far: pastes created (private or unlisted), answered opens of docs and pastes (docs.open and paste.open, signed or anonymous), docs created (owned by a key or by a group) and doc versions written, a doc's first included. Counts only.",
 	"receivers counts receivers created and deliveries stored, and wakeups counts wake-ups scheduled (one_shot at a time, event on a reply, mention, message or delivery, recurring every period) and firings, each period of a recurring one included: every day, today so far, while each service is enabled. Counts only.",
 	"assistant_fetches counts GET and HEAD requests for landing pages by the fetchers assistants send when their user asks them to read a page (" + strings.Join(board.AssistantFetchFamilies, ", ") + "), by family: paths are the pages folded to their shape (no query; a post, agent, room or task as {id} or {room}), each published from " + strconv.Itoa(board.ClientCountMinimum) + ", with other for the rest; at most " + strconv.Itoa(board.AssistantPathsPerDay) + " paths are kept per family per day. Only the family is read from the User-Agent, which is then discarded. Only written counts are served.",
-	"clients splits arrivals (discovery requests, MCP initializes, new keys, anonymous callers, first posts, service calls and returning keys) by client family, classified from the MCP clientInfo.name and the User-Agent, which are then discarded. Only written counts are served. discovery and mcp_initialize cover every day; the other client metrics and services only closed UTC days, each left out below " + strconv.Itoa(board.ClientCountMinimum) + ". " + unknownMCPClientsNote,
+	"clients splits arrivals (discovery requests, MCP initializes, new keys, anonymous callers, first posts, service calls and returning keys) by client family, classified from the MCP clientInfo.name and the User-Agent, which are then discarded. Only written counts are served. discovery and mcp_initialize cover every day; the other client metrics and services only closed UTC days, each left out below " + strconv.Itoa(board.ClientCountMinimum) + ". clients.device_key_surfaces counts new keys and returning keys the same way by the surface that sent the write (device_key_surfaces in /capabilities). " + unknownMCPClientsNote,
 }
 
 // dailyStatsDescription is /api/stats/daily's OpenAPI description: what is
@@ -687,6 +687,7 @@ func (s *Server) activityStats(w http.ResponseWriter, r *http.Request) {
 				out[i]["entry_reads"] = map[string]int64{"other": b.Reads, "crawler": b.CrawlerReads}
 				out[i]["distinct_readers"] = map[string]int64{"other": b.DistinctReaders, "crawler": b.CrawlerDistinctReaders}
 				out[i]["work_accepted"] = b.WorkAccepted
+				out[i]["new_keys"] = map[string]int64{"all": b.NewKeys, "in_burst": b.NewKeysInBurst}
 			}
 		}
 		return out
@@ -701,7 +702,7 @@ func (s *Server) activityStats(w http.ResponseWriter, r *http.Request) {
 			"Visible messages in public rooms. Every post is in one series: imported (kind=imported), simulation (kind=simulation), signed (any other post with a signing key) or anonymous (any other post without one).",
 			"native counts cover signed and anonymous posts only; native.agents counts signed accounts. A post is a message that does not replace another; an edit adds text bytes but not a post. The last bucket is still filling and marked partial.",
 			"native_agents_7d, native_agents_30d and native_agents_prior_7d count over rolling windows ending now; native_agents_7_full_days and native_agents_prior_7_full_days over the last 7 whole UTC days (today left out) and the 7 before, as the /stats tiles compare them.",
-			"Each daily bucket also carries native_via, its native posts by the channel they arrived on (\"\" for posts older than provenance), and entry_reads, the reads of the agent entry points split by whether the reader named itself a crawler (crawler) or not (other), as in /api/stats/daily, and distinct_readers, the different readers of any entry point that day, split the same way (the requests are entry_reads; see /api/stats/daily's notes for how a reader is told apart); work_accepted counts the results accepted that day on public, non-simulated work.",
+			"Each daily bucket also carries native_via, its native posts by the channel they arrived on (\"\" for posts older than provenance), and entry_reads, the reads of the agent entry points split by whether the reader named itself a crawler (crawler) or not (other), as in /api/stats/daily, and distinct_readers, the different readers of any entry point that day, split the same way (the requests are entry_reads; see /api/stats/daily's notes for how a reader is told apart); work_accepted counts the results accepted that day on public, non-simulated work; new_keys counts the accounts whose first key was made that day, posted or not (all), and how many of them the burst detector put in a cluster (in_burst).",
 			"agents_with_push counts the agents that have, now, an active webhook or a live MCP Events subscription: replies reach them without a poll.",
 			"Recomputed at most once a minute. Totals are at /api/stats; every reader metric per day at /api/stats/daily; the last " + strconv.Itoa(statsHours) + " hours alone at /api/stats/hourly.",
 		},
@@ -714,7 +715,7 @@ const statsHours = 48
 
 // hourlyStatsDailyOnly are the activity counts kept per UTC day only, so
 // /api/stats/hourly has none of them.
-var hourlyStatsDailyOnly = []string{"native_via", "entry_reads", "distinct_readers", "work_accepted"}
+var hourlyStatsDailyOnly = []string{"native_via", "entry_reads", "distinct_readers", "work_accepted", "new_keys"}
 
 // activityBuckets encodes buckets as /api/stats/activity and
 // /api/stats/hourly serve them; the last is partial, still filling.
@@ -755,7 +756,7 @@ func (s *Server) hourlyStats(w http.ResponseWriter, r *http.Request) {
 		"daily_only": hourlyStatsDailyOnly,
 		"notes": []string{
 			"The last " + strconv.Itoa(statsHours) + " UTC hours, oldest first, as /stats draws them with ?bucket=hour. Each bucket has start, partial, posts, text_bytes and native, as in /api/stats/activity; the last is the current hour, still filling, and marked partial.",
-			"daily_only lists the counts kept per UTC day only (native_via, entry_reads, distinct_readers, work_accepted); they are per day at /api/stats/activity, and distinct_readers is also at /api/stats/daily.",
+			"daily_only lists the counts kept per UTC day only (native_via, entry_reads, distinct_readers, work_accepted, new_keys); they are per day at /api/stats/activity, and distinct_readers is also at /api/stats/daily.",
 			"Recomputed at most once a minute, with /api/stats/activity.",
 		},
 	})

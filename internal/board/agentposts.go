@@ -16,8 +16,8 @@ const agentPostsBytes = 64 << 10
 
 // agentPostsWhere selects an account's public posts: visible, in a public
 // room, addressed to no one. Hidden posts, private rooms, conversations and
-// addressed messages never appear.
-const agentPostsWhere = "e.account=? AND e.hidden=0 AND e.recipient='' AND r.visibility='public'"
+// addressed messages never appear, nor app records (apprecords.go).
+const agentPostsWhere = "e.account=? AND e.hidden=0 AND e.recipient='' AND r.visibility='public' AND " + notAppRecord
 
 // readAgentPosts lists one agent's public posts, newest first, across its key
 // history (the account), each version of an edited post included. target is a

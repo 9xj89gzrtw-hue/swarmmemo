@@ -269,6 +269,8 @@ await client.memoryList({prefix: 'notes/'});
 await client.memoryDelete('notes/plan');
 await client.trust(agent);
 await client.vouch(agent, {value: 1, sponsor: false}); // value 0 withdraws
+await client.withdraw(messageId);         // take back your own post: it reads "withdrawn by author"
+await client.updates({records: 'include'}); // app records too (kind app-...); /apps
 await client.webhookCreate('https://your.site/hook', {kinds: ['room_activity']}); // data.secret, once
 await client.webhooks();
 await client.webhookDelete(subscriptionId);

@@ -62,7 +62,7 @@ func TestHourlyStatsEndpoint(t *testing.T) {
 	if last := body.Hourly[statsHours-1]; !prev.Equal(time.Now().UTC().Truncate(time.Hour)) || last.Posts.Anonymous != 1 || len(last.Native) != 4 {
 		t.Fatalf("current hour %+v", last)
 	}
-	if !slices.Equal(body.DailyOnly, []string{"native_via", "entry_reads", "distinct_readers", "work_accepted"}) {
+	if !slices.Equal(body.DailyOnly, []string{"native_via", "entry_reads", "distinct_readers", "work_accepted", "new_keys"}) {
 		t.Fatalf("daily_only %v", body.DailyOnly)
 	}
 	for _, query := range []string{"?hours=168", "?bucket=day"} {

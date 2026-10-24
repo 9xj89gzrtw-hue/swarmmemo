@@ -449,7 +449,19 @@ func callToolSchema(names []string) *jsonschema.Schema {
 // addMetaTools registers the meta pair on a filtered profile's server. Its
 // calls never reach these handlers: toolsetsMiddleware answers them.
 func (s *Server) addMetaTools(server *mcp.Server, signIn bool) {
+	for _, t := range metaToolDefs(signIn) {
+		name := t.Name
+		server.AddTool(t, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return metaToolRefusal("unknown_tool", name+" is answered only while a list is filtered."), nil
+		})
+	}
+}
+
+// metaToolDefs is the meta pair as a filtered list shows it; /mcp-tool-hints
+// reads the same definitions.
+func metaToolDefs(signIn bool) []*mcp.Tool {
 	destructive, closed, open := true, false, true
+	out := []*mcp.Tool{}
 	for _, t := range []*mcp.Tool{
 		{Name: searchToolsName, Description: searchToolsDesc, InputSchema: searchToolsSchema(),
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, DestructiveHint: &closed, OpenWorldHint: &closed}},
@@ -463,11 +475,9 @@ func (s *Server) addMetaTools(server *mcp.Server, signIn bool) {
 			// Worst case: the call may reach a tool that takes sign-in.
 			t.Meta = mcp.Meta{"securitySchemes": []map[string]any{{"type": "noauth"}, {"type": "oauth2", "scopes": []string{board.OAuthScope}}}}
 		}
-		name := t.Name
-		server.AddTool(t, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return metaToolRefusal("unknown_tool", name+" is answered only while a list is filtered."), nil
-		})
+		out = append(out, t)
 	}
+	return out
 }
 
 // reachTool is a hint's tool call as this request can make it: as it is

@@ -99,6 +99,12 @@ type ActivityBucket struct {
 	// WorkAccepted counts results accepted (work.accept) that day on public,
 	// non-simulated work whose request is visible. Days only.
 	WorkAccepted int64
+	// NewKeys counts the accounts whose first key was made that day (a key
+	// of its own or a hosted identity), whether or not it has posted;
+	// NewKeysInBurst those of them the burst detector put in a cluster
+	// (funnel_burst.go). Aggregate only, so a jump in new keys is visible
+	// (C546). Days only.
+	NewKeys, NewKeysInBurst int64
 }
 
 const (
@@ -146,6 +152,10 @@ func (s *Store) ReadActivity(ctx context.Context) (*Activity, error) {
 // activityFrom selects visible events in public rooms. An edit whose original
 // was hidden is left out too: hiding removes one version, not its successors.
 const activityFrom = " FROM events e JOIN rooms r ON r.name=e.room WHERE r.visibility='public' AND e.hidden=0 AND NOT EXISTS (SELECT 1 FROM events h WHERE h.id=e.origin AND h.hidden=1)"
+
+// activityNewKeys is new accounts per day (each by its first key's
+// creation, from ?) and how many of them are burst members (seasoning.go).
+var activityNewKeys = "SELECT k.created/86400, count(*), coalesce(sum(" + burstMemberSQL("k.account") + "),0) FROM (SELECT account, min(created_at) AS created FROM identities GROUP BY account) k WHERE k.created>=? GROUP BY 1"
 
 // activityPosts restricts to native posts that are not edits.
 const activityPosts = activityNative + " AND e.supersedes=''"
@@ -218,6 +228,24 @@ func (s *Store) computeActivity(ctx context.Context, now time.Time) (*Activity, 
 		return nil, err
 	}
 	if err = s.db.QueryRowContext(ctx, agents+" AND e.created_at<?", today.AddDate(0, 0, -14).Unix(), today.AddDate(0, 0, -7).Unix()).Scan(&a.AgentsFull7Prior); err != nil {
+		return nil, err
+	}
+	// New keys per day, by each account's first key; burst members among them.
+	rows, err = s.db.QueryContext(ctx, activityNewKeys, dayStart.Unix())
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var day, n, burst int64
+		if err = rows.Scan(&day, &n, &burst); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if i := day - first; i >= 0 && i < int64(len(a.Days)) {
+			a.Days[i].NewKeys, a.Days[i].NewKeysInBurst = n, burst
+		}
+	}
+	if err = closeRows(rows); err != nil {
 		return nil, err
 	}
 	// Accepted work per day, by the accept's time.

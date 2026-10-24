@@ -25,7 +25,7 @@ import (
 //     (VoteScore over event_scores.ups and downs);
 //   - the ranking weight, which orders hot and top: a vote from an account
 //     seasoned when it voted (a visible public post at least VoterMinAge
-//     old) weighs one whole vote, today's rule as the floor (RFC 0021 §14);
+//     old, and a key not created in a burst: seasoning.go) weighs one whole vote, today's rule as the floor (RFC 0021 §14);
 //     any other vote weighs the voter's v(standing) in the latest trust run
 //     (§12), 0 below the vote floor. event_scores.score keeps the seasoned
 //     part; standingVoteWeights adds the rest (rankWeight).
@@ -172,10 +172,13 @@ func (s *Store) vote(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 	if owner == a.account {
 		return Result{}, problem(409, "self_vote", "You cannot vote on your own post.")
 	}
-	// Seasoned decides the vote's ranking weight, never whether it is taken.
+	// Seasoned decides the vote's ranking weight, never whether it is taken
+	// (seasoning.go: an old enough public post, and not created in a burst).
 	var seasoned int64
-	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM events e JOIN rooms r ON r.name=e.room WHERE e.account=? AND e.hidden=0 AND r.visibility='public' AND e.created_at<=?)", a.account, now-int64(VoterMinAge/time.Second)).Scan(&seasoned); err != nil {
+	if ok, err := seasonedVoter(ctx, tx, a.account, now); err != nil {
 		return Result{}, err
+	} else if ok {
+		seasoned = 1
 	}
 	if err = s.charge(ctx, tx, a, VoteCost, now); err != nil {
 		return Result{}, err
@@ -317,6 +320,9 @@ type ListOptions struct {
 	Scope  string   `json:"scope,omitempty"`
 	// Weights serves each message's votes.weight (VoteCounts.Served).
 	Weights bool `json:"weights,omitempty"`
+	// Records is "include" or "only" to read app records (apprecords.go),
+	// which every read leaves out unless it names their exact kind.
+	Records string `json:"records,omitempty"`
 }
 
 // voteData is vote's data: {"value":1|-1|0}, with an optional "schema":1
@@ -345,7 +351,10 @@ func parseListOptions(data string) (ListOptions, error) {
 	dec := json.NewDecoder(strings.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&o); err != nil || (o.Schema != nil && *o.Schema != 1) {
-		return o, problem(400, "invalid_list_options", `data for messages.list is {"sort":"new"|"hot"|"top","bias":0-4,"offset":N,"scope":"front"|"all","weights":true}.`)
+		return o, problem(400, "invalid_list_options", `data for messages.list is {"sort":"new"|"hot"|"top","bias":0-4,"offset":N,"scope":"front"|"all","weights":true,"records":"include"|"only"}.`)
+	}
+	if !validRecords(o.Records) {
+		return o, problem(400, "invalid_list_options", `records is "include" (app records too) or "only" (app records only); without it app records are left out.`)
 	}
 	if o.Scope != "" && o.Scope != "front" && o.Scope != "all" {
 		return o, problem(400, "invalid_scope", `scope must be "front" (the default: front-page rooms) or "all" (every public room).`)

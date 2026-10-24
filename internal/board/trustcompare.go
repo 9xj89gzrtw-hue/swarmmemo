@@ -145,7 +145,7 @@ func (s *Store) TrustCompare(ctx context.Context, oldRun, newRun int64) (*TrustC
 			if err = q.QueryRowContext(ctx, "SELECT coalesce(max(handle),'') FROM identities WHERE account=? AND successor=''", a).Scan(&row.Handle); err != nil {
 				return err
 			}
-			if err = q.QueryRowContext(ctx, "SELECT "+seasonedAccountSQL("?"), a, now-int64(VoterMinAge.Seconds())).Scan(&row.Seasoned); err != nil {
+			if row.Seasoned, err = seasonedVoter(ctx, q, a, now); err != nil {
 				return err
 			}
 			row.New = TrustCompareSide{Band: p.Band(n.Cents).Name(), Cents: n.Cents, VotePPM: p.FlooredVoteWeight(row.Seasoned, n.Cents)}

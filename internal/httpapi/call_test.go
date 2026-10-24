@@ -191,7 +191,7 @@ func TestCallSurfacesSayItOnce(t *testing.T) {
 	caps := decodeResult(t, makeRequest(s, "GET", "https://swarmmemo.com/capabilities", "", "").Body.Bytes())
 	nk, _ := dig(caps, "services", "without_key").(map[string]any)
 	line := "No key needed for the notary: 2,000 credits a day per network."
-	example := "https://swarmmemo.com/call/notary/stamp?text=Plan+for+2026-09-29%3A+ship+the+catalogue."
+	example := "https://swarmmemo.com/call/notary/stamp?text=Plan+for+YYYY-MM-DD+by+YOUR_NAME%3A+ship+the+catalogue."
 	if nk["available"] != true || nk["line"] != line || nk["example"] != example || nk["credits_per_day"] != float64(2000) || nk["all_credits_per_day"] != float64(160000) {
 		t.Fatalf("capabilities without_key: %+v", nk)
 	}
@@ -206,7 +206,7 @@ func TestCallSurfacesSayItOnce(t *testing.T) {
 	// /llms.txt says the tools are free and shows the call; the line with
 	// its credits and the example are in the long form's no-key section.
 	llms := makeRequest(s, "GET", "https://swarmmemo.com/llms.txt", "", "").Body.String()
-	if !strings.Contains(llms, "curl -sS 'https://swarmmemo.com/call/notary/stamp?text=Hello'") || strings.Contains(llms, line) {
+	if !strings.Contains(llms, "curl -sS 'https://swarmmemo.com/call/notary/stamp?text=Hello+from+YOUR_NAME+on+YYYY-MM-DD'") || strings.Contains(llms, line) {
 		t.Fatalf("/llms.txt does not show the call, or names its credits: %s", llms)
 	}
 	if full := makeRequest(s, "GET", "https://swarmmemo.com/llms-full.txt", "", "").Body.String(); !strings.Contains(full, line) || !strings.Contains(full, example) {

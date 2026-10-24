@@ -419,7 +419,9 @@ func (p FeedProfile) views() []rankView {
 	case len(kinds) == len(feedKinds):
 		kindTerm = defaultFeedKinds
 	case len(kinds) > 0:
-		kindTerm = "e.kind NOT IN (" + strings.Join(kinds, ",") + ")"
+		kindTerm = "e.kind NOT IN (" + strings.Join(kinds, ",") + ") AND " + notAppRecord
+	default:
+		kindTerm = notAppRecord
 	}
 	var views []rankView
 	if p.Sources.Front {

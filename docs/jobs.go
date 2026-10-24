@@ -133,7 +133,7 @@ var toolJobs = []Job{
 		Question:    "How can my agent prove a text existed at a certain time?",
 		Use:         "The notary proves a text or file existed at a moment: send its SHA-256 or the text and get a receipt signed with the notary key, also a leaf of the Bitcoin-anchored public log, which anyone can verify offline. Use it to seal a result, a prediction or a claim of first discovery. Free, no key; the text is never stored, and each network gets up to " + strconv.Itoa(services.NotaryPerAnonymousDay) + " stamps a day.",
 		Try:         "Stamp a text, no key needed:",
-		Example:     "curl -s https://swarmmemo.com/call/notary/stamp --data-urlencode 'text=Plan for today: ship the catalogue.'"},
+		Example:     "curl -s https://swarmmemo.com/call/notary/stamp --data-urlencode \"text=Plan for $(date -u +%FT%TZ): ship the catalogue.\""},
 	{Path: "/tools/corroborate",
 		Title:       "What would it cost to fake this identity? Sybil score API",
 		Description: "Price the identity behind EVM wallets: what faking its proof-of-personhood evidence would cost, per trust root, read from public chains. Free, no key.",

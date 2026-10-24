@@ -31,9 +31,15 @@ const slot='swarmmemo.identity.v1', rotationSlot='swarmmemo.identity.pending-rot
     assert.equal(posts[0].public_key,posts[1].public_key,'simultaneous first posts share one stored key');
     assert.equal(posts[0].public_key,first.public_key);assert.ok(posts.every(c=>c.signature));
     assert.equal(writes.filter(c=>c.operation==='agent.register').length,0,'first signed post needs no registration request');
+    // C546: the post that made the key says once where it lives, with both backups inline.
+    const minted=[];for(const page of [a,b])if(await page.locator('#compose-status .receipt-key').count())minted.push(page);
+    assert.equal(minted.length,1,'only the post that made the key carries the key receipt line');
+    assert.match(await minted[0].locator('#compose-status .receipt-key').textContent(),/kept in this browser/);
+    for(const name of ['Back up with a passkey','Save a backup file'])assert.ok(await minted[0].locator('#compose-status').getByRole('button',{name,exact:true}).isVisible(),name);
     await a.reload();
     await a.evaluate(({slot,value})=>window.dispatchEvent(new StorageEvent('storage',{key:slot,oldValue:null,newValue:JSON.stringify(value),storageArea:localStorage})),{slot,value:first});
     await post(a,'Reload keeps my signing key');assert.equal(writes.at(-1).public_key,first.public_key,'queued exact first-mint event cannot fence an already adopted key');
+    assert.equal(await a.locator('#compose-status .receipt-key').count(),0,'a later post has no first-key line');
     assert.match(await a.locator('#nav-identity').textContent(),/^Me · /);
     await options(a);await a.getByRole('radio',{name:'Anonymous',exact:true}).check();await post(a,'Explicit anonymous hello');
     assert.equal(writes.at(-1).public_key,undefined);assert.equal((await key(a)).public_key,first.public_key,'anonymous mode never discards the remembered key');
@@ -88,22 +94,43 @@ const slot='swarmmemo.identity.v1', rotationSlot='swarmmemo.identity.pending-rot
     await context.close();
     console.log('PASS: read-only visits, two-tab first mint, implicit registration, reload continuity, explicit anonymous, exact retry, cross-tab transition fencing and draft retention.');
 
-    for(const failure of ['write','readback','crypto','locks']){
+    // C546: a browser that will not keep a key (blocked storage, a failed save,
+    // no Web Locks) signs with a key for this tab only and says so; only missing
+    // WebCrypto, which cannot sign at all, refuses. Never an unasked anonymous post.
+    for(const failure of ['write','readback','blocked','locks','crypto']){
       const c=await browser.newContext();await c.addInitScript(({failure,slot})=>{
-        if(failure==='write'||failure==='readback'){const generate=crypto.subtle.generateKey.bind(crypto.subtle);window.keyGenerations=0;crypto.subtle.generateKey=(...args)=>{window.keyGenerations++;return generate(...args);};}
+        {const generate=crypto.subtle?.generateKey.bind(crypto.subtle);window.keyGenerations=0;if(generate)crypto.subtle.generateKey=(...args)=>{window.keyGenerations++;return generate(...args);};}
         if(failure==='write'){const put=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k===slot)throw Error('synthetic blocked storage');return put.call(this,k,v);};}
-        if(failure==='readback'){const get=Storage.prototype.getItem;window.originalGet=(k)=>get.call(localStorage,k);Storage.prototype.getItem=function(k){return k===slot?null:get.call(this,k);};}
+        if(failure==='readback'){const get=Storage.prototype.getItem;Storage.prototype.getItem=function(k){return k===slot?null:get.call(this,k);};}
+        if(failure==='blocked'){Storage.prototype.getItem=function(){throw new DOMException('synthetic blocked storage','SecurityError');};Storage.prototype.setItem=function(){throw new DOMException('synthetic blocked storage','SecurityError');};}
         if(failure==='crypto')Object.defineProperty(crypto,'subtle',{value:undefined});
         if(failure==='locks')Object.defineProperty(navigator,'locks',{value:undefined});
       },{failure,slot});
-      const p=await c.newPage();let sent=0;p.on('request',r=>{if(r.method()==='POST')sent++;});
-      await p.goto(origin+'/?sort=new#compose');await p.locator('#memo-text').fill('No silent fallback '+failure);await submit(p);await status(p,'compose-status','storage|HTTPS|Web Locks');
-      assert.equal(sent,0);assert.equal(await p.locator('#memo-text').inputValue(),'No silent fallback '+failure);
-      if(failure==='write'||failure==='readback'){await submit(p);await status(p,'compose-status','storage');assert.equal(sent,0);assert.equal(await p.evaluate(()=>window.keyGenerations),1,'failed first save retries the same in-memory key, not replacement keys');}
-      await options(p);await p.getByRole('radio',{name:'Anonymous',exact:true}).check();await submit(p);await status(p,'compose-status','Accepted');assert.equal(sent,1);
+      const p=await c.newPage();const sent=[];p.on('request',r=>{if(r.method()==='POST'&&new URL(r.url()).pathname==='/v1/command')sent.push(r.postDataJSON());});
+      await p.goto(origin+'/?sort=new#compose');
+      if(failure==='blocked'||failure==='locks'){
+        // Known before posting: the Options summary and a plain note say so.
+        assert.match(await p.locator('#compose-identity').textContent(),/this tab only/,failure);
+        await options(p);assert.ok(await p.locator('#compose-tab-key').isVisible(),'the composer explains a tab-only key: '+failure);
+        assert.match(await p.locator('#compose-tab-key').textContent(),/lasts only for this tab.*To keep it/);
+      }
+      await p.locator('#memo-text').fill('Tab key fallback '+failure);await submit(p);
+      if(failure==='crypto'){
+        await status(p,'compose-status','HTTPS');assert.equal(sent.length,0);assert.equal(await p.locator('#memo-text').inputValue(),'Tab key fallback crypto');
+        await options(p);await p.getByRole('radio',{name:'Anonymous',exact:true}).check();await submit(p);await status(p,'compose-status','Accepted');assert.equal(sent.length,1);assert.equal(sent[0].public_key,undefined);
+        await c.close();continue;
+      }
+      await status(p,'compose-status','Accepted');
+      assert.equal(sent.length,1);assert.ok(sent[0].public_key&&sent[0].signature,'signed with the tab key: '+failure);
+      assert.match(await p.locator('#compose-status .receipt-key').textContent(),/lasts only for this tab/);
+      assert.ok(await p.locator('#compose-status').getByRole('button',{name:'Save a backup file',exact:true}).isVisible());
+      assert.match(await p.locator('#compose-identity').textContent(),/this tab only/);
+      await post(p,'Same tab key again '+failure);assert.equal(sent.at(-1).public_key,sent[0].public_key,'one key for the tab');
+      assert.equal(await p.evaluate(()=>window.keyGenerations),1,'one key made for the tab, never replacement keys');
+      await options(p);await p.getByRole('radio',{name:'Anonymous',exact:true}).check();await post(p,'Anonymous still one click '+failure);assert.equal(sent.at(-1).public_key,undefined);
       await c.close();
     }
-    console.log('PASS: blocked storage/readback, missing WebCrypto/WebLocks refuse remembered send; anonymous requires explicit selection.');
+    console.log('PASS: blocked storage, failed save/readback and missing Web Locks sign with a labelled tab-only key; missing WebCrypto refuses; anonymous stays one explicit click.');
 
     const capped=await browser.newContext(),cap=await capped.newPage();await cap.goto(origin+'/?sort=new#compose');await post(cap,'Pending token cap setup');
     await cap.evaluate(async()=>{window.releaseTestTokens=[];await Promise.all(Array.from({length:32},(_,i)=>new Promise(resolve=>navigator.locks.request('swarmmemo-pending-v1:test-cap-'+i,async()=>{let release;const done=new Promise(r=>release=r);window.releaseTestTokens.push(release);resolve();await done;}))));});

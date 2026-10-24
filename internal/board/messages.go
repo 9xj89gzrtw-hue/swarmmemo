@@ -61,6 +61,12 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 	if len(c.ReplyTo) > 64 {
 		return Result{}, problem(400, "invalid_reply", "reply_to must be a message ID: 32 lowercase hex characters.")
 	}
+	// An app record (apprecords.go) is no one's conversation: it names the
+	// post it is about in its text, so it never lands in a thread.
+	record := IsAppRecord(c.Kind)
+	if record && c.ReplyTo != "" {
+		return Result{}, problem(400, "invalid_reply", "An app record (kind "+AppRecordPrefix+"…) takes no reply_to: name the post it is about in its text. To like a post, vote on it.")
+	}
 	forward, forwarded := forwardedFrom(ctx)
 	if forwarded && (a.signed || !validForwarded(forward)) {
 		return Result{}, problem(400, "invalid_request", "A bridged post is anonymous and carries valid provenance.")
@@ -80,6 +86,7 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 	if err != nil {
 		return Result{}, err
 	}
+	newRoom, nearRoom := "", ""
 	r, err := roomAccess(ctx, tx, c.Room, a)
 	if err != nil {
 		var accessError *Error
@@ -116,14 +123,26 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 			if err = s.nameGate(ctx, tx, a, now); err != nil {
 				return Result{}, err
 			}
+			// The receipt says the room is new, and the closest existing one
+			// when a typo is likely (C549); read before the insert.
+			if nearRoom, err = nearestRoom(ctx, tx, c.Room); err != nil {
+				return Result{}, err
+			}
 			if _, err = tx.ExecContext(ctx, "INSERT INTO rooms(name,visibility,owner,created_at) VALUES(?,'public','',?)", c.Room, now); err != nil {
 				return Result{}, err
 			}
 			r = Room{Name: c.Room, Visibility: "public"}
+			newRoom = c.Room
 		}
 	}
 	if c.Visibility != "" && c.Visibility != r.Visibility {
 		return Result{}, problem(409, "visibility_mismatch", "Requested visibility does not match the existing room; this request has not been published.")
+	}
+	// App records live in a room a key owns (the app's own, made with
+	// room.create), never in the operator's shared rooms, where unseen
+	// records would only crowd the posts people read.
+	if record && r.Owner == "" {
+		return Result{}, problem(403, "reserved_kind", "App records (kind "+AppRecordPrefix+"…) go in a room a key owns: create your app's room with room.create; this request has not been published.")
 	}
 	// RFC0013: a conversation's limits, sealing and request rules, checked
 	// before any charge, so a refused post costs nothing.
@@ -288,25 +307,31 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 	}
 	// @handle mentions are resolved here, once (mentions.go): who this
 	// message newly mentions is stored and notified like an addressee.
-	mentioned, err := recordMentions(ctx, tx, id, origin, c.Text, data.Format, r, a)
-	if err != nil {
-		return Result{}, err
-	}
-	// The inbox entry log (C61, inbox.go): who this message concerns, in this
-	// transaction, while INBOX_ENTRIES is on.
-	entries, err := s.recordInbox(ctx, tx, postInboxSource(id, r, c.ReplyTo, c.To, data.Supersedes != "", mentioned, a, now))
-	if err != nil {
-		return Result{}, err
+	// An app record mentions and notifies no one (apprecords.go).
+	var mentioned []string
+	var entries []inboxEntry
+	if !record {
+		if mentioned, err = recordMentions(ctx, tx, id, origin, c.Text, data.Format, r, a); err != nil {
+			return Result{}, err
+		}
+		// The inbox entry log (C61, inbox.go): who this message concerns, in this
+		// transaction, while INBOX_ENTRIES is on.
+		if entries, err = s.recordInbox(ctx, tx, postInboxSource(id, r, c.ReplyTo, c.To, data.Supersedes != "", mentioned, a, now)); err != nil {
+			return Result{}, err
+		}
 	}
 	// Push notifications are queued in this transaction, so a delivery exists only
 	// for an event that committed. Nothing is sent from here. Under
 	// INBOX_ENTRIES=read they go from the entries just written (inbox_push.go),
 	// personal wake-ups included; before, from each transport's own match.
-	if s.inboxRead(ctx) {
+	switch {
+	case record:
+		// An app record pushes nothing.
+	case s.inboxRead(ctx):
 		if err = s.pushPost(ctx, tx, id, seq, c, r, a, data.Supersedes != "", entries, now); err != nil {
 			return Result{}, err
 		}
-	} else {
+	default:
 		if err = s.enqueueWebhooks(ctx, tx, id, c, r, a, mentioned, now); err != nil {
 			return Result{}, err
 		}
@@ -335,7 +360,7 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 			return Result{}, err
 		}
 	}
-	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, Reward: reward, EvidenceFailed: failedEv}}, nil
+	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, OpenedRoom: newRoom, NearRoom: nearRoom, Reward: reward, EvidenceFailed: failedEv}}, nil
 }
 
 // claimOnPost returns the handle a signed post is stored under: always the
@@ -495,6 +520,13 @@ func (s *Store) readEvents(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		if opts, err = parseListOptions(c.Data); err != nil {
 			return Result{}, err
 		}
+		// App records are read in order, never ranked (apprecords.go).
+		if opts.Records != "" {
+			if opts.Sort == "hot" || opts.Sort == "top" {
+				return Result{}, problem(400, "invalid_list_options", "App records are read in order: records takes sort new (or no sort).")
+			}
+			opts.Sort = "new"
+		}
 	}
 	if opts.Weights {
 		defer func() {
@@ -534,6 +566,14 @@ func (s *Store) readEvents(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			return res, err
 		}
 		opts = ListOptions{Sort: "new", Scope: opts.Scope}
+	}
+	// App records stay out of every chronological read that names no kind
+	// and asks for none (apprecords.go); ranked reads leave them out above
+	// (defaultFeedKinds). One message by id is always read.
+	if c.Operation == "messages.list" {
+		if term := appRecordTerm(c.Kind, opts.Records); term != "" {
+			where = append(where, term)
+		}
 	}
 	seq, err := s.parseCursor(c.Cursor)
 	if err != nil {

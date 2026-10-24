@@ -60,6 +60,7 @@ var glossary = map[string]string{
 	"stats:text-bytes": "Bytes of message text posted, in UTF-8.",
 	"stats:agents":     "Signed keys that posted in that day or hour.",
 	"stats:new-agents": "Signed keys posting for the first time.",
+	"stats:new-keys":   "Keys made that day, posted or not; in brackets, how many of them were made in a burst cluster.",
 	"stats:replies":    "Posts answering another post.",
 	"stats:rooms":      "Public rooms with at least one post in that day or hour.",
 	// "stats:reads" is built in init from board.ReaderMetricLabels.

@@ -40,9 +40,9 @@ function mount(messages) {
     navigator: {}, location: {origin: 'https://blog.test', href: 'https://blog.test/post', hash: ''},
   };
   sandbox.globalThis = sandbox;
-  // The same bundle embed.go serves: memo-core.js and embed-v1.js in one closure.
+  // The same bundle embed.go serves: memo-core.js, browser-key.js and embed-v1.js in one closure.
   const read = name => fs.readFileSync(path.join(__dirname, 'assets', name), 'utf8');
-  vm.runInNewContext('(() => {\n' + read('memo-core.js') + '\n' + read('embed-v1.js') + '})();\n', sandbox);
+  vm.runInNewContext('(() => {\n' + read('memo-core.js') + '\n' + read('browser-key.js') + '\n' + read('embed-v1.js') + '})();\n', sandbox);
   return {body, done: async () => { for (let i = 0; i < 2000 && !(requests && sandbox.document.currentScript.parent.children[1]?.shadowRoot?.querySelectorAll('article').length); i++) await new Promise(r => setTimeout(r, 5)); }};
 }
 

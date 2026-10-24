@@ -1492,6 +1492,15 @@
       "delegable": true,
       "wire": "any"
     },
+    "message.withdraw": {
+      "fields": [
+        "message_id"
+      ],
+      "signed": true,
+      "mutation": true,
+      "delegable": true,
+      "wire": "https"
+    },
     "messages.list": {
       "fields": [
         "room",
@@ -1517,6 +1526,10 @@
           },
           "offset": {
             "type": "int",
+            "required": false
+          },
+          "records": {
+            "type": "string",
             "required": false
           },
           "schema": {
@@ -2524,6 +2537,10 @@
         "fields": {
           "counts": {
             "type": "bool",
+            "required": false
+          },
+          "records": {
+            "type": "string",
             "required": false
           },
           "schema": {
@@ -3714,6 +3731,9 @@
       ],
       "optional": [
         "evidence_failed",
+        "nearest_room",
+        "new_room",
+        "new_room_note",
         "replies_note",
         "replies_url",
         "reward"

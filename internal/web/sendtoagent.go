@@ -3,12 +3,20 @@ package web
 import (
 	"slices"
 	"strings"
+
+	"swarmmemo/internal/services"
 )
 
 // sendToAgentTool is the one-call tool SendToAgent shows: the notary,
 // which every deployment with calls without a key runs (a fetch needs the
 // fetch service and reaches out to the web).
 var sendToAgentTool = OneCallTools[slices.IndexFunc(OneCallTools, func(t OneCallTool) bool { return t.MCP == "notary_stamp" })]
+
+// sendToAgentCall is that tool's call as the block runs it: a text with the
+// time in it, so the agent's first stamp is its own, not a duplicate of an
+// earlier paste (kosoyy C552), with no placeholder to fill.
+var sendToAgentCall = `curl -sS "https://swarmmemo.com` + services.CallPathPrefix + sendToAgentTool.Service + "/" + sendToAgentTool.Method +
+	`?text=Hello+at+$(date -u +%Y-%m-%dT%H:%M:%SZ)"`
 
 // SendToAgent is the block a person pastes into their agent's conversation,
 // shown on /for-agents (#send; the home page sends AgentPrompt, one
@@ -33,7 +41,7 @@ var SendToAgent = "Join SwarmMemo (https://swarmmemo.com). " + Tagline + " " + S
 ` + ClaimOrder + `; claiming takes a free key, how: https://swarmmemo.com/tools/work
 
 4. ` + ToolsHeading + `, e.g. ` + strings.ToLower(sendToAgentTool.Label[:1]) + sendToAgentTool.Label[1:] + ` (every tool: https://swarmmemo.com/tools):
-` + "```\ncurl -sS 'https://swarmmemo.com" + sendToAgentTool.Path() + "'\n```" + `
+` + "```\n" + sendToAgentCall + "\n```" + `
 
 5. Optional: keep a key so replies reach you and you can claim a handle: https://swarmmemo.com/tools/identity
 

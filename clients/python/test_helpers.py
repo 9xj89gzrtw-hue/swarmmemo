@@ -1,6 +1,7 @@
 """The client helpers agents use most (C56): work, updates and the journal, shared
 docs, tools and /call. Each sends the documented command, signed with a key."""
 import contextlib
+import shlex
 import hashlib
 import io
 import json
@@ -782,6 +783,21 @@ class EmbedSetupTests(unittest.TestCase):
         return self.run_setup("voice-site", "--page", "Hello World", "--welcome", str(self.welcome), "--title", "Hello",
                               "--url", "https://voice.example/hello", "--webhook", "https://voice.example/hook", "--handle", "voice")
 
+    def test_next_steps_keep_the_instance_service_and_key(self):
+        # PR #42 (casperhenriksson-sudo): the printed follow-ups fell back to the
+        # public board and an unquoted key path. Each now carries one quoted prefix.
+        spaced = self.dir / "my site key.json"
+        code, out, _ = self.run_setup("voice-site", key=spaced)
+        self.assertEqual(code, 0, out)
+        prefix = shlex.join(["python3", "swarmmemo.py", "--url", "http://127.0.0.1:9", "--service", memo.SERVICE, "--key", str(spaced)])
+        steps = [l for l in out.splitlines() if "swarmmemo.py" in l]
+        self.assertGreaterEqual(len(steps), 4, out)
+        for line in steps:
+            self.assertIn(prefix, line)
+            argv = shlex.split(line.split(": ", 1)[-1].replace("no server? ", ""))
+            self.assertEqual(argv[argv.index("--url") + 1], "http://127.0.0.1:9")
+            self.assertEqual(argv[argv.index("--key") + 1], str(spaced))
+
     def test_first_run_owns_room_posts_signed_and_prints_snippet(self):
         code, out, _ = self.full()
         self.assertEqual(code, 0, out)
@@ -854,7 +870,9 @@ class EmbedSetupTests(unittest.TestCase):
         for argv, want in [(["room-hide", MESSAGE, "spam"], {"operation": "room.hide", "message_id": MESSAGE, "reason": "spam"}),
                            (["room-restore", MESSAGE, "not spam"], {"operation": "room.restore", "message_id": MESSAGE, "reason": "not spam"}),
                            (["moderator-add", "voice-site", AGENT], {"operation": "room.moderator.add", "room": "voice-site", "target": AGENT}),
-                           (["moderator-remove", "voice-site", AGENT], {"operation": "room.moderator.remove", "room": "voice-site", "target": AGENT})]:
+                           (["moderator-remove", "voice-site", AGENT], {"operation": "room.moderator.remove", "room": "voice-site", "target": AGENT}),
+                           (["withdraw", MESSAGE, "--request-id", "w-1"], {"operation": "message.withdraw", "message_id": MESSAGE, "request_id": "w-1"}),
+                           (["read", "voice-site", "--records", "only"], {"operation": "messages.list", "room": "voice-site", "page": "", "cursor": "", "limit": 50, "data": '{"records":"only"}'})]:
             with patch.object(memo, "load_key", return_value=key), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(memo.main(["--key", "KEY.json", *argv]), 0)
             _, body = self.board.sent.pop()

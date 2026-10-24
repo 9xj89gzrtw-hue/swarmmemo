@@ -159,5 +159,9 @@ func clientsJSON(d board.ClientDay) map[string]any {
 		}
 		families[name] = counts
 	}
-	return map[string]any{"families": families, "unknown_mcp_clients": d.UnknownMCPClients}
+	surfaces := map[string]any{}
+	for name, counts := range d.Surfaces {
+		surfaces[name] = counts
+	}
+	return map[string]any{"families": families, "device_key_surfaces": surfaces, "unknown_mcp_clients": d.UnknownMCPClients}
 }

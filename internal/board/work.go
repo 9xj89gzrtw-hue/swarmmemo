@@ -1044,8 +1044,8 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			if a.account == w.Requester {
 				return Result{}, problem(403, "work_forbidden", "The requester cannot claim their own work.")
 			}
-			if a.account == w.Reviewer {
-				return Result{}, problem(403, "work_forbidden", "The reviewer cannot claim work it reviews.")
+			if err = refuseReviewerWorker(ctx, tx, a, w.Reviewer); err != nil {
+				return Result{}, err
 			}
 			if err = workClaimEligible(ctx, tx, w.Eligibility, a.account, now); err != nil {
 				return Result{}, err
@@ -1056,6 +1056,13 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			}
 			if a.grant != nil && w.AttemptGrantID != a.grant.ID {
 				return Result{}, delegationError("delegation_forbidden")
+			}
+			// A reviewer named or linked after the claim: the submit is refused
+			// too, so the reviewer never judges its own key's result (C551).
+			if c.Operation == "work.submit" {
+				if err = refuseReviewerWorker(ctx, tx, a, w.Reviewer); err != nil {
+					return Result{}, err
+				}
 			}
 		case "work.accept", "work.reject":
 			if late {

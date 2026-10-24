@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"swarmmemo/internal/allowance"
 	"swarmmemo/internal/services"
@@ -94,9 +95,19 @@ func TestNotaryStampVerifyAndReadBack(t *testing.T) {
 	if receiptOf(t, get(again, "result", "receipt")) != rec || get(again, "result", "duplicate") != true || !strings.Contains(get(again, "result", "note").(string), "first stamp") || get(again, "call", "cost") != float64(1) {
 		t.Fatalf("duplicate stamp: %+v", again)
 	}
+	// It says plainly when the text was first stamped, and what that proves
+	// (kosoyy C552: the docs' own example read as a clock bug).
+	first := time.Unix(int64(get(again, "result", "receipt", "time").(float64)), 0).UTC().Format(time.RFC3339)
+	if note, _ := get(again, "result", "note").(string); get(again, "result", "first_stamped_at") != first ||
+		!strings.Contains(note, "first stamped at "+first) || !strings.Contains(note, "existed by then") {
+		t.Fatalf("duplicate stamp does not say when it was first stamped: %+v", again)
+	}
 	// Text is hashed as exact UTF-8 bytes and never stored.
 	text := "résumé v2\n"
 	out = r.mustCall("alice", "notary", "stamp", map[string]any{"text": text}, 1)
+	if get(out, "result", "duplicate") != false || get(out, "result", "first_stamped_at") != nil {
+		t.Fatalf("a new stamp names a first stamp: %+v", out)
+	}
 	sum := sha256.Sum256([]byte(text))
 	textRec := receiptOf(t, get(out, "result", "receipt"))
 	if textRec.Hash != hex.EncodeToString(sum[:]) || textRec.Seq != 2 || !services.VerifyNotaryReceipt(public, textRec) {

@@ -81,8 +81,9 @@ type Message struct {
 	// that granted the worker key, as public as the grant (/delegation/ID).
 	// Set on reads; never in exports or receipts.
 	Principal *Principal `json:"principal,omitempty"`
-	// HiddenBy says who hid a hidden message: "operator" (site-wide) or
-	// "room" (that room's owner or a moderator). Empty when visible.
+	// HiddenBy says who hid a hidden message: "operator" (site-wide),
+	// "room" (that room's owner or a moderator) or "author" (its author
+	// withdrew it, message.withdraw). Empty when visible.
 	HiddenBy string `json:"hidden_by,omitempty"`
 	// Curated is the service's own provenance decision, not a claim made by the
 	// poster. It is true only for an imported message signed by the registered
@@ -303,6 +304,19 @@ type Receipt struct {
 	// it reads over MCP, so the advice is read_updates' held read and MCP
 	// Events, never a key-file command. Not stored either.
 	PushAdviceHosted bool `json:"-"`
+	// OpenedRoom names the room a fresh post opened, and NearRoom the
+	// closest existing public room when one is near (C549, newroom.go).
+	// Not stored either; transports restate them as NewRoom, NearestRoom
+	// and NewRoomNote below.
+	OpenedRoom string `json:"-"`
+	NearRoom   string `json:"-"`
+	// NewRoom says this post opened its room, NearestRoom names the closest
+	// existing public room when one is near (a likely typo), and NewRoomNote
+	// says both in a line (NewRoomLine). Transports set them on the fresh
+	// receipt, like RepliesURL; an exact retry does not repeat them.
+	NewRoom     bool   `json:"new_room,omitempty"`
+	NearestRoom string `json:"nearest_room,omitempty"`
+	NewRoomNote string `json:"new_room_note,omitempty"`
 	// Reward is a fresh review's review reward: pending with its amount and
 	// due time, or none with the reason (reviewrewards.go). Stored with the
 	// result, so an exact retry repeats it.

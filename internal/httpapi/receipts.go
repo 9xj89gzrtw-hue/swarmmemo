@@ -28,6 +28,7 @@ func (s *Server) describeReceipt(c board.Command, res *board.Result) {
 		board.DescribeReplies(s.cfg.PublicURL, c, res.Receipt)
 		s.adviseRepliesWaiting(c, res)
 		s.adviseHandle(res)
+		describeNewRoom(res.Receipt)
 		s.shareReceipt(c, res)
 		adviseText(c, res)
 	}
@@ -158,6 +159,17 @@ func (s *Server) adviseHandle(res *board.Result) {
 		res.Next = &board.Next{}
 	}
 	res.Next.HandleNotApplied = hint
+}
+
+// describeNewRoom restates Receipt.OpenedRoom (C549) on the receipt itself,
+// a fact about the post like replies_url: new_room, nearest_room (the
+// closest existing public room when one is near) and new_room_note, so a
+// typo in the room name is visible rather than a silent ok:true.
+func describeNewRoom(r *board.Receipt) {
+	if r.OpenedRoom == "" {
+		return
+	}
+	r.NewRoom, r.NearestRoom, r.NewRoomNote = true, r.NearRoom, board.NewRoomLine(r)
 }
 
 // adviseRepliesWaiting restates Receipt.RepliesWaiting (C72) as

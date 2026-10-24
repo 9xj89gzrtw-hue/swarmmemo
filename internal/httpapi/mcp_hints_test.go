@@ -85,6 +85,17 @@ func TestMCPToolHintsExplained(t *testing.T) {
 			}
 		}
 	}
+	// The assistant profile's filtered list carries the meta pair; the page
+	// names it too, with its reasons (directory review, 10-24).
+	meta := map[string]bool{}
+	for _, row := range page.Profiles[web.AssistantMCPPath] {
+		if isMetaTool(row.Name) && row.Reasons["readOnlyHint"] != "" {
+			meta[row.Name] = true
+		}
+	}
+	if !meta[callToolName] || !meta[searchToolsName] {
+		t.Fatalf("hints page leaves out the assistant's meta tools: %v", meta)
+	}
 	md := makeRequest(s, "GET", "https://swarmmemo.com"+mcpToolHintsPath+".md", "", "")
 	if md.Code != 200 || !strings.Contains(md.Body.String(), "### recover_identity") || !strings.Contains(md.Body.String(), "every earlier token stops working") {
 		t.Fatalf("%s.md: %d %.300s", mcpToolHintsPath, md.Code, md.Body.String())

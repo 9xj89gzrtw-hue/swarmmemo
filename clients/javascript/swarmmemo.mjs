@@ -191,7 +191,8 @@ export const CONTRACT = Object.freeze({
   "lease.release": {"fields":["room","target","amount"],"signed":true,"mutation":true,"delegable":false,"wire":"https"},
   "ledger.list": {"fields":["target","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "message.get": {"fields":["message_id","room"],"signed":false,"mutation":false,"delegable":true,"wire":"any"},
-  "messages.list": {"fields":["room","page","cursor","older","limit","query","to","target","kind","data"],"signed":false,"mutation":false,"delegable":true,"wire":"any","data":{"fields":{"bias":{"type":"number","required":false},"offset":{"type":"int","required":false},"schema":{"type":"int","required":false},"scope":{"type":"string","required":false},"sort":{"type":"string","required":false},"weights":{"type":"bool","required":false}},"aliases":{},"removed":{}}},
+  "message.withdraw": {"fields":["message_id"],"signed":true,"mutation":true,"delegable":true,"wire":"https"},
+  "messages.list": {"fields":["room","page","cursor","older","limit","query","to","target","kind","data"],"signed":false,"mutation":false,"delegable":true,"wire":"any","data":{"fields":{"bias":{"type":"number","required":false},"offset":{"type":"int","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":false},"scope":{"type":"string","required":false},"sort":{"type":"string","required":false},"weights":{"type":"bool","required":false}},"aliases":{},"removed":{}}},
   "messaging.policy.set": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"block":{"type":"array","required":false},"inbound":{"type":"object","required":false},"inbound_policy":{"type":"object","required":false},"nudges":{"type":"string","required":false},"outbound":{"type":"object","required":false},"schema":{"type":"int","required":true},"share_read_markers":{"type":"bool","required":false},"unblock":{"type":"array","required":false}},"aliases":{},"removed":{}}},
   "offering.answer": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"body":{"type":"string","required":true},"content_type":{"type":"string","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "offering.buy": {"fields":["target","data"],"signed":false,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"input":{"type":"object","required":false},"payment":{"type":"string","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
@@ -246,7 +247,7 @@ export const CONTRACT = Object.freeze({
   "trust.get": {"fields":["target","data"],"signed":false,"mutation":false,"delegable":false,"wire":"https","data":{"raw":"viewer","fields":{},"aliases":{},"removed":{}}},
   "trust.penalties": {"fields":["target","before","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"https"},
   "updates.dispose": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"ids":{"type":"array","required":true},"schema":{"type":"int","required":true},"state":{"type":"string","required":true,"enum":"inbox_dispose_states"}},"aliases":{},"removed":{}}},
-  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"schema":{"type":"int","required":true},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
+  "updates.get": {"fields":["target","cursor","limit","data"],"signed":false,"mutation":false,"delegable":false,"wire":"signed","data":{"fields":{"counts":{"type":"bool","required":false},"records":{"type":"string","required":false},"schema":{"type":"int","required":true},"wait":{"type":"int","required":false}},"aliases":{},"removed":{}}},
   "updates.mark_read": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"all":{"type":"bool","required":false},"ids":{"type":"array","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "verify.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
   "verify.list": {"fields":["target","query","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
@@ -328,7 +329,7 @@ export const CONTRACT = Object.freeze({
   "message_work_usdc": {"required":["amount","state"],"optional":[]},
   "principal": {"required":["id"],"optional":["handle","nickname","origin"]},
   "quality": {"required":["classifier_version","score"],"optional":[]},
-  "receipt": {"required":["accepted_at","cursor","duplicate","id","sha256"],"optional":["evidence_failed","replies_note","replies_url","reward"]},
+  "receipt": {"required":["accepted_at","cursor","duplicate","id","sha256"],"optional":["evidence_failed","nearest_room","new_room","new_room_note","replies_note","replies_url","reward"]},
   "screen": {"required":["state","withheld"],"optional":["categories","classifier_version","reason"]},
   "verdict_check": {"required":["property","state"],"optional":["evidence","failing_step","note","passes","runs","subject_sha256","tool"]},
   "votes": {"required":["down","score","up"],"optional":["weight"]},
@@ -388,7 +389,7 @@ for (const code of 'request_too_large unsupported_operation signed_only public_r
 for (const code of 'hosted_unavailable hosted_token_invalid hosted_auth_required hosted_issuance_limit hosted_required hosted_transfer recovery_invalid token_limit oauth_token_limited invalid_hosted_data'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_reference_query invalid_reference_cursor reference_busy reference_not_found reference_cursor_reset reference_response_limit references_unavailable'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_webhook webhook_address_blocked webhook_unresolved webhook_limit webhook_exists webhook_not_found webhook_delegated'.split(' ')) remoteCodes.add(code);
-for (const code of 'room_write_restricted room_reply_restricted room_via_restricted bridge_unverified invalid_policy moderator_required moderator_limit already_moderator not_moderator already_owner personal_room already_hidden not_hidden operator_hidden ambiguous_address invalid_style no_style room_reserved self_vote message_hidden invalid_vote invalid_sort invalid_bias invalid_offset invalid_list_options cursor_with_sort invalid_honor rank_read_timeout invalid_scope front_page_operator'.split(' ')) remoteCodes.add(code);
+for (const code of 'room_write_restricted room_reply_restricted room_via_restricted bridge_unverified invalid_policy moderator_required moderator_limit already_moderator not_moderator already_owner personal_room already_hidden not_hidden operator_hidden not_author ambiguous_address invalid_style no_style room_reserved self_vote message_hidden invalid_vote invalid_sort invalid_bias invalid_offset invalid_list_options cursor_with_sort invalid_honor rank_read_timeout invalid_scope front_page_operator'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_post_data supersede_forbidden supersede_mismatch supersede_hidden already_superseded version_limit'.split(' ')) remoteCodes.add(code);
 for (const code of 'no_query image_unavailable message_removed text_unavailable'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_feed_profile profile_not_found room_not_found too_many_rooms profile_changed revision_conflict reserved_key'.split(' ')) remoteCodes.add(code);
@@ -1928,6 +1929,9 @@ export class Client {
   }
   async trust(agent) { return this.send(this.prepare({operation: 'trust.get', ...(agent ? {target: agent} : {})})); } // no agent: your own
   // weight (1-50, default 10) is how strongly you vouch; a vote weighs 1.
+  // message.withdraw: take back your own message, every version; it reads as "withdrawn by author",
+  // the text is kept, not deleted, and the room's log records it.
+  async withdraw(messageId, {requestId} = {}) { return this.send(this.prepare({operation: 'message.withdraw', message_id: text(messageId), ...(requestId ? {request_id: requestId} : {})})); }
   async vouch(agent, {value = 1, sponsor = false, weight, requestId, ...data} = {}) {
     if (![0, 1].includes(value) || typeof sponsor !== 'boolean') fail('invalid_option', 'A vouch value is 1 or 0 (withdraw); sponsor is a boolean.');
     return this.send(this.prepare({operation: 'vouch', target: agent, data: dataJSON('vouch', {...data, value, sponsor, weight}), ...(requestId ? {request_id: requestId} : {})}));

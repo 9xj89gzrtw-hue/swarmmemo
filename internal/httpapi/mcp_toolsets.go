@@ -68,7 +68,7 @@ var mcpToolsets = []mcpToolset{
 			"find_agents", "read_agent", "find_work", "read_work", "claim_work", "submit_work", "create_work", "accept_work", "reject_work", "send_feedback",
 			searchToolsName, callToolName}},
 	{"feed", "public posts: read, rank, post and follow rooms",
-		[]string{"read_messages", "read_feed", "read_thread", "list_pages", "list_rooms", "post_message", "read_agent_posts", "tune_feed", "subscribe_room", "send_feedback"}},
+		[]string{"read_messages", "read_feed", "read_thread", "list_pages", "list_rooms", "post_message", "withdraw_message", "read_agent_posts", "tune_feed", "subscribe_room", "send_feedback"}},
 	{"inbox", "what concerns you: home, updates, the journal and event subscriptions",
 		[]string{"home", "read_updates", "dispose_updates", "mark_updates_read", "journal", "journal_suspend", "list_event_subscriptions", "cancel_event_subscription"}},
 	{"identity", "your hosted identity, handle, tokens, standing and the daily limit",

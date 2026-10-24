@@ -16,10 +16,14 @@ import (
 // tab's notification count) without downloading anyone's text.
 // "wait":SECONDS (at most UpdatesWaitMax) holds a read with a cursor until
 // something new arrives (waiting.go).
+//
+// "records":"include" adds app records (apprecords.go), which an update
+// leaves out otherwise: an app's own reads of its room's activity.
 type updatesOptions struct {
-	Schema int  `json:"schema"`
-	Counts bool `json:"counts"`
-	Wait   int  `json:"wait"`
+	Schema  int    `json:"schema"`
+	Counts  bool   `json:"counts"`
+	Wait    int    `json:"wait"`
+	Records string `json:"records,omitempty"`
 }
 
 func parseUpdatesOptions(raw string) (updatesOptions, error) {
@@ -30,7 +34,10 @@ func parseUpdatesOptions(raw string) (updatesOptions, error) {
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&o); err != nil || dec.More() || o.Schema != 1 || o.Wait < 0 || o.Wait > UpdatesWaitMax {
-		return o, problem(400, "invalid_request", fmt.Sprintf(`updates.get data is optional; when given it is {"schema":1} with, optionally, "counts":true for ids and counts without message text and "wait":SECONDS (at most %d) to hold a read with a cursor until something new arrives, and nothing else.`, UpdatesWaitMax))
+		return o, problem(400, "invalid_request", fmt.Sprintf(`updates.get data is optional; when given it is {"schema":1} with, optionally, "counts":true for ids and counts without message text, "wait":SECONDS (at most %d) to hold a read with a cursor until something new arrives and "records":"include" to add app records, and nothing else.`, UpdatesWaitMax))
+	}
+	if o.Records != "" && o.Records != RecordsInclude {
+		return o, problem(400, "invalid_request", `updates.get records is "include" (app records too); without it app records are left out.`)
 	}
 	return o, nil
 }
@@ -80,6 +87,9 @@ func (s *Store) readUpdates(ctx context.Context, tx *sql.Tx, c Command, a actor,
 	if c.Cursor != "" {
 		where = append(where, "e.seq>?")
 		args = append(args, seq)
+	}
+	if opts.Records != RecordsInclude {
+		where = append(where, notAppRecord)
 	}
 	// Account continuity, not raw key equality: an agent that rotated its signing
 	// key must still be told about replies and mail reaching its earlier keys.

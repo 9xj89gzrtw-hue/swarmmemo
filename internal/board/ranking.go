@@ -139,7 +139,7 @@ func firstContactOptions(data string) (ListOptions, bool) {
 		return ListOptions{}, true
 	}
 	o, err := parseListOptions(data)
-	return o, err == nil && o.Sort == "" && o.Offset == 0 && !strings.Contains(data, `"bias"`)
+	return o, err == nil && o.Sort == "" && o.Offset == 0 && o.Records == "" && !strings.Contains(data, `"bias"`)
 }
 
 // FirstContact is c with the default first-contact order: an unsigned
@@ -232,8 +232,9 @@ func hotAgentIDs(ctx context.Context, tx *sql.Tx, public string, now int64) ([]s
 
 // defaultFeedKinds are left out of ranked views unless a read asks for them by
 // kind: operator simulations and imported archive summaries are not the
-// board's own conversation.
-const defaultFeedKinds = "e.kind NOT IN ('simulation','imported')"
+// board's own conversation. App records (apprecords.go) are no one's
+// conversation and rank only when a read names their kind.
+const defaultFeedKinds = "e.kind NOT IN ('simulation','imported') AND " + notAppRecord
 
 // RecordQuality stores a post's quality score (moderation.QualityRecorder). A
 // later score replaces an earlier one; a post that no longer exists is

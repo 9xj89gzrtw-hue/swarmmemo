@@ -414,7 +414,7 @@ func (s *Store) indexReview(ctx context.Context, tx *sql.Tx, p *pendingReview, e
 			class = e.class
 		}
 	}
-	if err = tx.QueryRowContext(ctx, "SELECT "+seasonedAccountSQL("?"), p.account, now-int64(VoterMinAge.Seconds())).Scan(&p.seasoned); err != nil {
+	if p.seasoned, err = seasonedVoter(ctx, tx, p.account, now); err != nil {
 		return nil, nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO reviews(event_id,root_event,subject,account,author,root,verdict,relationship,relationship_raised,works,as_described,safe,good,rubric,rubric_version,rubric_sha256,score,band_lo,band_hi,grade,flags,evidence_class,seasoned,review,created_at,current,version)
@@ -1652,7 +1652,7 @@ func priorNote() string {
 
 func reviewOrderNote() map[string]any {
 	return map[string]any{"version": ReviewOrderVersion, "weight": "evidence class × v(standing) (1 for a reviewer with a visible public post a day old when it reviewed) × relationship × decay, capped per subject per UTC day",
-		"evidence_weights": ReviewEvidenceWeights, "relationship_factors": ReviewRelationshipFactors, "v": "1 for an account with a public post a day old when it reviewed, else 0 (today's rule until the standing cutover)",
+		"evidence_weights": ReviewEvidenceWeights, "relationship_factors": ReviewRelationshipFactors, "v": "1 for an account with a public post a day old when it reviewed and not in a burst cluster, else 0 (today's rule until the standing cutover)",
 		"half_life_days": ReviewHalfLifeDays, "burst_cap": ReviewBurstCap, "burst_days": ReviewBurstDays, "verdict_values": map[string]any{"good": 1, "mixed": 0.5, "bad": 0, "unusable": 0, "unverified": "not counted"},
 		"own_root": "a review by an account of the subject owner's own root (RFC 0020 §3.3) is listed with own_root and relationship factor 0, so it is in no score",
 		"separate": "lab assessments and other raters are shown apart and never in this order or its aggregate"}

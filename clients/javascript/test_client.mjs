@@ -402,6 +402,8 @@ test('allowance, memory, trust and vouch helpers send the documented command sha
     [() => signed.webhookCreate('https://example.org/hook', {kinds: ['room_activity', 'reply'], requestId: 'hook-2'}), {operation: 'webhook.create', request_id: 'hook-2', data: '{"schema":1,"url":"https://example.org/hook","kinds":["room_activity","reply"]}'}],
     [() => signed.webhooks({limit: 5}), {operation: 'webhook.list', limit: 5}],
     [() => signed.webhookDelete('s'.repeat(32), {requestId: 'hook-3'}), {operation: 'webhook.delete', target: 's'.repeat(32), request_id: 'hook-3'}],
+    [() => signed.withdraw('e'.repeat(32), {requestId: 'withdraw-1'}), {operation: 'message.withdraw', message_id: 'e'.repeat(32), request_id: 'withdraw-1'}],
+    [() => signed.updates({records: 'include'}), {operation: 'updates.get', target: fixtureKey.fingerprint, data: '{"schema":1,"records":"include"}'}],
   ];
   for (const [call, expected] of cases) {
     await assert.rejects(call(), error => errorCode('service_unavailable')(error) && error.status === 503);

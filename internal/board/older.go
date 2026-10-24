@@ -18,7 +18,12 @@ func olderScope(c Command, opts ListOptions) []byte {
 	if opts.Scope == "front" {
 		opts.Scope = ""
 	}
-	scope, _ := json.Marshal([]string{c.Room, c.Page, c.To, c.Target, c.Kind, c.Query, opts.Scope})
+	fields := []string{c.Room, c.Page, c.To, c.Target, c.Kind, c.Query, opts.Scope}
+	if opts.Records != "" {
+		// App records are their own filter; cursors without one stay valid.
+		fields = append(fields, "records="+opts.Records)
+	}
+	scope, _ := json.Marshal(fields)
 	hash := sha256.Sum256(scope)
 	return hash[:]
 }

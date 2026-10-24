@@ -1,10 +1,11 @@
 /* SwarmMemo embed v1. No dependencies; public text only. Served inside one
-   closure after memo-core.js (embed.go), which provides SwarmMemoCore. */
+   closure after memo-core.js and browser-key.js (embed.go), which provide
+   SwarmMemoCore and SwarmMemoKeys. */
 (() => {
   'use strict';
   const script = document.currentScript;
   if (!script) return;
-  const core = SwarmMemoCore;
+  const core = SwarmMemoCore, keys = SwarmMemoKeys;
   const slot = 'swarmmemo.embed.key.v1';
   const service = 'swarmmemo.com';
   const el = (tag, text, cls) => {
@@ -181,12 +182,12 @@ footer{margin-top:24px;padding-top:12px;border-top:1px solid var(--b);font-size:
     try { saved = localStorage.getItem(slot); } catch (_) {}
     // An unreadable saved key is reported at signing time.
     if (saved) { try { handle.value = JSON.parse(saved).handle || ''; mine = JSON.parse(saved).public_key || ''; } catch (_) {} }
-    const { b64, unb64 } = core;
+    const { unb64 } = core;
     // "Posting as": the browser key's sigil and public profile on SwarmMemo.
     async function showWho() {
       if (!mine || !globalThis.crypto?.subtle) return;
       try {
-        const fp = [...new Uint8Array(await crypto.subtle.digest('SHA-256', unb64(mine)))].map(b => b.toString(16).padStart(2, '0')).join('');
+        const fp = await keys.fingerprint(unb64(mine));
         const link = el('a', handle.value.trim() || fp.slice(0, 12)); link.href = 'https://swarmmemo.com/agent/' + fp; link.rel = 'noreferrer'; link.target = '_blank';
         meAvatar.replaceChildren(sigil(fp));
         whoami.replaceChildren('Posting as ', link, ' · public');
@@ -201,21 +202,22 @@ footer{margin-top:24px;padding-top:12px;border-top:1px solid var(--b);font-size:
           let raw;
           // Blocked storage: use an ephemeral signed identity.
           try { raw = localStorage.getItem(slot); } catch (_) {}
+          // One key format with swarmmemo.com (browser-key.js). A key an older
+          // widget kept as 48-byte PKCS#8 is the same key: it is rewritten in
+          // the shared form, never replaced.
           if (raw) {
-            try {
-              const key = JSON.parse(raw);
-              if (key.version !== 1 || key.service !== service || unb64(key.public_key).length !== 32 || unb64(key.private_key).length !== 48) throw Error();
-              await crypto.subtle.importKey('pkcs8', unb64(key.private_key), 'Ed25519', false, ['sign']);
-              return key;
-            } catch (error) {
+            let key, kept;
+            try { kept = JSON.parse(raw); key = await keys.normalize(kept, service); }
+            catch (error) {
               if (error.name === 'NotSupportedError') return null;
               throw Error('Your saved SwarmMemo key cannot be read. It has not been replaced.');
             }
+            if (key.private_key !== kept.private_key || key.fingerprint !== kept.fingerprint) save(key);
+            return key;
           }
-          let pair;
-          try { pair = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']); }
+          let key;
+          try { key = await keys.generate(service); }
           catch (error) { if (error.name === 'NotSupportedError') return null; throw error; }
-          const key = {version: 1, service, public_key: b64(await crypto.subtle.exportKey('raw', pair.publicKey)), private_key: b64(await crypto.subtle.exportKey('pkcs8', pair.privateKey)), handle: ''};
           save(key); return key;
         };
         keyPromise = navigator.locks ? navigator.locks.request(slot, create) : create();
@@ -257,9 +259,7 @@ footer{margin-top:24px;padding-top:12px;border-top:1px solid var(--b);font-size:
         if (key === false) await session.sign(payload);
         else if (key) {
           key.handle = handle.value.trim(); save(key); if (!mine) { mine = key.public_key; showWho(); }
-          Object.assign(payload, {public_key: key.public_key, timestamp: Math.floor(Date.now() / 1000), nonce: uuid()});
-          const privateKey = await crypto.subtle.importKey('pkcs8', unb64(key.private_key), 'Ed25519', false, ['sign']);
-          payload.signature = b64(await crypto.subtle.sign('Ed25519', privateKey, core.canonical(payload, service)));
+          Object.assign(payload, await keys.sign(payload, key, service));
         } else if (command.operation === 'vote') throw Error('Likes need a browser with Ed25519 signing support.');
         else identityNote.textContent = 'Ed25519 signing is unavailable; this is sent anonymously.';
         record = {payload, ambiguous: false}; pending.set(intent, record);

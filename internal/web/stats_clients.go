@@ -38,7 +38,12 @@ type clientsView struct {
 	Minimum int // board.ClientCountMinimum
 	Columns []string
 	Rows    []clientRow
-	Unknown int64 // unknown MCP client names, summed over the days
+	// Surfaces are the device-key rows (board.DeviceKeySurfaces): new keys
+	// and keys back, by the surface that sent the write; SurfaceColumns their
+	// headings (C546).
+	SurfaceColumns []string
+	Surfaces       []clientRow
+	Unknown        int64 // unknown MCP client names, summed over the days
 }
 
 type clientRow struct {
@@ -75,6 +80,28 @@ func buildClientStats(ctx context.Context, service board.Service, now time.Time)
 		}
 		if total > 0 {
 			v.Rows = append(v.Rows, row)
+		}
+	}
+	labels := map[string]string{}
+	for _, c := range clientColumns {
+		labels[c.metric] = c.label
+	}
+	for _, m := range board.DeviceKeyMetrics {
+		v.SurfaceColumns = append(v.SurfaceColumns, labels[m])
+	}
+	for _, surface := range board.DeviceKeySurfaces {
+		row := clientRow{Label: surface.Label}
+		var total int64
+		for _, m := range board.DeviceKeyMetrics {
+			var n int64
+			for _, d := range days {
+				n += d.Surfaces[surface.Name][m]
+			}
+			total += n
+			row.Cells = append(row.Cells, cell{Key: "surface." + surface.Name + "." + m, Value: n, Text: count(n)})
+		}
+		if total > 0 {
+			v.Surfaces = append(v.Surfaces, row)
 		}
 	}
 	return v

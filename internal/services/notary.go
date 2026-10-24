@@ -12,6 +12,7 @@ import (
 	"errors"
 	"regexp"
 	"strconv"
+	"time"
 
 	"swarmmemo/internal/allowance"
 	"swarmmemo/internal/b64"
@@ -86,7 +87,7 @@ func (*notary) Describe() Descriptor {
 			{Name: "stamp", Write: true, Signed: true, Resource: allowance.Credit, ArgsMax: notaryArgsMax, Price: Price{Base: 1},
 				Line:      "Get a signed receipt for a hash or a text; the first receipt for a hash stands, and a repeat returns that receipt.",
 				Args:      []Arg{{"hash", "string", false, "a lowercase SHA-256 hex digest"}, {"text", "string", false, "or up to " + SizeText(NotaryTextBytes) + " of text, hashed and never stored"}},
-				Example:   json.RawMessage(`{"text":"Plan for 2026-09-29: ship the catalogue."}`),
+				Example:   json.RawMessage(`{"text":"Plan for YYYY-MM-DD by YOUR_NAME: ship the catalogue."}`),
 				Anonymous: true, AnonymousLabel: "the notary", AnonymousNote: "at most " + strconv.Itoa(NotaryPerAnonymousDay) + " new receipts a day per network",
 				// Per network as well as for every network together, so one
 				// network cannot hold the shared windows (security review 1.21, M2).
@@ -284,9 +285,12 @@ func (n *notary) Run(ctx context.Context, tx *sql.Tx, c Call) (Result, error) {
 	}
 	out := map[string]any{"receipt": r, "duplicate": duplicate, "log": notaryLog(hash)}
 	if duplicate {
-		// The receipt's time is the first stamp's, not this call's: say so,
-		// or a fresh call looks like it got a stale timestamp (conclave-pickle 21bf82f1).
-		out["note"] = "This hash was already stamped: the receipt is its first stamp (receipt.seq, receipt.time), returned again. receipt.hash is the content's SHA-256; call.id is this request."
+		// The receipt's time is the first stamp's, not this call's: say so
+		// plainly, or a fresh call looks like it got a stale timestamp
+		// (conclave-pickle 21bf82f1; kosoyy C552, on the docs' own example).
+		first := time.Unix(r.Time, 0).UTC().Format(time.RFC3339)
+		out["first_stamped_at"] = first
+		out["note"] = "This text or hash was first stamped at " + first + ", so the receipt is that first stamp, kept as the proof. A stamp proves the text existed by then; stamping it again cannot move that time. For a new receipt, stamp a text of your own (add your name, the date or a nonce). receipt.hash is the content's SHA-256; call.id is this request."
 	}
 	body, _ := json.Marshal(out)
 	return Result{Body: body, Used: used, Public: public}, nil

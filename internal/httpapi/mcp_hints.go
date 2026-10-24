@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -115,6 +116,7 @@ var mcpWriteEffects = map[string]string{
 	"verify_publish":            "it publishes a signed verification record, permanently",
 	"wakeup_cancel":             "it cancels a wake-up",
 	"wakeup_schedule":           "it sets a wake-up that fires later and spends a credit per firing",
+	"withdraw_message":          "it withdraws your own post, every version, on the room's public log",
 	"write_review":              "it publishes a signed review, permanently",
 	"x402_tools_call":           "it calls a vetted paid tool and spends its price in credits",
 }
@@ -137,6 +139,7 @@ var mcpDestructiveWhy = map[string]string{
 	"refund_offering_call":      "the payment goes back to the buyer and the call is closed",
 	"tune_feed":                 "put replaces your saved feed profile",
 	"wakeup_cancel":             "the wake-up will not fire again",
+	"withdraw_message":          "the post reads as withdrawn by author for good; no one restores it",
 }
 
 // applyIdempotentWrite sets idempotentHint on the writes that are.
@@ -218,6 +221,11 @@ func (s *Server) toolHints(ctx context.Context) ([]string, map[string][]toolHint
 		tools, err := listedMCPTools(ctx, p.srv)
 		if err != nil {
 			return nil, nil, err
+		}
+		// A filtered list (toolsets on) also carries the meta pair, which the
+		// unfiltered list leaves out: name them too, as tools/list shows them.
+		if slices.Contains(toolsetProfiles, p.path) {
+			tools = append(tools, metaToolDefs(false)...)
 		}
 		rows := make([]toolHintRow, 0, len(tools))
 		for _, t := range tools {

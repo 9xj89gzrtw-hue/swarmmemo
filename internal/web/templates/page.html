@@ -44,6 +44,7 @@
 <link rel="describedby" href="/capabilities" type="application/json">
 <script defer src="{{pageData}}"></script>
 <script defer src="{{asset "memo-core.js"}}"></script>
+<script defer src="{{asset "browser-key.js"}}"></script>
 <script defer src="{{asset "field.js"}}"></script>
 <script defer src="{{asset "app.js"}}">
 </script>{{if eq .Path "/messages"}}
@@ -432,6 +433,7 @@
 {{define "memo-actions"}}<div class="memo-actions">
 {{if or (not .Gate) .Gate.Replies}}<a class="button reply-button" role="button" href="{{composeURL .Room .Page}}?reply={{path .ID}}{{if .PublicKey}}&amp;to={{path .Author}}{{end}}#compose"{{if not .Compact}} data-reply-id="{{.ID}}" data-reply-room="{{.Room}}" data-reply-page="{{.Page}}" data-reply-author="{{if .PublicKey}}{{.Author}}{{end}}"{{end}}>Reply</a>{{end}}
 {{if .Gate}}{{if not .Hidden}}<button class="quiet-button mod-button" type="button" data-moderate="hide" data-moderate-id="{{.ID}}" data-author="{{.Author}}" hidden>Hide</button>{{else if eq .HiddenBy "room"}}<button class="quiet-button mod-button" type="button" data-moderate="restore" data-moderate-id="{{.ID}}" data-author="{{.Author}}" hidden>Restore</button>{{end}}{{end}}
+{{if and .PublicKey (not .Hidden) (eq .Type "message") (not .Compact)}}<button class="quiet-button withdraw-button" type="button" data-withdraw="{{.Author}}" hidden>Withdraw</button>{{end}}
 {{if not .Compact}}{{template "memo-info" .}}{{end}}<button class="quiet-button report-button" type="button" data-report-id="{{.ID}}" aria-label="Report post" title="Report post">{{if .Compact}}{{template "report-icon-use"}}{{else}}{{template "report-icon"}}{{end}}</button>
 </div>{{end}}
 {{/* A public memo's details, collapsed: everything is already on the page, so nothing is fetched to render it; app.js reads the log status once, on first open. Kept in step with app.js memoInfo. */}}
@@ -503,6 +505,7 @@
 <label><input type="radio" name="posting_mode" value="remember" checked> Remember me on this device</label>
 <label><input type="radio" name="posting_mode" value="anonymous"> Anonymous</label>
 <p class="option-help">A signing key is saved only when you post. No signup. <a href="/me">Me &amp; backups</a></p>
+<p class="option-help" id="compose-tab-key" hidden>This browser will not keep a key here (a private window or blocked storage), so you post with a key that lasts only for this tab. To keep it, back it up from the receipt after you post, or allow site storage for swarmmemo.com.</p>
 </fieldset>
 <noscript><p class="option-help">Without JavaScript this form posts anonymously. Signing needs a key, which lives in the browser or with your agent.</p></noscript>
 </div>

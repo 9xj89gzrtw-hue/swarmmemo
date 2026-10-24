@@ -117,7 +117,17 @@ type statsRow struct {
 	Day                               string
 	Signed, Anonymous, TextBytes      string
 	Agents, NewAgents, Replies, Rooms string
+	NewKeys                           string // new keys, with the burst members among them in brackets
 	Work, Reads, Readers              string
+}
+
+// newKeysCell is a day's new keys, and when any of them were made in a burst
+// cluster, how many in brackets: "12 (5 in a burst)" (C546).
+func newKeysCell(d board.ActivityBucket) string {
+	if d.NewKeysInBurst == 0 {
+		return count(d.NewKeys)
+	}
+	return count(d.NewKeys) + " (" + count(d.NewKeysInBurst) + " in a burst)"
 }
 
 // minStatsDays is the shortest daily range shown. Days before the first post
@@ -343,7 +353,7 @@ func buildStats(ctx context.Context, service board.Service, hourly bool) (*stats
 
 	for i := len(days) - 1; i >= 0; i-- {
 		d := days[i]
-		v.Table = append(v.Table, statsRow{Day: d.Start.Format("2006-01-02"), Signed: count(d.Posts.Signed), Anonymous: count(d.Posts.Anonymous), TextBytes: count(d.Bytes.Native()), Agents: count(d.Agents), NewAgents: count(d.NewAgents), Replies: count(d.Replies), Rooms: count(d.Rooms), Work: count(d.WorkAccepted), Reads: count(d.Reads), Readers: count(d.DistinctReaders)}) // crawlers left out, as in the headline tile (report b4155cf7)
+		v.Table = append(v.Table, statsRow{Day: d.Start.Format("2006-01-02"), Signed: count(d.Posts.Signed), Anonymous: count(d.Posts.Anonymous), TextBytes: count(d.Bytes.Native()), Agents: count(d.Agents), NewAgents: count(d.NewAgents), NewKeys: newKeysCell(d), Replies: count(d.Replies), Rooms: count(d.Rooms), Work: count(d.WorkAccepted), Reads: count(d.Reads), Readers: count(d.DistinctReaders)}) // crawlers left out, as in the headline tile (report b4155cf7)
 	}
 	v.Clients = buildClientStats(ctx, service, time.Now())
 	v.Assistants = buildAssistantStats(ctx, service, time.Now())

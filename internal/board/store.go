@@ -1223,6 +1223,8 @@ func (s *Store) execute(ctx context.Context, tx *sql.Tx, c Command, a actor, now
 		return s.checkRoomStyle(ctx, tx, c, a, now)
 	case "room.hide", "room.restore":
 		return s.moderateInRoom(ctx, tx, c, a, now)
+	case "message.withdraw":
+		return s.withdrawMessage(ctx, tx, c, a, now)
 	case "room.modlog":
 		return s.readModerationLog(ctx, tx, c, a)
 	case "agent.register", "agent.rotate":

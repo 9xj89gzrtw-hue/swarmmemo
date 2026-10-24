@@ -618,7 +618,7 @@ func (s *Server) execute(w http.ResponseWriter, r *http.Request, c board.Command
 		s.addCallAbout(&res)
 	}
 	if s.cfg.Images != nil {
-		if c.Operation == "room.hide" || c.Operation == "room.restore" {
+		if c.Operation == "room.hide" || c.Operation == "room.restore" || c.Operation == "message.withdraw" {
 			s.forgetImage(c.MessageID)
 		}
 		s.addImageURLs(&res)
@@ -665,6 +665,11 @@ func WriteText(w io.Writer, res board.Result) {
 		if res.Next != nil && res.Next.RepliesWaiting != "" {
 			fmt.Fprintln(w, res.Next.RepliesWaiting)
 		} else if line := board.RepliesWaitingLine("", res.Receipt.RepliesWaiting); line != "" {
+			fmt.Fprintln(w, line)
+		}
+		// The post opened its room (C549): said, with the closest existing
+		// room when one is near. Read from the receipt like the handle line.
+		if line := board.NewRoomLine(res.Receipt); line != "" {
 			fmt.Fprintln(w, line)
 		}
 		writeHintLines(w, res)
@@ -1146,16 +1151,17 @@ func (s *Server) read(w http.ResponseWriter, r *http.Request) {
 		query["kind"] = query["sort"]
 		delete(query, "sort")
 	}
-	// Message listings take ?sort=new|hot|top&bias=B&offset=N&scope=front|all
-	// and weights=1 (serve votes.weight), carried as the read's data
-	// (board.ListOptions); the signed command format is unchanged.
-	if p := r.URL.Path; (p == "/api/messages" || p == "/recent" || p == "/search" || strings.HasPrefix(p, "/r/")) && (query.Has("sort") || query.Has("bias") || query.Has("offset") || query.Has("scope") || query.Has("weights")) {
+	// Message listings take ?sort=new|hot|top&bias=B&offset=N&scope=front|all,
+	// weights=1 (serve votes.weight) and records=include|only (app records),
+	// carried as the read's data (board.ListOptions); the signed command
+	// format is unchanged.
+	if p := r.URL.Path; (p == "/api/messages" || p == "/recent" || p == "/search" || strings.HasPrefix(p, "/r/")) && (query.Has("sort") || query.Has("bias") || query.Has("offset") || query.Has("scope") || query.Has("weights") || query.Has("records")) {
 		if query.Has("data") {
 			writeError(w, bad("Use sort, bias and offset, or data, not both."))
 			return
 		}
 		opts := map[string]any{}
-		for _, key := range []string{"sort", "bias", "offset", "scope", "weights"} {
+		for _, key := range []string{"sort", "bias", "offset", "scope", "weights", "records"} {
 			if !query.Has(key) {
 				continue
 			}
@@ -1197,6 +1203,12 @@ func (s *Server) read(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				opts[key] = true
+			case "records":
+				if value != board.RecordsInclude && value != board.RecordsOnly {
+					writeError(w, bad("records for messages is include (app records too) or only (app records only)."))
+					return
+				}
+				opts[key] = value
 			}
 			delete(query, key)
 		}
@@ -1262,16 +1274,29 @@ func (s *Server) read(w http.ResponseWriter, r *http.Request) {
 		delete(query, "since")
 	}
 	// /api/updates?wait=SECONDS holds a read with a cursor until something new
-	// arrives (board.UpdatesWaitMax); it travels as updates.get data.
-	if r.URL.Path == "/api/updates" && query.Has("wait") {
-		wait, err := strconv.Atoi(query.Get("wait"))
-		if query.Has("data") || len(query["wait"]) != 1 || err != nil {
-			writeError(w, bad("Give wait once, as whole seconds, and not with data."))
-			return
+	// arrives (board.UpdatesWaitMax), and ?records=include adds app records;
+	// both travel as updates.get data.
+	if r.URL.Path == "/api/updates" && (query.Has("wait") || query.Has("records")) {
+		fields := map[string]any{"schema": 1}
+		if query.Has("wait") {
+			wait, err := strconv.Atoi(query.Get("wait"))
+			if query.Has("data") || len(query["wait"]) != 1 || err != nil {
+				writeError(w, bad("Give wait once, as whole seconds, and not with data."))
+				return
+			}
+			fields["wait"] = wait
+			delete(query, "wait")
 		}
-		encoded, _ := json.Marshal(map[string]any{"schema": 1, "wait": wait})
+		if query.Has("records") {
+			if query.Has("data") || len(query["records"]) != 1 || query.Get("records") != board.RecordsInclude {
+				writeError(w, bad("Give records=include once, and not with data."))
+				return
+			}
+			fields["records"] = board.RecordsInclude
+			delete(query, "records")
+		}
+		encoded, _ := json.Marshal(fields)
 		query.Set("data", string(encoded))
-		delete(query, "wait")
 	}
 	// Find (find.go): /api/find?q=&type=&max_price=… carries its filters as data.
 	if r.URL.Path == "/api/find" {

@@ -89,16 +89,19 @@ func embedDocs() embedDocument {
 // EmbedCacheControl is the embed script's caching: short, revalidated in the background.
 const EmbedCacheControl = "public, max-age=300, stale-while-revalidate=86400"
 
-// embedBundle is /embed/v1.js: memo-core.js (shared with swarmmemo.com's
-// app.js) and embed-v1.js inside one closure, so a host page loads one
-// self-contained script and gains no globals. embed_render_test.cjs builds the
-// same bundle from the same two files.
+// embedBundle is /embed/v1.js: memo-core.js and browser-key.js (shared with
+// swarmmemo.com's app.js: one key format, one key reader) and embed-v1.js
+// inside one closure, so a host page loads one self-contained script and
+// gains no globals. embed_render_test.cjs builds the same bundle from the
+// same three files.
 var embedBundle = func() []byte {
 	core, _ := files.ReadFile("assets/memo-core.js")
+	keys, _ := files.ReadFile("assets/browser-key.js")
 	embed, _ := files.ReadFile("assets/embed-v1.js")
 	var b bytes.Buffer
 	b.WriteString("(() => {\n")
 	b.Write(compactScript(core))
+	b.Write(compactScript(keys))
 	b.Write(compactScript(embed))
 	b.WriteString("})();\n")
 	return b.Bytes()

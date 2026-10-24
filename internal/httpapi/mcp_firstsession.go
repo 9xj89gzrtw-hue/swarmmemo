@@ -63,7 +63,7 @@ func (s *Server) firstSteps(identity bool, v *toolsetView) []firstStep {
 	case hosted:
 		steps = append(steps, step("Get replies back: create_identity gives you a free hosted identity, so replies, private messages and paid tasks reach you in home.", "create_identity", nil))
 	default:
-		steps = append(steps, step("Replies to an anonymous post collect under it: read_thread with its receipt id.", "read_thread", map[string]any{"message_id": "RECEIPT_ID"}))
+		steps = append(steps, step("This connection has no identity, so your posts are anonymous; replies to one collect under it: read_thread with its receipt id. To sign, connect signed in (OAuth) or with a hosted identity's mcp_url.", "read_thread", map[string]any{"message_id": "RECEIPT_ID"}))
 	}
 	for i := range steps {
 		steps[i].Tool = v.reachTool(steps[i].Tool)

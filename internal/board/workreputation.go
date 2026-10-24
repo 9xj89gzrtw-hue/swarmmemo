@@ -22,7 +22,8 @@ package board
 // without a submit (another claim followed, or it is still claimed past its
 // expiry or the deadline). A result left undecided is the requester's (its
 // requester_record), never the worker's. Left out, both sides: the same
-// account, a worker linked to the requester (workLinkedSQL), two accounts
+// account, a worker linked to the requester (workLinkedSQL), a worker that
+// is its reviewer or linked to it (workOwnKeySQL), two accounts
 // the current trust run puts under one root (trust's own same-operator
 // union: linked keys, domains, wallets), and two accounts both on the
 // operator's exclude list (funnel.exclude): the operator's own keys paying
@@ -107,7 +108,7 @@ func (side *WorkRecordSide) add(outcome string, at, credits, usdc int64) {
 // time, the paid reward by unit, and (filtered on) the reward's face value. Arguments: now twice, then the minimum
 // reward; workRecords adds the account filter at %s.
 var workAttemptsSQL = `SELECT requester,worker,outcome,at,credits,usdc FROM (
- SELECT w.requester AS requester,` + transitionAccountSQL("c") + ` AS worker,
+ SELECT w.requester AS requester,w.reviewer AS reviewer,` + transitionAccountSQL("c") + ` AS worker,
   CASE WHEN v.operation='work.accept' THEN 'accepted' WHEN v.operation='work.reject' THEN 'rejected'
    WHEN NOT EXISTS(SELECT 1 FROM work_transitions s WHERE s.work_id=w.id AND s.fence=c.fence AND s.state='submitted')
     AND (EXISTS(SELECT 1 FROM work_transitions n WHERE n.work_id=w.id AND n.sequence>c.sequence AND n.operation='work.claim')
@@ -125,11 +126,23 @@ var workAttemptsSQL = `SELECT requester,worker,outcome,at,credits,usdc FROM (
  WHERE ` + workPublicSQL + `) x
  WHERE outcome<>'' AND worker<>'' AND worker<>requester AND reward>=?%s
  AND NOT ` + workLinkedSQL("x.requester", "x.worker") + `
+ AND NOT (x.reviewer<>'' AND (x.worker=x.reviewer OR ` + workOwnKeySQL("x.reviewer", "x.worker") + `))
  AND NOT EXISTS(SELECT 1 FROM trust_current c1 JOIN trust_scores t1 ON t1.run_id=c1.run_id AND t1.account=c1.account
   JOIN trust_current c2 ON c2.account=x.worker JOIN trust_scores t2 ON t2.run_id=c2.run_id AND t2.account=c2.account
   WHERE c1.account=x.requester AND t1.root=t2.root)
  AND NOT (x.requester IN (SELECT value FROM json_each(coalesce((SELECT value FROM meta WHERE key='` + metaFunnelExclude + `'),'[]')))
   AND x.worker IN (SELECT value FROM json_each(coalesce((SELECT value FROM meta WHERE key='` + metaFunnelExclude + `'),'[]'))))`
+
+// workOwnKeySQL is true when a key of account a and a key of account b are
+// linked either way: one names the other as its own (an ed25519 identity
+// link in any state), the test ownKeyOf makes. It leaves out a result its
+// own reviewer judged (C551): a reviewer's link is enough, as it is to
+// refuse that worker's claim.
+func workOwnKeySQL(a, b string) string {
+	return `EXISTS(SELECT 1 FROM identities ai JOIN identities bi ON bi.account=` + b + `
+  JOIN identity_links l ON l.kind='ed25519' AND ((l.agent=ai.id AND l.value=bi.public_key) OR (l.agent=bi.id AND l.value=ai.public_key))
+  WHERE ai.account=` + a + `)`
+}
 
 // WorkRecordCapabilities is /capabilities work_coordination.work_record:
 // the record and the rated accept, from the constants above.

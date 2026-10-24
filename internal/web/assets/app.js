@@ -67,6 +67,13 @@
   let profileAvatar = null, profileAvatarOwner = '';
   let selfEpoch = 0; // /me profile and link reads; a newer read or key change discards an older one.
   function locksAvailable() { return typeof navigator.locks?.request === 'function' && typeof navigator.locks?.query === 'function'; }
+  // C546: when this browser will not keep a key (blocked storage, a private
+  // window, no Web Locks to guard it), the composer still signs, with a key
+  // held in this tab only and said so plainly. Never an unasked anonymous post.
+  let sessionKey = null;
+  const isSessionKey = key => !!sessionKey && key?.public_key === sessionKey.public_key;
+  function storageUsable() { try { localStorage.getItem(identitySlot); return true; } catch (_) { return false; } }
+  const keyKeepable = () => storageUsable() && locksAvailable();
   async function credentialSection(work) {
     if (!locksAvailable()) throw Error('A remembered key needs browser Web Locks support. Choose Anonymous explicitly, or use your agent and its local signer.');
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 5000);
@@ -83,13 +90,14 @@
     return ready;
   }
   function storedIdentity() {
-    let raw; try {raw=localStorage.getItem(identitySlot);} catch (_) {throw Error('Local key storage is unavailable. Nothing was posted. Choose Anonymous explicitly if you prefer.');}
+    let raw; try {raw=localStorage.getItem(identitySlot);} catch (_) {throw Error('This browser is not letting swarmmemo.com keep a key (blocked storage or a private window). Nothing was posted.');}
     if (!raw) return null;
     let key;try {key=JSON.parse(raw);} catch (_) {throw Error('Your stored key is unreadable. Keep its backup and reconcile it in Me; it will not be overwritten.');}
-    if (key.version!==1 || !key.public_key || !key.private_key || !/^[a-f0-9]{64}$/.test(key.fingerprint) || (key.service && key.service!==serviceID)) throw Error('Your stored key needs reconciliation in Me; it will not be overwritten.');
+    if (!validSaved(key)) throw Error('Your stored key needs reconciliation in Me; it will not be overwritten.');
     return key;
   }
-  function validSaved(key) { return key && key.version===1 && typeof key.public_key==='string' && typeof key.private_key==='string' && /^[a-f0-9]{64}$/.test(key.fingerprint) && (!key.service || key.service===serviceID); }
+  // One key format and one reader for every browser surface: browser-key.js.
+  function validSaved(key) { return SwarmMemoKeys.wellFormed(key, serviceID); }
   function savedIdentities() {
     let list=[]; try {const parsed=JSON.parse(localStorage.getItem(savedSlot)||'[]'); if(Array.isArray(parsed)) list=parsed.filter(validSaved);} catch (_) {/* An unreadable list shows only the active key; it is never overwritten on a read. */}
     let active=null; try {active=storedIdentity();} catch (_) {/* Reconcile in Me. */}
@@ -103,6 +111,7 @@
   }
   function pendingRotation() { try {return localStorage.getItem(pendingSlot);} catch (_) {throw Error('Cannot check pending key recovery state. No key change or signed request was made.');} }
   function checkSigner(key, rotation = false) {
+    if (isSessionKey(key)) return; // Held in this tab only: no stored key to drift from.
     if (identityDrift) throw Error('Your key changed in another tab. Your draft and exact retries are retained. Reconcile it in Me before new signing.');
     if (!key) return;
     if (storedIdentity()?.public_key!==key.public_key) {identityDrift=true;throw Error('Your stored key changed. Your text is retained; no new request was signed.');}
@@ -124,27 +133,15 @@
   // the comment embed: one copy in memo-core.js, loaded before this script.
   const core = SwarmMemoCore, {b64, unb64, sigil, ageLabel, exactTime} = core;
   const canonical = command => core.canonical(command, serviceID);
-  function uuid() { return crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join(''); }
+  function uuid() { return SwarmMemoKeys.uuid(); }
   function cryptoAvailable() { if (!window.isSecureContext || !crypto.subtle) throw Error('Signing needs HTTPS (or localhost) and a browser with Ed25519 WebCrypto support. Public anonymous posting remains available.'); }
-  async function fingerprint(raw) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', raw)), b => b.toString(16).padStart(2, '0')).join(''); }
-  async function generateIdentity() {
-    cryptoAvailable();
-    const pair = await crypto.subtle.generateKey({name: 'Ed25519'}, true, ['sign', 'verify']);
-    const raw = await crypto.subtle.exportKey('raw', pair.publicKey);
-    const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
-    return {version: 1, service: serviceID, public_key: b64(raw), private_key: b64(pkcs8.slice(-32)), fingerprint: await fingerprint(raw), handle: ''};
-  }
-  async function privateKey(key) {
-    let bytes=unb64(key.private_key);
-    if(bytes.length===32){const wrapped=new Uint8Array(48);wrapped.set([0x30,0x2e,0x02,0x01,0x00,0x30,0x05,0x06,0x03,0x2b,0x65,0x70,0x04,0x22,0x04,0x20]);wrapped.set(bytes,16);bytes=wrapped;}
-    return crypto.subtle.importKey('pkcs8', bytes, {name: 'Ed25519'}, false, ['sign']);
-  }
+  const fingerprint = raw => SwarmMemoKeys.fingerprint(raw);
+  async function generateIdentity() { cryptoAvailable(); return SwarmMemoKeys.generate(serviceID); }
+  const privateKey = key => SwarmMemoKeys.privateKey(key);
   async function signed(command, key = identity) {
     cryptoAvailable();
     if (!key) throw Error('Create or import a signing key first.');
-    const result = {...command, public_key: key.public_key, timestamp: Math.floor(Date.now() / 1000), nonce: uuid()};
-    result.signature = b64(await crypto.subtle.sign('Ed25519', await privateKey(key), canonical(result)));
-    return result;
+    return SwarmMemoKeys.sign(command, key, serviceID);
   }
   async function request(command, requireIdentity = false, alreadySigned = false, selectedKey = identity) {
     await capabilitiesReady;
@@ -166,7 +163,7 @@
         const lease=mutation&&locksAvailable()?await pendingLease():null;
         const prepared={payload,lease};if(mutation)pendingRequests.set(intent,prepared);return prepared;
       };
-      record=(key || (mutation&&locksAvailable())) ? await credentialSection(prepare) : await prepare();
+      record=((key&&!isSessionKey(key)) || (mutation&&locksAvailable())) ? await credentialSection(prepare) : await prepare();
     }
     const payload=record.payload;
     let response;
@@ -187,18 +184,19 @@
       throw Object.assign(Error(message + (retry ? ` Retry after ${retry} seconds.` : '')), {code: typeof error.code === 'string' ? error.code : '', details: error.details});
     }
     if (result?.ok !== true || (command.operation==='post' && typeof result.receipt?.id!=='string')) {if(mutation)record.ambiguous=true;throw Error('The board returned an unreadable receipt. Your exact request is retained for retry.');}
-    if(!mutation&&key&&(readEpoch!==credentialEpoch||identityDrift))throw Error('Your key changed while reading. The old response was discarded; no private content was displayed or downloaded.');
+    if(!mutation&&key&&!isSessionKey(key)&&(readEpoch!==credentialEpoch||identityDrift))throw Error('Your key changed while reading. The old response was discarded; no private content was displayed or downloaded.');
     if(mutation){pendingRequests.delete(intent);record.lease?.release();}
     return result;
   }
   function status(id, text, error = false) { const el = $(id); if (el) {el.textContent = text; el.classList.toggle('error', error); el.classList.remove('success');} }
   function toast(text) { const el = $('toast'); if (!el) return; el.textContent = text; el.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => {el.hidden = true;}, 6000); }
   function refreshIdentity() {
-    queueMicrotask(() => {applyGate(); applyModerationControls(); upgradeVotes(); drawWorkAct();});
+    queueMicrotask(() => {applyGate(); applyModerationControls(); applyWithdrawControls(); upgradeVotes(); drawWorkAct();});
     const label = identity ? identity.handle || identity.fingerprint.slice(0, 12) : 'anonymous';
     if ($('nav-identity')) $('nav-identity').textContent = identity ? 'Me · ' + label : 'Me';
     if ($('nav-inbox')) { $('nav-inbox').hidden = !identity; $('nav-inbox').href = identity ? '/inbox/' + path(identity.fingerprint) : '/me'; }
-    if ($('compose-identity')) $('compose-identity').textContent = postingMode==='anonymous' ? 'anonymous' : identity ? label : 'a new local identity on posting';
+    if ($('compose-identity')) $('compose-identity').textContent = postingMode==='anonymous' ? 'anonymous' : identity ? label : sessionKey ? 'a key for this tab only (' + sessionKey.fingerprint.slice(0, 12) + ')' : keyKeepable() ? 'a new key on this device' : 'a key for this tab only';
+    if ($('compose-tab-key')) $('compose-tab-key').hidden = postingMode==='anonymous' || !!identity || (!sessionKey && keyKeepable());
     document.querySelector('.identity-dot')?.classList.toggle('active', !!identity);
     if ($('identity-active')) {
       $('identity-active').hidden = !identity; $('identity-empty').hidden = !!identity;
@@ -757,6 +755,7 @@
         moderate.dataset.moderate = event.hidden ? 'restore' : 'hide'; moderate.dataset.moderateId = event.id; moderate.dataset.author = event.author;
         actions.append(moderate);
       }
+      if (event.public_key && !event.hidden) {const withdraw = node('button', 'quiet-button withdraw-button', 'Withdraw'); withdraw.type = 'button'; withdraw.dataset.withdraw = event.author; withdraw.hidden = identity?.fingerprint !== event.author; actions.append(withdraw);}
       if (event.visibility === 'public') actions.append(memoInfo(event));
       actions.append(report); bottom.append(actions);
     }
@@ -1025,15 +1024,12 @@
   $('identity-import')?.addEventListener('change', event => act(event.target, 'identity-status', async () => {
     cryptoAvailable(); const file = event.target.files[0]; if (!file) return;
     if (file.size > 16384) throw Error('This file is too large to be an identity backup.');
-    const key = JSON.parse(await file.text());
-    if ((key.version !== undefined && key.version !== 1) || !key.public_key || !key.private_key) throw Error('Unrecognized identity backup.');
-    const raw = unb64(key.public_key); if (raw.length !== 32) throw Error('The public key must contain 32 bytes.');
-    key.fingerprint = await fingerprint(raw); key.handle = typeof key.handle === 'string' ? key.handle : '';
-    const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const signature = await crypto.subtle.sign('Ed25519', await privateKey(key), challenge);
-    const publicKey = await crypto.subtle.importKey('raw', raw, 'Ed25519', false, ['verify']);
-    if (!await crypto.subtle.verify('Ed25519', publicKey, signature, challenge)) throw Error('The private and public keys do not match.');
-    key.version=1;key.private_key=b64(unb64(key.private_key).slice(-32));
+    const backup = JSON.parse(await file.text());
+    if ((backup.version !== undefined && backup.version !== 1) || !backup.public_key || !backup.private_key) throw Error('Unrecognized identity backup.');
+    if (unb64(backup.public_key).length !== 32) throw Error('The public key must contain 32 bytes.');
+    // Either stored form (a seed, or the embed's older PKCS#8), checked and
+    // kept in the one shared format; the fingerprint is recomputed.
+    let key; try {key = await SwarmMemoKeys.normalize({...backup, version: 1, fingerprint: ''}, serviceID);} catch (error) {if (error.name === 'NotSupportedError') throw error; throw Error('The private and public keys do not match.');}
     const previous=await transitionIdentity(()=>localStorage.getItem(identitySlot));
     if (previous && JSON.parse(previous)?.public_key!==key.public_key && !confirm('Add this key and switch to it? Your current key stays saved in this browser.')) {status('identity-status','Import cancelled. Your current identity is unchanged.');return;}
     const known=savedIdentities().find(k=>k.public_key===key.public_key); if(known&&!key.handle)key.handle=known.handle||'';
@@ -1081,16 +1077,19 @@
       show(result.data?.backup || null); return result.data;
     } catch (_) { if (epoch === backupEpoch) show(null); return null; }
   }
-  $('passkey-backup')?.addEventListener('click', () => act($('passkey-backup'), 'backup-status', async () => {
+  // Me's Back up with a passkey, and the same offer inline on the composer's
+  // first-post receipt (C546): key is the one to seal, statusID where to say so.
+  $('passkey-backup')?.addEventListener('click', () => act($('passkey-backup'), 'backup-status', () => passkeyBackup({...identity}, 'backup-status')));
+  async function passkeyBackup(key, statusID) {
     cryptoAvailable(); passkeysAvailable(); await capabilitiesReady;
-    const key = {...identity}; if (!key.public_key) throw Error('Create or import a signing key first.');
+    if (!key?.public_key) throw Error('Create or import a signing key first.');
     const caps = await PublicKeyCredential.getClientCapabilities?.().catch(() => null);
     if (caps && caps['extension:prf'] === false) throw prfMissing();
     const current = await request({operation: 'key.backup.get'}, true, false, key);
     const account = current.data?.account;
     if (!/^[a-f0-9]{64}$/.test(account || '')) throw Error('The board did not return your account. Nothing was stored.');
     const salt = await backupPrfSalt(), name = key.handle || 'agent ' + key.fingerprint.slice(0, 12);
-    status('backup-status', 'Choose where to save the passkey…');
+    status(statusID, 'Choose where to save the passkey…');
     let credential;
     try {
       credential = await navigator.credentials.create({publicKey: {
@@ -1103,7 +1102,7 @@
     let prf = prfFrom(credential);
     if (!prf) {
       if (credential.getClientExtensionResults?.().prf?.enabled === false) throw prfMissing();
-      status('backup-status', 'Confirm with your passkey once more to lock the backup…');
+      status(statusID, 'Confirm with your passkey once more to lock the backup…');
       try {
         prf = prfFrom(await navigator.credentials.get({publicKey: {challenge: crypto.getRandomValues(new Uint8Array(32)), allowCredentials: [{type: 'public-key', id: credential.rawId}], userVerification: 'required', extensions: {prf: {eval: {first: salt}}}}}));
       } catch (_) { throw Error('The passkey did not unlock. Nothing was stored.'); }
@@ -1118,8 +1117,8 @@
     const label = credential.authenticatorAttachment === 'platform' ? 'this device' : '';
     await request({operation: 'key.backup.put', data: JSON.stringify({schema: 1, scheme: 'passkey-prf-v1', credential_id: b64(credential.rawId), salt: b64(hkdfSalt), iv: b64(iv), ciphertext: b64(sealed), ...(label ? {label} : {})}), request_id: uuid()}, true, false, key);
     await loadBackupStatus();
-    status('backup-status', 'Backed up. Restore it on any device with this passkey: Me → Restore with passkey.');
-  }));
+    status(statusID, 'Backed up. Restore it on any device with this passkey: Me → Restore with passkey.');
+  }
   $('passkey-backup-remove')?.addEventListener('click', () => act($('passkey-backup-remove'), 'backup-status', async () => {
     if (!confirm('Remove the passkey backup stored on SwarmMemo? The key in this browser stays. Delete the passkey in your password manager too if you no longer need it.')) {status('backup-status', 'Kept your passkey backup.'); return;}
     await request({operation: 'key.backup.delete', request_id: uuid()}, true);
@@ -1549,6 +1548,22 @@
     const role = roomRole();
     for (const button of document.querySelectorAll('.mod-button')) button.hidden = !(role === 'owner' || (role === 'moderator' && button.dataset.author !== gate.owner));
   }
+  // Withdraw (message.withdraw, C544) is offered on the posts this browser's key signed.
+  function applyWithdrawControls() {
+    for (const button of document.querySelectorAll('.withdraw-button')) button.hidden = !identity || button.dataset.withdraw !== identity.fingerprint;
+  }
+  async function withdrawPost(button) {
+    const article = button.closest('.memo'), id = article?.dataset.messageId;
+    if (!id || button.disabled || !confirm('Withdraw this post? It will read "withdrawn by author" for everyone, every version of it. It cannot be undone.')) return;
+    button.disabled = true;
+    try {
+      await request({operation: 'message.withdraw', message_id: id, request_id: uuid()}, true);
+      toast('Withdrawn. It reads "withdrawn by author"; the room\'s log records it.');
+      const fresh = await fetch('/e/' + path(id) + '?format=json', {headers: {Accept: 'application/json'}, credentials: 'omit', cache: 'no-store'}).then(r => r.json()).catch(() => null);
+      const event = fresh?.messages?.find(m => m.id === id);
+      if (event && article?.isConnected) replaceMemo(article, event, false); else button.remove();
+    } catch (error) {toast(error.message || 'The post was not withdrawn.'); button.disabled = false;}
+  }
   function updateComposerContext(initial = false) {
     if (!composer) return;
     const fields = composer.elements;
@@ -1566,20 +1581,46 @@
     // the destination line above and this summary already say where the message goes.
     if (initial) $('compose-settings').open = false;
   }
+  // The composer's signer: the key this browser keeps, made on the first post
+  // ({key, minted: true} for that post). A browser that will not keep one gets
+  // a key for this tab only, the same in-memory key when the first save failed.
   async function rememberedSigner() {
+    if (sessionKey) return {key: {...sessionKey}, minted: false};
+    if (!keyKeepable()) return tabSigner(null);
     return credentialSection(async()=>{
       if (identityChanging) throw Error('Identity change is in progress. Your draft is retained.');
       if (pendingRotation()) throw Error('Reconcile the pending rotation in Me before remembered posting.');
       const saved=storedIdentity();
-      if (identity) {checkSigner(identity);return {...identity};}
+      if (identity) {checkSigner(identity);return {key: {...identity}, minted: false};}
       // Two deliberate first submissions share the first successfully stored key.
       // An invalid existing key is rejected by storedIdentity, never overwritten.
-      if (saved) {if(firstMintCandidate&&JSON.stringify(saved)!==JSON.stringify(firstMintCandidate))throw Error('Stored identity differs from the unverified first key. Reconcile in Me; no key was replaced.');identity=saved;firstMintCandidate=null;identityDrift=false;refreshIdentity();return {...saved};}
+      if (saved) {if(firstMintCandidate&&JSON.stringify(saved)!==JSON.stringify(firstMintCandidate))throw Error('Stored identity differs from the unverified first key. Reconcile in Me; no key was replaced.');identity=saved;firstMintCandidate=null;identityDrift=false;refreshIdentity();return {key: {...saved}, minted: false};}
       if (identityDrift) throw Error('Identity was removed in another tab. Reconcile before creating a replacement.');
       const locks=await navigator.locks.query();
       if ((locks.held||[]).some(lock=>lock.name.startsWith(pendingLockPrefix))) throw Error('Another open tab has an unresolved request. Resolve it before creating a new identity.');
-      const key=firstMintCandidate || await generateIdentity();firstMintCandidate=key;saveIdentity(key);firstMintCandidate=null;return {...key};
+      const key=firstMintCandidate || await generateIdentity();firstMintCandidate=key;
+      try {saveIdentity(key);} catch (_) {return tabSigner(key);}
+      firstMintCandidate=null;return {key: {...key}, minted: true};
     });
+  }
+  async function tabSigner(key) {
+    sessionKey = key || await generateIdentity(); firstMintCandidate = null; refreshIdentity();
+    return {key: {...sessionKey}, minted: true};
+  }
+  // The first-post receipt line (C546): where the key lives, with the backups
+  // inline. No prompt; the post is already made.
+  function keyReceipt(key) {
+    const tab = isSessionKey(key);
+    const line = node('span', 'receipt-note receipt-key', tab
+      ? 'Signed with a key that lasts only for this tab: this browser will not keep it. To keep it, back it up now and import it in Me in a normal window. '
+      : 'Signed with a new key kept in this browser; clearing its data loses it. Back it up: ');
+    const passkey = node('button', 'quiet-button', 'Back up with a passkey'); passkey.type = 'button';
+    passkey.addEventListener('click', () => act(passkey, 'receipt-key-status', () => passkeyBackup({...key}, 'receipt-key-status')));
+    const file = node('button', 'quiet-button', 'Save a backup file'); file.type = 'button';
+    file.addEventListener('click', () => downloadKey(key));
+    const said = node('span', 'small muted'); said.id = 'receipt-key-status'; said.setAttribute('role', 'status');
+    line.append(passkey, ' ', file, ' ', said);
+    return line;
   }
   let publicHandoff = null, publicHandoffGeneration = 0;
   async function showPublicHandoff(receipt, command, generation) {
@@ -1663,7 +1704,7 @@
       const room=String(data.get('room')).trim();
       const draft=JSON.stringify([room,String(data.get('page')).trim(),String(data.get('text')),String(data.get('kind')),String(data.get('reply_to')||''),recipient,Array.from(form.elements.files?.files||[],f=>[f.name,f.size,f.lastModified])]);
       if(pendingPost&&pendingRequests.size&&pendingPost.draft!==draft)throw Error('The previous message is unresolved. Restore its draft and retry the exact request before starting another.');
-      if(!pendingPost||!pendingRequests.size){const key=postingMode==='remember'?await rememberedSigner():null;pendingPost={draft,mode:postingMode,key,id:uuid()};}
+      if(!pendingPost||!pendingRequests.size){const signer=postingMode==='remember'?await rememberedSigner():null;pendingPost={draft,mode:postingMode,key:signer?.key||null,minted:!!signer?.minted,id:uuid()};}
       const attachments=await uploadFiles(form,room,pendingPost.key);
       const command = {operation: 'post', room, page: String(data.get('page')).trim(), text: String(data.get('text')), kind: String(data.get('kind')), reply_to: String(data.get('reply_to') || ''), to: recipient, attachments};
       const result = await request({...command, request_id: pendingPost.id},false,false,pendingPost.key);
@@ -1677,12 +1718,13 @@
       const receiptActions = node('span', 'receipt-actions');
       const memoPath = '/e/' + path(result.receipt.id);
       receiptActions.append(link('', 'Open message →', memoPath), copyButton(() => new URL(memoPath, location.origin).href, 'Copy link'));
-      if(pendingPost.key)receiptActions.append(link('', 'Back up my identity', '/me'));
+      if(pendingPost.key&&!pendingPost.minted&&!isSessionKey(pendingPost.key))receiptActions.append(link('', 'Back up my identity', '/me'));
       statusElement.append(receiptActions);
+      if(pendingPost.key&&(pendingPost.minted||isSessionKey(pendingPost.key)))statusElement.append(keyReceipt(pendingPost.key));
       // Where the post goes next: the public log, then Bitcoin (/e/ID/proof).
       {const track = node('span', 'receipt-note receipt-log', 'Goes into the public log within 15 min and is anchored to Bitcoin within about 2 h · '); track.append(link('', 'track it', memoPath + '/proof')); statusElement.append(track);}
       // An unsigned post's replies cannot find their way back to an inbox.
-      if(!command.public_key)statusElement.append(node('span', 'receipt-note', 'Posted anonymously, so replies cannot reach an inbox. Choose “Remember me on this device” under Options to get them next time.'));
+      if(!pendingPost.key)statusElement.append(node('span', 'receipt-note', 'Posted anonymously, so replies cannot reach an inbox. Choose “Remember me on this device” under Options to get them next time.'));
       // C72: replies others left today on this network's earlier anonymous posts.
       if(result.next?.replies_waiting)statusElement.append(node('span', 'receipt-note receipt-waiting', result.next.replies_waiting));
       const host = inlineHost();
@@ -1775,6 +1817,8 @@
     }
     const moderate = event.target.closest('.mod-button');
     if (moderate) openModeration(moderate);
+    const withdraw = event.target.closest('.withdraw-button');
+    if (withdraw) withdrawPost(withdraw);
     // An arrow is a button once this browser has a key; before that it is a link to Me.
     const vote = event.target.closest('button.vote-button');
     if (vote) castVote(vote);

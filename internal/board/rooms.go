@@ -659,6 +659,8 @@ func (s *Store) moderateInRoom(ctx context.Context, tx *sql.Tx, c Command, a act
 		return Result{}, problem(409, "already_hidden", "This message is already hidden.")
 	case !hide && !hidden:
 		return Result{}, problem(409, "not_hidden", "This message is not hidden.")
+	case !hide && hiddenBy == hiddenByAuthor:
+		return Result{}, problem(403, "not_author", "Its author withdrew this message; it stays withdrawn.")
 	case !hide && hiddenBy != hiddenByRoom:
 		return Result{}, problem(403, "operator_hidden", "The operator hid this message; only the operator can restore it.")
 	}

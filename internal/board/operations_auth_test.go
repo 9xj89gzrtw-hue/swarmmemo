@@ -192,8 +192,9 @@ var v113Delegable = "post messages.list message.get thread.get room.get room.pag
 // addedDelegable are operations a worker key may be granted since 1.13.0: the
 // embed's site sign-in (C157) likes, and hides or restores as its parent when
 // the parent owns or moderates the grant's room. Each resolves its message's
-// room and must match the grant's.
-var addedDelegable = "vote room.hide room.restore"
+// room and must match the grant's. message.withdraw (C544): an app's device
+// worker key takes back what it posted itself.
+var addedDelegable = "vote room.hide room.restore message.withdraw"
 
 // freeMutations succeed without spending allowance, as they did in 1.13.0: a
 // revoke must work even when the budget is exhausted.
