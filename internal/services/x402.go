@@ -32,19 +32,24 @@ package services
 // Charging. The agent's quote is the resource's maximum, priced with the
 // "x402.call" parameter where the measured size is the amount in micro-USD
 // (atomic USDC): the base plus about 10% by default. The agent is charged
-// the price of what was actually paid, when it gets the response or when the
-// paid response was too large and discarded (the agent chose its size); a
+// the price of what was actually paid, when it gets the response; a
 // rejected, failed or timed-out call is refunded in full and its loss, if
-// any, is ours, bounded by the caps. An account with X402DiscardsPerDay
-// discarded answers today is refused before any request until 00:00 UTC.
+// any, is ours, bounded by the caps. An answer longer than the call's
+// max_bytes is returned cut (truncated: true, with the whole answer's size
+// and sha256), never discarded (C578); max_bytes above X402ResponseBytesMax
+// costs X402ExtraKiBCredits per KiB returned over it. An account with
+// X402DiscardsPerDay discarded answers today (a paid answer that cannot be
+// returned at all) is refused before any request until 00:00 UTC.
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,9 +80,21 @@ const (
 	X402ArgsMax              = 4 << 10  // the published service_args_bytes
 	X402ResponseBytesMax     = 12 << 10 // base64 of it and the wrapper fit X402StoredBodyBytes
 	X402ResponseBytesDefault = 8 << 10
+	// X402ResponseBytesCeiling is the most a call's max_bytes may ask for,
+	// and the most of any catalogue answer read into memory (plus one byte,
+	// to know it was longer): a hostile endless body is cut here (C578).
+	X402ResponseBytesCeiling = 64 << 10
+	// X402BundlerReadBytes is the most of a bundler tool's answer read: its
+	// envelope (billing, receipts) is parsed and scrubbed whole before the
+	// answer is cut to max_bytes.
+	X402BundlerReadBytes = 256 << 10
+	// X402ExtraKiBCredits is the price of each KiB returned over
+	// X402ResponseBytesMax, when max_bytes asks for more (fetch's per-KiB
+	// rate).
+	X402ExtraKiBCredits = 1
 	// X402StoredBodyBytes bounds an x402 call record: the response as base64
-	// (4/3 of X402ResponseBytesMax), the receipt and the wrapper.
-	X402StoredBodyBytes = StoredBodyMaxBytes
+	// (4/3 of X402ResponseBytesCeiling), the receipt and the wrapper.
+	X402StoredBodyBytes = StoredBodyCeilingBytes
 	// X402DiscardsPerDay is how many paid calls a day an account may have
 	// discarded as too large before its next call is refused up front,
 	// before any payment.
@@ -291,6 +308,7 @@ func (x *x402) Describe() Descriptor {
 			{"resource", "string", true, "an id from the resources read with callable: true, or tool:TOOL_ID from tools_search"},
 			{"query", "object", false, "string values for the resource's query names"},
 			{"body", "object", false, "a JSON body, for resources that take one; a tool's arguments"},
+			{"max_bytes", "integer", false, "the most bytes of the answer returned, up to " + itoa(X402ResponseBytesCeiling) + " (default " + itoa(X402ResponseBytesMax) + ", or the resource's); a longer one comes cut, truncated: true; 1 credit per KiB over " + itoa(X402ResponseBytesMax)},
 		},
 		Example: json.RawMessage(`{"resource":"RESOURCE_ID","query":{"q":"agent message boards"}}`)}
 	if x.fr != nil && x.fr.cfg.Anonymous {
@@ -308,6 +326,7 @@ func (x *x402) Describe() Descriptor {
 			{"x402_query_params", X402QueryParamsMax, "", "Query parameters of one call"},
 			{"x402_query_value_bytes", X402QueryValueBytes, "bytes", "One query value"},
 			{"x402_response_bytes", X402ResponseBytesMax, "bytes", "Response body returned"},
+			{"x402_max_bytes", X402ResponseBytesCeiling, "bytes", "Response body returned with max_bytes"},
 			{"x402_resources_page", X402PageMax, "", "Resources in one resources read"},
 			{"tools_search_hits", bundlerHitsMax, "", "Hits in one tools_search read"},
 		},
@@ -347,6 +366,28 @@ type x402Args struct {
 	Resource string            `json:"resource"`
 	Query    map[string]string `json:"query"`
 	Body     json.RawMessage   `json:"body"`
+	MaxBytes *int              `json:"max_bytes"`
+}
+
+// x402ExtraCredits is the price of the bytes of an answer of n bytes over
+// X402ResponseBytesMax: X402ExtraKiBCredits per KiB started.
+func x402ExtraCredits(n int) int64 {
+	if n <= X402ResponseBytesMax {
+		return 0
+	}
+	return X402ExtraKiBCredits * int64((n-X402ResponseBytesMax+1023)/1024)
+}
+
+// x402Limit is the most bytes of an answer the call returns: its max_bytes,
+// else the resource's limit.
+func x402Limit(a x402Args, res *X402Resource) (int, error) {
+	if a.MaxBytes == nil {
+		return res.MaxResponseBytes, nil
+	}
+	if n := *a.MaxBytes; n >= 1 && n <= X402ResponseBytesCeiling {
+		return n, nil
+	}
+	return 0, badArg("max_bytes is 1 to " + itoa(X402ResponseBytesCeiling) + ".")
 }
 
 // x402Plan is one validated call: the resource and the exact request.
@@ -355,6 +396,15 @@ type x402Plan struct {
 	url  string
 	body []byte // POST only
 	max  int64  // atomic units: min(allowlisted maximum, per-call cap)
+	// limit is the most bytes of the answer returned (max_bytes, else the
+	// resource's limit); a longer answer is returned cut.
+	limit int
+}
+
+// quoted is the most the plan can cost: the price of p.max and of the
+// bytes p.limit allows over X402ResponseBytesMax.
+func (p x402Plan) quoted(price Price) int64 {
+	return price.For(p.max) + x402ExtraCredits(p.limit)
 }
 
 func (x *x402) plan(c Call) (x402Plan, error) {
@@ -399,6 +449,9 @@ func (x *x402) plan(c Call) (x402Plan, error) {
 	}
 	u.RawQuery = q.Encode()
 	p := x402Plan{res: res, url: u.String(), max: min(res.MaxAmount, x.cfg.PerCall)}
+	if p.limit, err = x402Limit(a, res); err != nil {
+		return x402Plan{}, err
+	}
 	if len(p.url) > X402URLBytes {
 		return x402Plan{}, tooLarge("invalid_service_data", len(p.url), X402URLBytes)
 	}
@@ -427,7 +480,7 @@ func (x *x402) Quote(c Call) (Quote, error) {
 	if x.cfg.Paused {
 		return Quote{}, refusal("service_unavailable")
 	}
-	return Quote{Resource: allowance.Credit, Max: c.Price.For(p.max)}, nil
+	return Quote{Resource: allowance.Credit, Max: p.quoted(c.Price)}, nil
 }
 
 // paused is the kill switch: the config flag, or the kill file existing. An
@@ -448,7 +501,7 @@ type x402Response struct {
 	status      int
 	header      http.Header
 	body        []byte
-	over        bool // the body was longer than the limit
+	over        bool // the body was longer than the limit: body is its first limit bytes
 	contentType string
 }
 
@@ -484,7 +537,7 @@ func (x *x402) fetch(ctx context.Context, p x402Plan, extra http.Header, limit i
 	}
 	r := x402Response{status: resp.StatusCode, header: resp.Header, body: raw, contentType: resp.Header.Get("Content-Type")}
 	if len(raw) > limit {
-		r.body, r.over = nil, true
+		r.body, r.over = raw[:limit], true
 	}
 	return r, nil
 }
@@ -502,7 +555,7 @@ func (x *x402) Run(ctx context.Context, tx *sql.Tx, c Call) (Result, error) {
 	}
 	// The catalogue may have changed since the quote: never pay more than
 	// the agent's hold covers.
-	if c.Quoted > 0 && c.Price.For(p.max) > c.Quoted {
+	if c.Quoted > 0 && p.quoted(c.Price) > c.Quoted {
 		return Result{}, refusal("x402_price_changed")
 	}
 	// Unvetted or denied since the snapshot: checked again before any money
@@ -539,27 +592,31 @@ func (x *x402) Run(ctx context.Context, tx *sql.Tx, c Call) (Result, error) {
 		return x.unanswered(c, p, pay, errCodeOf(err)), nil
 	case err != nil:
 		return Result{}, err
-	case receipt == nil: // free today: nothing was paid
-		if resp.over || len(resp.body) > p.res.MaxResponseBytes {
-			return Result{}, refusal("x402_response_too_large")
-		}
+	case receipt == nil: // free today, or nothing delivered: no tool part
 		return x.result(c, p, resp, nil)
-	case resp.over:
-		// We paid for it: the answer is discarded, but the call is charged,
-		// never refunded (security review 1.20, M1), and the account's
-		// discards today count against it before its next payment.
+	case resp.over && p.res.dynamic:
+		// A bundler envelope past X402BundlerReadBytes cannot be scrubbed
+		// (its billing, its receipts), so nothing of it is returned, and the
+		// tool part is not charged: the loss is ours, bounded by the caps and
+		// by the account's discards today (C578).
 		state, reason := receipt.paidAs("response_too_large")
-		pay.finish(state, resp.status, p.res.MaxResponseBytes+1, receipt.Transaction, reason)
-		return x.discarded(c, p, resp.status, p.res.MaxResponseBytes+1, receipt), nil
+		pay.finish(state, resp.status, len(resp.body)+1, receipt.Transaction, reason)
+		return x.discarded(c, p, resp.status, len(resp.body)+1, receipt), nil
 	}
+	// A longer answer than the call's limit is returned cut, and charged:
+	// the caller gets what was paid for, never nothing (C578).
 	res, err := x.result(c, p, resp, receipt)
 	if err != nil {
 		state, reason := receipt.paidAs("response_too_large")
 		pay.finish(state, resp.status, len(resp.body), receipt.Transaction, reason)
 		return x.discarded(c, p, resp.status, len(resp.body), receipt), nil
 	}
+	n := len(resp.body)
+	if resp.over {
+		n++ // at least
+	}
 	state, reason := receipt.paidAs("")
-	pay.finish(state, resp.status, len(resp.body), receipt.Transaction, reason)
+	pay.finish(state, resp.status, n, receipt.Transaction, reason)
 	return res, nil
 }
 
@@ -589,7 +646,7 @@ func (x402Rail) Ready() bool  { return true } // newX402 requires the signer
 
 func (r x402Rail) Exchange(ctx context.Context, p x402Plan, pay *payment) (x402Response, *x402Receipt, error) {
 	cfg := r.cfg
-	first, err := pay.fetch(ctx, p, nil, max(x402RequiredBodyBytes, p.res.MaxResponseBytes))
+	first, err := pay.fetch(ctx, p, nil, max(x402RequiredBodyBytes, X402ResponseBytesCeiling))
 	if err != nil {
 		return x402Response{}, nil, refusal("upstream_failed")
 	}
@@ -599,7 +656,11 @@ func (r x402Rail) Exchange(ctx context.Context, p x402Plan, pay *payment) (x402R
 	case first.status != http.StatusPaymentRequired:
 		return x402Response{}, nil, refusal("upstream_failed")
 	}
-	required, ok := parseX402Required(first.header.Get(x402V2Required), first.body)
+	challenge := first.body
+	if first.over {
+		challenge = nil // a cut challenge is never parsed
+	}
+	required, ok := parseX402Required(first.header.Get(x402V2Required), challenge)
 	if !ok {
 		return x402Response{}, nil, refusal("x402_not_payable")
 	}
@@ -631,7 +692,7 @@ func (r x402Rail) Exchange(ctx context.Context, p x402Plan, pay *payment) (x402R
 		pay.finish("failed", 0, 0, "", "signing")
 		return x402Response{}, nil, refusal("upstream_failed")
 	}
-	paid, err := pay.fetch(ctx, p, http.Header{name: {value}}, p.res.MaxResponseBytes)
+	paid, err := pay.fetch(ctx, p, http.Header{name: {value}}, X402ResponseBytesCeiling)
 	if err != nil {
 		// The upstream holds a valid authorization and may have settled it:
 		// the outcome is unknown, the caps keep counting it, the agent is
@@ -749,6 +810,8 @@ type x402Receipt struct {
 	// reporting a successful settlement, and Note says what follows.
 	SettlementStatus string `json:"settlement_status,omitempty"`
 	Note             string `json:"note,omitempty"`
+	// Truncated is true when the answer paid for was returned cut (C578).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // x402SettlementUnconfirmed is a receipt's settlement_status when the seller
@@ -829,7 +892,16 @@ type x402Out struct {
 	Encoding         string          `json:"encoding"` // json, text or base64
 	Body             json.RawMessage `json:"body"`
 	Bytes            int             `json:"bytes"`
-	Payment          *x402Receipt    `json:"payment,omitempty"`
+	// Truncated is true when the answer was longer than the call's limit
+	// (max_bytes): Body is cut (TruncationNote says how), FullBytes and
+	// SHA256 are the whole answer's, or FullBytesOver when it ran past
+	// the read ceiling, where reading stopped (C578).
+	Truncated      bool         `json:"truncated,omitempty"`
+	FullBytes      int          `json:"full_bytes,omitempty"`
+	FullBytesOver  int          `json:"full_bytes_over,omitempty"`
+	SHA256         string       `json:"sha256,omitempty"`
+	TruncationNote string       `json:"truncation_note,omitempty"`
+	Payment        *x402Receipt `json:"payment,omitempty"`
 	// Charge is how the call's credit cost follows from the upstream's
 	// price (C548), so the cost and payment.amount can be compared.
 	Charge *x402Charge `json:"charge,omitempty"`
@@ -846,21 +918,23 @@ type x402Out struct {
 // micro-USD), and their sum, the call's cost. The engine held max_cost
 // before the call and releases the rest of that hold.
 type x402Charge struct {
-	Credits int64  `json:"credits"`
-	Base    int64  `json:"base"`
-	Tool    int64  `json:"tool"`
+	Credits int64 `json:"credits"`
+	Base    int64 `json:"base"`
+	Tool    int64 `json:"tool"`
+	// Bytes is the part for the KiB returned over X402ResponseBytesMax.
+	Bytes   int64  `json:"bytes,omitempty"`
 	PaidUSD string `json:"paid_usd"`
 	Note    string `json:"note"`
 }
 
 // X402ChargeNote explains x402Charge on every paid-API answer.
-const X402ChargeNote = "credits = base + tool; tool = per_byte × payment.amount (what the API was paid, in micro-USD; paid_usd in USD) + per_kib per 1,024 of it. The call held max_cost first; what it did not use is released (call.cost is what was charged). Nothing paid for the API, no tool part."
+const X402ChargeNote = "credits = base + tool + bytes; tool = per_byte × payment.amount (what the API was paid, in micro-USD; paid_usd in USD) + per_kib per 1,024 of it; bytes = 1 per KiB returned over 12 KiB (max_bytes). The call held max_cost first; what it did not use is released (call.cost is what was charged). Nothing paid for the API, no tool part."
 
 // charge is the breakdown of a call whose upstream was paid amount
-// micro-USD (0: nothing paid).
-func (x *x402) charge(c Call, amount int64) *x402Charge {
-	credits, base := c.Price.For(amount), c.Price.For(0)
-	return &x402Charge{Credits: credits, Base: base, Tool: credits - base, PaidUSD: formatUnits(amount, 6), Note: X402ChargeNote}
+// micro-USD (0: nothing paid) and that returned n bytes of its answer.
+func (x *x402) charge(c Call, amount int64, n int) *x402Charge {
+	tool, base, extra := c.Price.For(amount), c.Price.For(0), x402ExtraCredits(n)
+	return &x402Charge{Credits: tool + extra, Base: base, Tool: tool - base, Bytes: extra, PaidUSD: formatUnits(amount, 6), Note: X402ChargeNote}
 }
 
 // out is the answer's wrapper for p's resource.
@@ -876,37 +950,48 @@ var mimeTypeRE = regexp.MustCompile(`^[a-z0-9!#$&^_.+-]{1,64}/[a-z0-9!#$&^_.+-]{
 
 // result is the agent's answer: the upstream's bytes as data (JSON inline
 // when it is JSON, text when it is UTF-8 text, else base64), never rendered.
+// An answer longer than p.limit is cut (x402Cut) and says so.
 func (x *x402) result(c Call, p x402Plan, r x402Response, receipt *x402Receipt) (Result, error) {
 	out := x.out(p, r.status, receipt)
-	out.Bytes = len(r.body)
 	mt, _, _ := mime.ParseMediaType(r.contentType)
 	mt = strings.ToLower(mt)
 	if mimeTypeRE.MatchString(mt) {
 		out.ContentType = mt
 	}
+	limit := p.limit
+	if limit <= 0 {
+		limit = p.res.MaxResponseBytes
+	}
 	// No HTML escaping (security review 1.20, M2): '<', '>' and '&' stay one
 	// byte, so a JSON answer never grows here, and text that escaping would
 	// grow past base64 goes as base64. The body is then at most 4/3 of the
-	// response limit plus the wrapper, inside X402StoredBodyBytes.
-	var compact bytes.Buffer
-	switch {
-	case len(bytes.TrimSpace(r.body)) > 0 && json.Valid(r.body) && utf8.Valid(r.body) && json.Compact(&compact, r.body) == nil:
-		out.Encoding, out.Body = "json", compact.Bytes()
-	case utf8.Valid(r.body) && (strings.HasPrefix(mt, "text/") || mt == ""):
-		out.Encoding, out.Body = "text", canonicalJSON(string(r.body))
-		if len(out.Body) > base64.StdEncoding.EncodedLen(len(r.body))+2 {
-			out.Encoding, out.Body = "base64", canonicalJSON(base64.StdEncoding.EncodeToString(r.body))
+	// limit plus the wrapper, inside X402StoredBodyBytes.
+	cut := x402Cut(r.body, r.over, mt, limit)
+	out.Encoding, out.Body, out.Bytes = cut.encoding, cut.body, cut.n
+	if cut.note != "" {
+		out.Truncated, out.TruncationNote = true, cut.note
+		if r.over {
+			out.FullBytesOver = len(r.body)
+		} else {
+			sum := sha256.Sum256(r.body)
+			out.FullBytes, out.SHA256 = len(r.body), hex.EncodeToString(sum[:])
 		}
-	default:
-		out.Encoding, out.Body = "base64", canonicalJSON(base64.StdEncoding.EncodeToString(r.body))
 	}
 	amount := int64(0)
 	public := map[string]any{"resource": p.res.ID, "http_status": r.status, "response_bytes": len(r.body)}
+	if out.Truncated {
+		public["truncated"], public["returned_bytes"] = true, cut.n
+	}
 	if receipt != nil {
 		amount, _ = strconv.ParseInt(receipt.Amount, 10, 64)
 		public["amount"] = receipt.Amount // not the transaction: it would tie the agent to our wallet's history
+		if out.Truncated {
+			r := *receipt
+			r.Truncated = true
+			out.Payment = &r
+		}
 	}
-	out.Charge = x.charge(c, amount)
+	out.Charge = x.charge(c, amount, cut.n)
 	body := canonicalJSON(out)
 	if body == nil || len(body) > X402StoredBodyBytes {
 		return Result{}, refusal("x402_response_too_large")
@@ -915,13 +1000,157 @@ func (x *x402) result(c Call, p x402Plan, r x402Response, receipt *x402Receipt) 
 	return Result{Body: body, Used: out.Charge.Credits, Public: pub}, nil
 }
 
+// Truncation notes (C578): how a cut answer's body was cut.
+var (
+	x402CutMore     = " Pass max_bytes (up to " + itoa(X402ResponseBytesCeiling) + ") for more."
+	x402CutJSONNote = "The answer was longer than max_bytes: body is cut after its last complete element, so it still parses; full_bytes and sha256 are the whole answer's." + x402CutMore
+	x402CutTextNote = "The answer was longer than max_bytes: body is its first max_bytes bytes as text (a cut JSON answer, which does not parse); full_bytes and sha256 are the whole answer's." + x402CutMore
+	x402CutRawNote  = "The answer was longer than max_bytes: body is its first max_bytes bytes; full_bytes and sha256 are the whole answer's." + x402CutMore
+	x402CutOverNote = "The answer was longer than " + itoa(X402ResponseBytesCeiling) + " bytes; reading stopped there (full_bytes_over), so its size and hash are unknown: body is its first max_bytes bytes."
+)
+
+// x402CutDepth bounds how deep x402CutJSON descends into the element that
+// does not fit.
+const x402CutDepth = 16
+
+type x402Encoded struct {
+	encoding string
+	body     json.RawMessage
+	n        int    // bytes of the answer returned
+	note     string // why it was cut; "" when it was not
+}
+
+// x402Cut encodes raw (over: the answer ran past the read ceiling, raw is
+// its first bytes) as at most limit bytes of the answer.
+func x402Cut(raw []byte, over bool, mt string, limit int) x402Encoded {
+	var compact bytes.Buffer
+	if !over && len(bytes.TrimSpace(raw)) > 0 && json.Valid(raw) && utf8.Valid(raw) && json.Compact(&compact, raw) == nil {
+		b := compact.Bytes()
+		if len(b) <= limit {
+			return x402Encoded{encoding: "json", body: b, n: len(b)}
+		}
+		// Cut after the last complete element, unless that keeps less than
+		// half of what fits: then the first bytes, as text.
+		if cut, ok := x402CutJSON(b, limit, x402CutDepth); ok && len(cut) >= limit/2 {
+			return x402Encoded{encoding: "json", body: cut, n: len(cut), note: x402CutJSONNote}
+		}
+		e := x402Bytes(b[:limit], true)
+		e.note = x402CutTextNote
+		return e
+	}
+	textual := strings.HasPrefix(mt, "text/") || mt == ""
+	if !over && len(raw) <= limit {
+		if textual && utf8.Valid(raw) {
+			return x402Text(raw)
+		}
+		return x402Encoded{encoding: "base64", body: canonicalJSON(base64.StdEncoding.EncodeToString(raw)), n: len(raw)}
+	}
+	// Cut: a JSON answer too long to parse goes as text too.
+	note := x402CutRawNote
+	if over {
+		note = x402CutOverNote
+	}
+	textual = textual || mt == "application/json" || strings.HasSuffix(mt, "+json")
+	e := x402Bytes(raw[:min(limit, len(raw))], textual)
+	e.note = note
+	return e
+}
+
+// x402Bytes is a cut prefix as text when cut (at a rune boundary) it is
+// UTF-8, else as base64.
+func x402Bytes(b []byte, textual bool) x402Encoded {
+	if textual {
+		t := b
+		for i := 0; i < utf8.UTFMax && len(t) > 0 && !utf8.Valid(t); i++ {
+			t = t[:len(t)-1]
+		}
+		if utf8.Valid(t) {
+			return x402Text(t)
+		}
+	}
+	return x402Encoded{encoding: "base64", body: canonicalJSON(base64.StdEncoding.EncodeToString(b)), n: len(b)}
+}
+
+// x402Text is UTF-8 text b as a JSON string, or base64 when escaping would
+// make it longer than base64.
+func x402Text(b []byte) x402Encoded {
+	body := canonicalJSON(string(b))
+	if len(body) > base64.StdEncoding.EncodedLen(len(b))+2 {
+		return x402Encoded{encoding: "base64", body: canonicalJSON(base64.StdEncoding.EncodeToString(b)), n: len(b)}
+	}
+	return x402Encoded{encoding: "text", body: body, n: len(b)}
+}
+
+// x402CutJSON is compact JSON v in at most budget bytes, still valid JSON:
+// an object or an array keeps its members in order while they fit whole,
+// then the one that does not, itself cut, when depth allows and anything of
+// it fits. A scalar that does not fit, or no room for "{}", is false.
+func x402CutJSON(v []byte, budget, depth int) ([]byte, bool) {
+	if len(v) <= budget {
+		return v, true
+	}
+	if depth <= 0 || budget < 2 || len(v) == 0 || (v[0] != '{' && v[0] != '[') {
+		return nil, false
+	}
+	open, end := v[0], byte(']')
+	if open == '{' {
+		end = '}'
+	}
+	dec := json.NewDecoder(bytes.NewReader(v))
+	if _, err := dec.Token(); err != nil {
+		return nil, false
+	}
+	out := []byte{open}
+	room := budget - 1 // the closing delimiter
+	for dec.More() {
+		var key []byte
+		if open == '{' {
+			t, err := dec.Token()
+			k, ok := t.(string)
+			if err != nil || !ok {
+				break
+			}
+			if key = canonicalJSON(k); key == nil {
+				break
+			}
+			key = append(key, ':')
+		}
+		var val json.RawMessage
+		if dec.Decode(&val) != nil {
+			break
+		}
+		sep := 0
+		if len(out) > 1 {
+			sep = 1
+		}
+		if len(out)+sep+len(key)+len(val) <= room {
+			if sep == 1 {
+				out = append(out, ',')
+			}
+			out = append(append(out, key...), val...)
+			continue
+		}
+		if sub, ok := x402CutJSON(val, room-len(out)-sep-len(key), depth-1); ok {
+			if sep == 1 {
+				out = append(out, ',')
+			}
+			out = append(append(out, key...), sub...)
+		}
+		break
+	}
+	return append(out, end), true
+}
+
 // discarded is the answer to a paid call whose response went over the
 // resource's limit: no body, the payment receipt, and the call's price.
 func (x *x402) discarded(c Call, p x402Plan, status, n int, receipt *x402Receipt) Result {
 	out := x.out(p, status, receipt)
 	out.Encoding, out.Body, out.Bytes = "discarded", json.RawMessage("null"), n
 	amount, _ := strconv.ParseInt(receipt.Amount, 10, 64)
-	out.Charge = x.charge(c, amount)
+	if p.res.dynamic {
+		amount = 0 // a bundler envelope too long to scrub: no tool part (C578)
+	}
+	out.Charge = x.charge(c, amount, 0)
 	pub, _ := json.Marshal(map[string]any{"resource": p.res.ID, "http_status": status, "response_bytes": n, "amount": receipt.Amount, "discarded": true})
 	return Result{Body: canonicalJSON(out), Used: out.Charge.Credits, Public: pub}
 }
@@ -940,7 +1169,7 @@ func (x *x402) unanswered(c Call, p x402Plan, pay *payment, code string) Result 
 		receipt.Network, receipt.Settlement, receipt.Payer = "", x402SettlementInternal, "swarmmemo"
 	}
 	out := x.out(p, pay.status, receipt)
-	out.Charge = x.charge(c, r.amount)
+	out.Charge = x.charge(c, r.amount, 0)
 	out.Encoding, out.Body, out.Failure = "unanswered", json.RawMessage("null"), code
 	pub, _ := json.Marshal(map[string]any{"resource": p.res.ID, "http_status": pay.status, "amount": strconv.FormatInt(r.amount, 10), "unanswered": true})
 	return Result{Body: canonicalJSON(out), Used: out.Charge.Credits, Public: pub}

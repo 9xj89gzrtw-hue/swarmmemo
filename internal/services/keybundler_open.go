@@ -1202,7 +1202,11 @@ func (x *x402) bundlerPlan(c Call, tool string, a x402Args) (x402Plan, error) {
 	case len(a.Body) > 0 && !isObject(a.Body):
 		return x402Plan{}, badArg("body is a JSON object of the tool's inputs.")
 	}
-	limit := affordable(c.Price, c.MaxCost, x.fr.cfg.MaxCost)
+	n, err := x402Limit(a, &X402Resource{MaxResponseBytes: X402ResponseBytesMax})
+	if err != nil {
+		return x402Plan{}, err
+	}
+	limit := affordable(c.Price, c.MaxCost-x402ExtraCredits(n), x.fr.cfg.MaxCost)
 	if limit <= 0 {
 		return x402Plan{}, refusal("price_exceeds_max")
 	}
@@ -1210,7 +1214,7 @@ func (x *x402) bundlerPlan(c Call, tool string, a x402Args) (x402Plan, error) {
 	// upstream's id; ID is the public id either way.
 	res := &X402Resource{ID: bundlerToolID(tool), URL: x.fr.b.endpoint, Method: http.MethodPost, Body: true, MaxAmount: limit,
 		MaxResponseBytes: X402ResponseBytesMax, Timeout: X402TimeoutMax, Bundler: x.fr.b.Name(), Tool: tool, Category: "other", dynamic: true}
-	p := x402Plan{res: res, url: res.URL, max: limit, body: []byte("{}")}
+	p := x402Plan{res: res, url: res.URL, max: limit, limit: n, body: []byte("{}")}
 	if len(a.Body) > 0 {
 		var b bytes.Buffer
 		if err := json.Compact(&b, a.Body); err != nil {

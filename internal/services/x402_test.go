@@ -47,6 +47,9 @@ type fakeX402 struct {
 	slowPaid time.Duration // delay before answering a paid request
 	bigPaid  int           // bytes of a paid response
 	free     bool          // answer 200 without asking for payment
+	paidBody string        // the paid response's body, when set
+	paidType string        // its Content-Type, when set
+	endless  bool          // a paid response that never ends
 	// settle is how a paid answer reports its settlement: "" success,
 	// "false" success false, "none" no settlement header.
 	settle   string
@@ -84,6 +87,7 @@ func (f *fakeX402) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.lastBody = string(b[:n])
 	}
 	price, version, reject, slow, big, free, settleMode := f.price, f.version, f.reject, f.slowPaid, f.bigPaid, f.free, f.settle
+	paidBody, paidType, endless := f.paidBody, f.paidType, f.endless
 	f.mu.Unlock()
 	if free {
 		w.Header().Set("Content-Type", "application/json")
@@ -139,6 +143,22 @@ func (f *fakeX402) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("PAYMENT-RESPONSE", base64.StdEncoding.EncodeToString(settle))
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if paidType != "" {
+		w.Header().Set("Content-Type", paidType)
+	}
+	switch {
+	case endless:
+		chunk := []byte(`[` + strings.Repeat(`"zzzzzzzzzzzzzz",`, 1000))
+		for i := 0; i < 1<<12; i++ { // at most 64 MiB, until the reader hangs up
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+		return
+	case paidBody != "":
+		_, _ = w.Write([]byte(paidBody))
+		return
+	}
 	if big > 0 {
 		_, _ = w.Write([]byte(`{"x":"` + strings.Repeat("y", big) + `"}`))
 		return
@@ -590,17 +610,19 @@ func TestX402Timeout(t *testing.T) {
 func TestX402OversizedResponse(t *testing.T) {
 	h := newX402Harness(t, &fakeX402{price: 1000, bigPaid: 2000}, `{}`)
 	// "search" allows 1,024 bytes. We paid, so the call is charged and its
-	// answer discarded (security review 1.20, M1).
+	// answer returned cut, never discarded (C578): one long JSON string
+	// cannot be cut where it still parses, so it comes as text.
 	out, err := h.call(testSubject, `{"resource":"search"}`, creditsFor(20000))
 	if err != nil {
 		t.Fatalf("oversized: %v", err)
 	}
 	result := resultOf(out)
-	if result["encoding"] != "discarded" || result["body"] != nil || result["payment"] == nil {
+	body, _ := result["body"].(string)
+	if result["encoding"] != "text" || result["truncated"] != true || len(body) != 1024 || !strings.HasPrefix(body, `{"x":"yyy`) || result["full_bytes"] != 2008.0 || result["payment"] == nil {
 		t.Fatalf("oversized: %v", result)
 	}
 	pays := h.payments()
-	if len(pays) != 1 || pays[0]["state"] != "paid" || pays[0]["reason"] != "response_too_large" || h.charged() != creditsFor(1000) {
+	if len(pays) != 1 || pays[0]["state"] != "paid" || pays[0]["reason"] != "" || h.charged() != creditsFor(1000) {
 		t.Fatalf("oversized: %v %d", pays, h.charged())
 	}
 }

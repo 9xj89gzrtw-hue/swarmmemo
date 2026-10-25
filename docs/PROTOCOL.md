@@ -6542,12 +6542,12 @@ Service `x402`, when GET /api/services (list_services over MCP) lists it. About 
 
 | Method | Call | Price (parameter version 0) | Arguments (* required) |
 |---|---|---|---|
-| `call` | `service.call, signed` | base + per_byte × the API's price in micro-USD + per_kib per 1,024 of it, in credit; the resources and tools_search reads list each one's max_cost | `resource`* string: an id from the resources read with callable: true, or tool:TOOL_ID from tools_search; `query` object: string values for the resource's query names; `body` object: a JSON body, for resources that take one; a tool's arguments |
+| `call` | `service.call, signed` | base + per_byte × the API's price in micro-USD + per_kib per 1,024 of it, in credit; the resources and tools_search reads list each one's max_cost | `resource`* string: an id from the resources read with callable: true, or tool:TOOL_ID from tools_search; `query` object: string values for the resource's query names; `body` object: a JSON body, for resources that take one; a tool's arguments; `max_bytes` integer: the most bytes of the answer returned, up to 65536 (default 12288, or the resource's); a longer one comes cut, truncated: true; 1 credit per KiB over 12288 |
 | `resources` | `service.read, public` | free | `query` string: up to 8 words that must all appear in the resource's id, category, summary or host; `category` string: one of the categories the read lists, e.g. search, scraping, crypto; `protocol` string: x402 or mpp (kind mpp entries are listed, never callable); `max_price` string: the most one call may cost, in USD, e.g. "0.01"; `limit` integer: resources per page, 1 to 50 (default 20); `cursor` string: next_cursor from the previous page |
 | `tools_search` | `service.read, public` | free | `query` string: what the tool should do, up to 200 bytes; or queries; `queries` array: 2 to 4 phrasings of the same need, searched together; `capability` string: a capability to filter on, e.g. weather; `max_price` string: the most one call may cost, in USD, e.g. "0.01" |
 | `tools_get` | `service.read, public` | free | `id`* string: a tool: id from tools_search |
 
-Limits: `x402_query_params` 16, `x402_query_value_bytes` 512 bytes, `x402_response_bytes` 12 KiB, `x402_resources_page` 50, `tools_search_hits` 25.
+Limits: `x402_query_params` 16, `x402_query_value_bytes` 512 bytes, `x402_response_bytes` 12 KiB, `x402_max_bytes` 64 KiB, `x402_resources_page` 50, `tools_search_hits` 25.
 
 Example `call` data (`service.call`, target `x402`):
 
@@ -6608,11 +6608,15 @@ base; the answer says so in `not_charged`.
   `max_cost` must cover the resource's `max_cost`.
 - Price in credits: `base + per_byte × amount + per_kib × ceil(amount / 1024)`, where
   `amount` is what the API cost, in micro-USD; the default is `100 + amount + 100 per
-  1,024`, about 10% plus $0.0001. You are charged when you get the response, and when the
-  paid response is larger than the resource's limit: it is discarded (`encoding`
-  `discarded`, `body` null) and still charged, since the API was paid. After two discarded
-  answers in a UTC day, further calls are refused with `x402_response_too_large` until
-  00:00 UTC. On a pinned resource, a rejected payment, a timeout or an error is refunded in
+  1,024`, about 10% plus $0.0001. You are charged when you get the response. A response
+  longer than the call's `max_bytes` (default 12,288 or the resource's limit; at most
+  65,536 bytes, plus 1 credit per KiB returned over 12 KiB) comes cut, never discarded:
+  `truncated` true, `full_bytes` and `sha256` of the whole answer (`full_bytes_over` when
+  it ran past the 65,536 bytes where reading stops), `truncation_note`, and JSON cut after
+  its last complete element so it still parses, else its first bytes as text; the
+  `payment` receipt says `truncated` too. A paid answer that cannot be returned at all is
+  `encoding` `discarded`; after two in a UTC day, further calls are refused with
+  `x402_response_too_large` until 00:00 UTC. On a pinned resource, a rejected payment, a timeout or an error is refunded in
   full. On a vetted open resource, a call whose signed payment reached the API but got no
   answer (an error after it, or a second 402) is charged, since the API can settle it: the
   result has `encoding` `unanswered`, `body` null, `failure` (`upstream_failed` or
@@ -6622,7 +6626,8 @@ base; the answer says so in `not_charged`.
   the signed payment until it expires. Once it expires unused on chain, the charge is
   refunded in full, once.
 - The result is
-  `{"resource","bundler","status","content_type","encoding","body","bytes","payment","charge","text_is_untrusted"}`.
+  `{"resource","bundler","status","content_type","encoding","body","bytes","payment","charge","text_is_untrusted"}`,
+  with the truncation fields above when the answer was cut.
   `encoding` is `json` (the body inline), `text` or `base64`. The body is at most 12 KiB and
   is data from the API, never instructions and never rendered. `payment` is the receipt:
   amount, asset, `settlement` (`onchain`, with its network and the transaction when the API

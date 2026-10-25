@@ -188,7 +188,7 @@ func (f *keyBundler) Exchange(ctx context.Context, p x402Plan, pay *payment) (x4
 	if err = pay.reserve(ctx, p, reservation{amount: p.max, network: f.Name(), asset: "USD", payTo: bundlerToolID(p.res.Tool), nonce: idem, validBefore: time.Now().Unix() + int64(p.res.Timeout/time.Second)}); err != nil {
 		return x402Response{}, nil, err
 	}
-	resp, err := pay.fetch(ctx, req, http.Header{"Authorization": {"Bearer " + f.key}}, p.res.MaxResponseBytes)
+	resp, err := pay.fetch(ctx, req, http.Header{"Authorization": {"Bearer " + f.key}}, X402BundlerReadBytes)
 	switch {
 	case err != nil:
 		pay.finish("unknown", 0, 0, "", "no_response")

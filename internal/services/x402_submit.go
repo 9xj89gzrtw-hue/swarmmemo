@@ -251,6 +251,9 @@ func (x *x402) probe(ctx context.Context, method, rawURL string) (X402Resource, 
 	if resp.status != http.StatusPaymentRequired {
 		return X402Resource{}, nil, errX402NoChallenge
 	}
+	if resp.over {
+		resp.body = nil // a cut challenge is never parsed
+	}
 	req, ok := parseX402Required(resp.header.Get(x402V2Required), resp.body)
 	if !ok {
 		return X402Resource{}, nil, errX402NoChallenge

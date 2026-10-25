@@ -13,26 +13,32 @@ import (
 	"swarmmemo/internal/allowance"
 )
 
-// M1: a paid call whose answer is too large is charged, not refunded, and an
-// account with X402DiscardsPerDay such calls today is refused before it pays
-// again: free keys can no longer drain the global USDC budget at no cost.
+// M1: a paid call whose answer is too large is charged, not refunded (it
+// is returned cut since C578), and an account with X402DiscardsPerDay
+// discarded calls today is refused before it pays again: free keys can no
+// longer drain the global USDC budget at no cost.
 func TestSec120_X402OversizeIsChargedAndCapped(t *testing.T) {
 	resources := `[{"id":"search","url":"https://example.com/paid","method":"POST","pay_to":"` + testPayTo + `","max_price":"0.002","body":true,"max_response_bytes":1024,"timeout_seconds":2}]`
 	h := newX402HarnessWith(t, &fakeX402{price: 2000, bigPaid: 4000}, `{"per_call":"0.002","agent_daily":"0.008","global_daily":"0.016"}`, resources)
 	s := allowance.Subject{ID: "attacker-0", Signed: true}
 	for j := range X402DiscardsPerDay {
 		out, err := h.call(s, `{"resource":"search","body":{"numResults":100}}`, creditsFor(2000))
-		if err != nil || resultOf(out)["encoding"] != "discarded" {
+		if err != nil || resultOf(out)["truncated"] != true {
 			t.Fatalf("call %d: %v %v", j, out, err)
 		}
 	}
 	if got, want := h.charged(), int64(X402DiscardsPerDay)*creditsFor(2000); got != want {
-		t.Fatalf("paid-but-discarded calls charged %d, want %d", got, want)
+		t.Fatalf("paid-but-cut calls charged %d, want %d", got, want)
 	}
-	// The next one is refused before anything is paid.
+	// Answers that could not be returned at all count; with
+	// X402DiscardsPerDay of them today the next call is refused before
+	// anything is paid.
+	if _, err := h.db.Exec("UPDATE x402_payments SET reason='response_too_large' WHERE account=?", s.ID); err != nil {
+		t.Fatal(err)
+	}
 	paid := h.fake.paid
 	if _, err := h.call(s, `{"resource":"search","body":{"numResults":100}}`, creditsFor(2000)); errCode(err) != "x402_response_too_large" {
-		t.Fatalf("a third oversized call: %v", err)
+		t.Fatalf("a call after the discards: %v", err)
 	}
 	if h.fake.paid != paid {
 		t.Fatal("the refused call paid the upstream")
@@ -51,7 +57,7 @@ func TestSec120_X402EscapingFitsTheStoredBody(t *testing.T) {
 	x := &x402{cfg: cfg, byID: map[string]*X402Resource{}}
 	res := cfg.Resources[0]
 	res.MaxResponseBytes = X402ResponseBytesMax
-	p := x402Plan{res: &res}
+	p := x402Plan{res: &res, limit: X402ResponseBytesMax}
 	c := Call{Price: DefaultPrices()["x402.call"]}
 	page := strings.Repeat("a < b && c > d ", X402ResponseBytesMax/16)
 	body := []byte(`{"results":[{"url":"https://example.org","text":"` + page + `"}]}`)
