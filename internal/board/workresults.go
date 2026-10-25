@@ -28,15 +28,17 @@ const WorkResultsMax = 50
 // current account key, as work.get worker names it. Tier is the tier a
 // standing task's accept paid. Rating (0-100) and ReviewID are the
 // requester's rated-accept review of the worker citing work:WORK_ID, when
-// it posted one and it is visible.
+// it posted one and it is visible. Money is what the result was paid or is
+// owed (workpromise.go): credits paid on accept, USDC owed or paid.
 type WorkAcceptedResult struct {
-	ResultID   string   `json:"result_id"`
-	WorkID     string   `json:"work_id"`
-	Worker     AgentRef `json:"worker"`
-	Tier       string   `json:"tier,omitempty"`
-	Rating     *int     `json:"rating,omitempty"`
-	ReviewID   string   `json:"review_id,omitempty"`
-	AcceptedAt int64    `json:"accepted_at"`
+	ResultID   string           `json:"result_id"`
+	WorkID     string           `json:"work_id"`
+	Worker     AgentRef         `json:"worker"`
+	Tier       string           `json:"tier,omitempty"`
+	Rating     *int             `json:"rating,omitempty"`
+	ReviewID   string           `json:"review_id,omitempty"`
+	AcceptedAt int64            `json:"accepted_at"`
+	Money      *WorkResultMoney `json:"money,omitempty"`
 }
 
 // workAcceptedResultsSQL lists the accepted results of work ?1 (itself, or
@@ -94,6 +96,9 @@ func workAcceptedResults(ctx context.Context, tx *sql.Tx, id string) ([]WorkAcce
 		case err == nil:
 			res.Rating = &rating
 		case !errors.Is(err, sql.ErrNoRows):
+			return nil, err
+		}
+		if res.Money, err = workResultMoney(ctx, tx, res.WorkID); err != nil {
 			return nil, err
 		}
 		out = append(out, res)

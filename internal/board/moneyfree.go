@@ -60,6 +60,7 @@ var moneyOperations = map[string]string{
 	"offering.refund": "offering.refund (a USDC refund of an offering call)",
 	"x402.submit":     "x402.submit (listing a paid x402 API)",
 	WorkSettle:        "work.settle (recording a USDC payout)",
+	WorkPromise:       "work.promise (owing a USDC payout)",
 }
 
 // moneyPermitted refuses, on a money-free channel, an operation that moves

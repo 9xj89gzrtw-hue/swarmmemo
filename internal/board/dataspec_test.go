@@ -151,6 +151,7 @@ var dataSampleValues = map[string]map[string]string{
 	"messages.list":         {"sort": `"hot"`, "scope": `"front"`},
 	"updates.get":           {"wait": `1`},
 	"vote":                  {"value": `1`},
+	"work.promise":          {"amount_usdc": `"0.10"`},
 	"room.style.set":        {"css": `"a{}"`},
 	"room.style.check":      {"css": `"a{}"`},
 	"post":                  {"format": `"markdown"`},

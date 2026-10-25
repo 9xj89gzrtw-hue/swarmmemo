@@ -150,6 +150,10 @@ type Work struct {
 	// WorkYourResultsMax (C481): the standing task stays open for other
 	// seats, and each result is its own work item. Never anyone else's.
 	YourResults []WorkYourResult `json:"your_results,omitempty"`
+	// KnownAnswer is the requester's sealed known answer (C587,
+	// workanswer.go): the commit set at create, and the verified answer once
+	// work.reveal opened it after close. Absent when the create set none.
+	KnownAnswer *WorkKnownAnswer `json:"known_answer,omitempty"`
 }
 
 // WorkRequest is the text of a work item's request at its newest version,
@@ -351,6 +355,14 @@ type workData struct {
 	// Review is a rated accept's review: the requester's own signed post
 	// (workreputation.go rateWork).
 	Review json.RawMessage
+	// The sealed known answer (workanswer.go): its commit and note at
+	// create, the answer and salt a work.reveal opens.
+	AnswerCommit, AnswerCommitNote string
+	Answer, Salt                   string
+	// work.promise (workpromise.go): the USDC owed on an accepted result,
+	// in micro-USDC, and the requester's one-line note.
+	PromiseUSDC int64
+	PromiseNote string
 }
 
 // workVerdictOp says whether an operation is a verdict on a submitted
@@ -368,7 +380,7 @@ func workResultHashOp(operation string) bool {
 
 // workDataRule is the whole rule for work.* data, the message of an
 // invalid_work_data refusal; a refusal that can name its field says so first.
-const workDataRule = "Data must be strict schema-1 JSON with a current lowercase 32-hex generation; creation also requires a 1–160 UTF-8 byte title and up to 16 unique lowercase capability slugs, and may add a reward (whole credits, or an object with credits and usdc, a decimal string), a reviewer (a 64-hex agent fingerprint) with an optional reviewer_fee, an eligibility (open, first_work, linked or new_agent) and a reward_note (one line, display only); work.reviewer.set takes reviewer, the new one's fingerprint; work.successor.set takes successor, the standing task that follows a standing task; work.claim and work.submit may add payout_address (0x and 40 hex, where a USDC reward is paid); work.settle takes tx_hash, the payment's transaction; submit, accept and a claim with a result may add result_sha256, the 64-hex SHA-256 of the result text; accept and reject may add checks, the verifier's per-property list; the requester's accept may add review, its own signed review post of the worker (a rated accept); a standing task's create may add seats (1–50) with per_agent_day, day_max, results_max, tiers, usdc_per_agent_day and usdc_day_max, and an accept of one of its results may add tier."
+const workDataRule = "Data must be strict schema-1 JSON with a current lowercase 32-hex generation; creation also requires a 1–160 UTF-8 byte title and up to 16 unique lowercase capability slugs, and may add a reward (whole credits, or an object with credits and usdc, a decimal string), a reviewer (a 64-hex agent fingerprint) with an optional reviewer_fee, an eligibility (open, first_work, linked or new_agent), a reward_note (one line, display only) and answer_commit (64-hex sha256 of salt, a newline and the known answer) with an optional answer_commit_note; work.reveal takes answer and salt, after close; work.reviewer.set takes reviewer, the new one's fingerprint; work.successor.set takes successor, the standing task that follows a standing task; work.claim and work.submit may add payout_address (0x and 40 hex, where a USDC reward is paid); work.settle takes tx_hash, the payment's transaction; work.promise takes amount_usdc (a decimal string) and an optional one-line note, USDC owed on an accepted result; submit, accept and a claim with a result may add result_sha256, the 64-hex SHA-256 of the result text; accept and reject may add checks, the verifier's per-property list; the requester's accept may add review, its own signed review post of the worker (a rated accept); a standing task's create may add seats (1–50) with per_agent_day, day_max, results_max, tiers, usdc_per_agent_day and usdc_day_max, and an accept of one of its results may add tier."
 
 // workDataAliases is the field a name work data does not take was likely
 // meant to be: a tiny fixed map, no fuzzy matching. ttl is the command field
@@ -505,6 +517,29 @@ func parseWorkData(raw string, operation string) (workData, error) {
 			dest = &d.Eligibility
 		case "reward_note":
 			dest = &d.RewardNote
+		case "answer_commit":
+			dest = &d.AnswerCommit
+		case "answer_commit_note":
+			dest = &d.AnswerCommitNote
+		case "answer":
+			dest = &d.Answer
+		case "amount_usdc":
+			if !workDataTakes(operation, name) {
+				return workData{}, invalidWorkField(operation, name)
+			}
+			var text string
+			var ok bool
+			if json.Unmarshal(value, &text) != nil {
+				return workData{}, invalidWorkPromise()
+			}
+			if d.PromiseUSDC, ok = services.ParseUSDC(text); !ok || d.PromiseUSDC < WorkUSDCMin || d.PromiseUSDC > WorkUSDCMax {
+				return workData{}, invalidWorkPromise()
+			}
+			continue
+		case "note":
+			dest = &d.PromiseNote
+		case "salt":
+			dest = &d.Salt
 		case "result_sha256":
 			dest = &d.ResultSHA256
 		case "seats":
@@ -592,11 +627,26 @@ func parseWorkData(raw string, operation string) (workData, error) {
 		}
 		want++
 	}
+	if operation == WorkPromise {
+		if !seen["amount_usdc"] || seen["note"] && !validWorkNoteLine(d.PromiseNote, WorkRewardNoteMax) {
+			return workData{}, invalidWorkPromise()
+		}
+		want++
+		if seen["note"] {
+			want++
+		}
+	}
 	if operation == WorkSuccessorSet {
 		if !seen["successor"] || !workIDRE.MatchString(d.Successor) {
 			return workData{}, problem(400, "invalid_work_data", WorkSuccessorSet+" data names the round that follows: successor, the 32-hex ID of another standing task of yours. "+workDataRule)
 		}
 		want++
+	}
+	if operation == WorkReveal {
+		if !seen["answer"] || !seen["salt"] {
+			return workData{}, invalidReveal(WorkReveal + " data names the answer and the salt the commit hashed.")
+		}
+		want += 2
 	}
 	if operation == WorkReviewerSet {
 		// The new reviewer is the command's whole point.
@@ -631,6 +681,9 @@ func parseWorkData(raw string, operation string) (workData, error) {
 	}
 	if seen["reward_note"] && !validWorkRewardNote(d.RewardNote) {
 		return workData{}, invalidWorkRewardNote()
+	}
+	if err = checkWorkAnswerData(d, seen); err != nil {
+		return workData{}, err
 	}
 	if create {
 		if strings.TrimSpace(d.Title) == "" || len(d.Title) > WorkTitleBytes || strings.ContainsRune(d.Title, 0) || d.Capabilities == nil || len(d.Capabilities) > WorkCapabilitiesMax {
@@ -998,6 +1051,14 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			if !allowed && a.account == w.Requester {
 				return Result{}, errUSDCOwedOnAccept()
 			}
+		case WorkPromise:
+			allowed = state == "accepted"
+			if !allowed && a.account == w.Requester {
+				return Result{}, errPromiseNotAccepted()
+			}
+		case WorkReveal:
+			// Closed work only: checkWorkReveal says when, to the requester.
+			allowed = state != "recovery_required"
 		case WorkSuccessorSet:
 			// A full, cancelled or expired round is the one that needs it;
 			// a transition re-binds the generation, so not one to recover.
@@ -1103,7 +1164,25 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 				return Result{Data: ResultData(WorkAckData{Ack: ack})}, nil
 			}
 		}
-		if c.Operation != "work.claim" && c.Operation != "work.cancel" && c.Operation != WorkReviewerSet && c.Operation != WorkSuccessorSet && c.Operation != WorkSettle && (c.Amount != w.Fence || c.Amount < 0 || (c.Amount == 0 && state != "recovery_required")) {
+		if c.Operation == WorkPromise {
+			// The requester's, on an accepted result, and moves no attempt:
+			// no fence.
+			if e := s.checkPromise(ctx, tx, w, root); e != nil {
+				return Result{}, e
+			}
+		}
+		if c.Operation == WorkReveal {
+			// The requester's, after close, and moves no attempt: no fence.
+			done, e := checkWorkReveal(ctx, tx, w, state, standing, d, now)
+			if e != nil {
+				return Result{}, e
+			}
+			if done {
+				ack := WorkAck{WorkID: w.ID, State: w.State, Fence: w.Fence, Generation: w.Generation, ServiceID: s.config.ServiceID, AcceptedAt: now, Deadline: w.Deadline, ClaimExpiresAt: w.ClaimExpires, Note: "Already revealed with these values and verified; nothing changed."}
+				return Result{Data: ResultData(WorkAckData{Ack: ack})}, nil
+			}
+		}
+		if c.Operation != "work.claim" && c.Operation != "work.cancel" && c.Operation != WorkReviewerSet && c.Operation != WorkSuccessorSet && c.Operation != WorkSettle && c.Operation != WorkPromise && c.Operation != WorkReveal && (c.Amount != w.Fence || c.Amount < 0 || (c.Amount == 0 && state != "recovery_required")) {
 			return Result{}, problem(409, "work_fence_mismatch", "The attempt fencing token does not match.")
 		}
 		// A claim that names its result (target) submits it at once, so it
@@ -1265,8 +1344,12 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 				return Result{}, err
 			}
 		}
-		w.Generation = generation
-		w.Updated = now
+		// A reveal is a record on closed work, the signed transition itself
+		// (loadWorkKnownAnswer reads it back): the row keeps its time.
+		if c.Operation != WorkReveal {
+			w.Generation = generation
+			w.Updated = now
+		}
 	}
 	if err = s.charge(ctx, tx, a, int64(len(a.canonical))+512, now); err != nil {
 		return Result{}, err
@@ -1307,6 +1390,8 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		err = s.setWorkPayTo(ctx, tx, c.Operation, w, d, w.State == "submitted")
 	case WorkSettle:
 		err = s.settleWorkUSDC(ctx, tx, w, d, now)
+	case WorkPromise:
+		err = s.promiseWorkResult(ctx, tx, a, w, d.PromiseUSDC, now)
 	case "work.accept", "work.reject", "work.cancel":
 		// USDC moves with the verdict too: owed on accept, its payout
 		// address cleared on reject, void on cancel.
@@ -1430,20 +1515,23 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	if err != nil {
 		return Result{}, err
 	}
-	if err = s.enqueueMCPWorkEvents(ctx, tx, c.Operation, w, root, cmp.Or(w.Worker, worker), reward, workerNext, a, now); err != nil {
-		return Result{}, err
-	}
-	// The inbox entry log (C61): the same parties, and a named reviewer;
-	// under INBOX_ENTRIES=read work.update is pushed from those entries.
-	src := workInboxSource(c.Operation, w, root.Room, cmp.Or(w.Worker, worker), a, now)
-	src.workerNext = workerNext
-	entries, err := s.recordInbox(ctx, tx, src)
-	if err != nil {
-		return Result{}, err
-	}
-	if s.inboxRead(ctx) {
-		if err = s.pushWork(ctx, tx, c.Operation, w, root, cmp.Or(w.Worker, worker), reward, a, entries, now); err != nil {
+	// A reveal changes nothing anyone waits on: it is read on the work.
+	if c.Operation != WorkReveal {
+		if err = s.enqueueMCPWorkEvents(ctx, tx, c.Operation, w, root, cmp.Or(w.Worker, worker), reward, workerNext, a, now); err != nil {
 			return Result{}, err
+		}
+		// The inbox entry log (C61): the same parties, and a named reviewer;
+		// under INBOX_ENTRIES=read work.update is pushed from those entries.
+		src := workInboxSource(c.Operation, w, root.Room, cmp.Or(w.Worker, worker), a, now)
+		src.workerNext = workerNext
+		entries, e := s.recordInbox(ctx, tx, src)
+		if e != nil {
+			return Result{}, e
+		}
+		if s.inboxRead(ctx) {
+			if err = s.pushWork(ctx, tx, c.Operation, w, root, cmp.Or(w.Worker, worker), reward, a, entries, now); err != nil {
+				return Result{}, err
+			}
 		}
 	}
 	// A verdict (or a cancel) answers the review the submit asked for (C71).
@@ -1477,12 +1565,14 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 		ack.StandingID, ack.ResultWorkID, ack.ResultState = standingRoot.ID, w.ID, w.State
 		ack.Seat, ack.Seats = seats.waiting+1, standing.Seats
 	}
-	if c.Operation == "work.accept" || c.Operation == WorkSettle {
+	if c.Operation == "work.accept" || c.Operation == WorkSettle || c.Operation == WorkPromise {
 		u, e := loadWorkUSDC(ctx, tx, w.ID)
 		if e != nil {
 			return Result{}, e
 		}
 		switch {
+		case u != nil && c.Operation == WorkPromise:
+			ack.Note = promiseNote(u)
 		case u != nil && u.State == "payable":
 			ack.Note = strings.TrimSpace(ack.Note + " " + services.FormatUSDC(u.Amount) + " USDC is now owed to the worker's payout address " + u.PayTo + " on " + u.Network + ": pay it, then send work.settle with the transaction's tx_hash. Until then the reward reads payable, not paid.")
 		case u != nil && c.Operation == WorkSettle:
@@ -1491,6 +1581,9 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	}
 	if standingNote != "" {
 		ack.Note = strings.TrimSpace(standingNote + " " + ack.Note)
+	}
+	if c.Operation == WorkReveal {
+		ack.Note = "Answer revealed and verified against the sealed commit; work.get shows it under known_answer."
 	}
 	return Result{Data: ResultData(WorkAckData{Ack: ack, Review: rated}), ratedPost: ratedPost}, nil
 }
@@ -1520,6 +1613,9 @@ func (s *Store) projectWork(ctx context.Context, tx *sql.Tx, w workRow, root wor
 		return Work{}, err
 	}
 	if err = json.Unmarshal([]byte(w.Caps), &p.Capabilities); err != nil {
+		return Work{}, err
+	}
+	if p.KnownAnswer, err = loadWorkKnownAnswer(ctx, tx, w.ID); err != nil {
 		return Work{}, err
 	}
 	if p.State, err = effectiveWork(ctx, tx, w.ID, generation, now); err != nil {

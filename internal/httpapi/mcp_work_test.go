@@ -531,7 +531,7 @@ func TestHostedMCPCreateAndManageWork(t *testing.T) {
 	if a := ack(mustTool(t, s, "/mcp", asWorker, "manage_work", map[string]any{"message_id": id, "action": "renew", "ttl": 1800})); a["state"] != "claimed" {
 		t.Fatalf("manage_work renew: %v", a)
 	}
-	if _, failure := callTool(t, s, "/mcp", asRequester, "manage_work", map[string]any{"message_id": id, "action": "close"}); !strings.Contains(failure, "renew, cancel, settle, reviewer or successor") {
+	if _, failure := callTool(t, s, "/mcp", asRequester, "manage_work", map[string]any{"message_id": id, "action": "close"}); !strings.Contains(failure, "renew, cancel, settle, promise, reviewer, successor or reveal") {
 		t.Fatalf("manage_work with an unknown action: %q", failure)
 	}
 	if a := ack(mustTool(t, s, "/mcp", asRequester, "manage_work", map[string]any{"message_id": id, "action": "cancel", "reason": "No longer needed."})); a["state"] != "cancelled" {
@@ -551,5 +551,44 @@ func TestHostedMCPCreateAndManageWork(t *testing.T) {
 	}
 	if _, failure := callTool(t, s, "/mcp", "", "post_message", map[string]any{"room": "gigs", "supersedes": id, "text": "Not mine."}); !strings.Contains(failure, "supersedes") {
 		t.Fatalf("anonymous post_message supersedes: %q", failure)
+	}
+}
+
+// A sealed known answer over MCP (C587): create_work commits it, read_work
+// shows the commit, manage_work reveal opens it after close, verified.
+func TestHostedMCPWorkKnownAnswer(t *testing.T) {
+	_, s := hostedServer(t)
+	requester := newIdentity(t, s, "answer-poster")
+	as := "Bearer " + requester["token"].(string)
+	salt, answer := "c587-salt-0123456789abcdef", "1729"
+	commit := board.WorkAnswerCommit(salt, answer)
+	id := mustTool(t, s, "/mcp", as, "post_message", map[string]any{"room": "gigs", "kind": "request", "text": "Compute the taxicab number Ta(2)."})["receipt"].(map[string]any)["id"].(string)
+	mustTool(t, s, "/mcp", as, "create_work", map[string]any{"message_id": id, "title": "Compute Ta(2)", "capabilities": []any{"math"}, "answer_commit": commit, "answer_commit_note": "the integer"})
+	known := func() map[string]any {
+		k, _ := dig(mustTool(t, s, "/mcp", "", "read_work", map[string]any{"message_id": id}), "data", "work", "known_answer").(map[string]any)
+		return k
+	}
+	if k := known(); k == nil || k["commit"] != commit || k["state"] != board.WorkAnswerSealed || k["answer"] != nil {
+		t.Fatalf("sealed known_answer %v", k)
+	}
+	if _, failure := callTool(t, s, "/mcp", as, "manage_work", map[string]any{"message_id": id, "action": "reveal", "answer": answer, "salt": salt}); !strings.Contains(failure, "work_state_conflict") {
+		t.Fatalf("reveal before close: %q", failure)
+	}
+	mustTool(t, s, "/mcp", as, "manage_work", map[string]any{"message_id": id, "action": "cancel", "reason": "Closed."})
+	if _, failure := callTool(t, s, "/mcp", as, "manage_work", map[string]any{"message_id": id, "action": "reveal", "answer": "1730", "salt": salt}); !strings.Contains(failure, "reveal_mismatch") {
+		t.Fatalf("wrong reveal: %q", failure)
+	}
+	mustTool(t, s, "/mcp", as, "manage_work", map[string]any{"message_id": id, "action": "reveal", "answer": answer, "salt": salt})
+	if k := known(); k["state"] != board.WorkAnswerRevealed || k["answer"] != answer || k["verified"] != true {
+		t.Fatalf("revealed known_answer %v", k)
+	}
+}
+
+// manage_work promise (C589) signs work.promise with amount_usdc and the
+// note, unfenced.
+func TestManageWorkPromiseCommand(t *testing.T) {
+	c, fenced, extra, err := manageWorkInput{MessageID: strings.Repeat("a", 32), Action: "promise", USDC: "0.10", Note: "announced extra"}.command()
+	if err != nil || fenced || c.Operation != board.WorkPromise || strings.Join(extra, "|") != "amount_usdc|0.10|note|announced extra" {
+		t.Fatalf("promise: %+v %v %v %v", c, fenced, extra, err)
 	}
 }

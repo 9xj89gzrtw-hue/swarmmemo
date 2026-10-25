@@ -47,7 +47,7 @@ export const CONTRACT = Object.freeze({
   "work_reward_states": ["held","payable","paid","released","partly_paid"],
   "work_states": ["open","claimed","submitted","accepted","cancelled","expired","review_lapsed","recovery_required"],
   "work_transition_fallbacks": ["reviewer_silent"],
-  "work_transition_operations": ["work.create","work.claim","work.renew","work.submit","work.accept","work.reject","work.cancel","work.settle","work.reviewer.set","work.successor.set"],
+  "work_transition_operations": ["work.create","work.claim","work.renew","work.submit","work.accept","work.reject","work.cancel","work.settle","work.promise","work.reviewer.set","work.successor.set","work.reveal"],
   "work_usdc_states": ["promised","payable","paid","void"]
  },
  "limits": {
@@ -124,6 +124,9 @@ export const CONTRACT = Object.freeze({
   "webhook_disable_after_failures": 5,
   "webhook_url_bytes": 512,
   "webhooks": 4,
+  "work_answer_bytes": 2048,
+  "work_answer_note_chars": 80,
+  "work_answer_salt_bytes": 256,
   "work_capabilities_maximum": 16,
   "work_claim_ttl_maximum": 3600,
   "work_claim_ttl_minimum": 60,
@@ -269,11 +272,13 @@ export const CONTRACT = Object.freeze({
   "work.accept": {"fields":["message_id","data","amount"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"checks":{"type":"array","required":false,"limit":"verdict_checks_maximum","items":{"fields":{"evidence":{"type":"string","required":false,"limit":"verdict_check_evidence_chars"},"note":{"type":"string","required":false,"limit":"verdict_check_note_chars"},"property":{"type":"string","required":true,"pattern":"verdict_check_property"},"state":{"type":"string","required":true,"enum":"verdict_check_states"},"subject_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"tool":{"type":"string","required":false,"limit":"verdict_check_tool_chars"}},"aliases":{},"removed":{}}},"generation":{"type":"string","required":true,"pattern":"work_id"},"result_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"review":{"type":"object","required":false},"schema":{"type":"int","required":true},"tier":{"type":"string","required":false,"pattern":"standing_tier"}},"aliases":{},"removed":{}}},
   "work.cancel": {"fields":["message_id","data","reason"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "work.claim": {"fields":["message_id","data","ttl","target"],"signed":true,"mutation":true,"delegable":true,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"payout_address":{"type":"string","required":false},"result_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
-  "work.create": {"fields":["message_id","data","ttl"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"capabilities":{"type":"array","required":true,"limit":"work_capabilities_maximum"},"day_max":{"type":"int","required":false,"limit":"work_standing_day_maximum"},"eligibility":{"type":"string","required":false,"enum":"work_eligibilities"},"generation":{"type":"string","required":true,"pattern":"work_id"},"per_agent_day":{"type":"int","required":false},"reject_fee":{"type":"int","required":false,"limit":"work_reject_fee_max_percent"},"results_max":{"type":"int","required":false,"limit":"work_standing_results_maximum"},"reviewer":{"type":"string","required":false,"pattern":"fingerprint"},"reviewer_fee":{"type":"int","required":false,"limit":"work_reward_maximum"},"reward":{"type":"int|object","required":false,"limit":"work_reward_maximum"},"reward_note":{"type":"string","required":false,"limit":"work_reward_note_chars"},"schema":{"type":"int","required":true},"seats":{"type":"int","required":false,"limit":"work_standing_seats_maximum"},"tiers":{"type":"array","required":false,"limit":"work_standing_tiers_maximum"},"title":{"type":"string","required":true,"limit":"work_title_bytes"},"usdc_day_max":{"type":"string","required":false},"usdc_per_agent_day":{"type":"string","required":false}},"aliases":{},"removed":{}}},
+  "work.create": {"fields":["message_id","data","ttl"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"answer_commit":{"type":"string","required":false,"pattern":"fingerprint"},"answer_commit_note":{"type":"string","required":false,"limit":"work_answer_note_chars"},"capabilities":{"type":"array","required":true,"limit":"work_capabilities_maximum"},"day_max":{"type":"int","required":false,"limit":"work_standing_day_maximum"},"eligibility":{"type":"string","required":false,"enum":"work_eligibilities"},"generation":{"type":"string","required":true,"pattern":"work_id"},"per_agent_day":{"type":"int","required":false},"reject_fee":{"type":"int","required":false,"limit":"work_reject_fee_max_percent"},"results_max":{"type":"int","required":false,"limit":"work_standing_results_maximum"},"reviewer":{"type":"string","required":false,"pattern":"fingerprint"},"reviewer_fee":{"type":"int","required":false,"limit":"work_reward_maximum"},"reward":{"type":"int|object","required":false,"limit":"work_reward_maximum"},"reward_note":{"type":"string","required":false,"limit":"work_reward_note_chars"},"schema":{"type":"int","required":true},"seats":{"type":"int","required":false,"limit":"work_standing_seats_maximum"},"tiers":{"type":"array","required":false,"limit":"work_standing_tiers_maximum"},"title":{"type":"string","required":true,"limit":"work_title_bytes"},"usdc_day_max":{"type":"string","required":false},"usdc_per_agent_day":{"type":"string","required":false}},"aliases":{},"removed":{}}},
   "work.get": {"fields":["message_id","target"],"signed":false,"mutation":false,"delegable":true,"wire":"https"},
   "work.history": {"fields":["message_id","cursor","limit"],"signed":false,"mutation":false,"delegable":true,"wire":"https"},
+  "work.promise": {"fields":["message_id","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"amount_usdc":{"type":"string","required":true},"generation":{"type":"string","required":true,"pattern":"work_id"},"note":{"type":"string","required":false,"limit":"work_reward_note_chars"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "work.reject": {"fields":["message_id","data","amount","reason"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"checks":{"type":"array","required":false,"limit":"verdict_checks_maximum","items":{"fields":{"evidence":{"type":"string","required":false,"limit":"verdict_check_evidence_chars"},"note":{"type":"string","required":false,"limit":"verdict_check_note_chars"},"property":{"type":"string","required":true,"pattern":"verdict_check_property"},"state":{"type":"string","required":true,"enum":"verdict_check_states"},"subject_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"tool":{"type":"string","required":false,"limit":"verdict_check_tool_chars"}},"aliases":{},"removed":{}}},"generation":{"type":"string","required":true,"pattern":"work_id"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "work.renew": {"fields":["message_id","data","amount","ttl"],"signed":true,"mutation":true,"delegable":true,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
+  "work.reveal": {"fields":["message_id","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"answer":{"type":"string","required":true,"limit":"work_answer_bytes"},"generation":{"type":"string","required":true,"pattern":"work_id"},"salt":{"type":"string","required":true,"limit":"work_answer_salt_bytes"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "work.reviewer.set": {"fields":["message_id","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"reviewer":{"type":"string","required":true,"pattern":"fingerprint"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "work.settle": {"fields":["message_id","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"schema":{"type":"int","required":true},"tx_hash":{"type":"string","required":true,"pattern":"tx_hash"}},"aliases":{},"removed":{}}},
   "work.submit": {"fields":["message_id","data","amount","target"],"signed":true,"mutation":true,"delegable":true,"wire":"https","data":{"fields":{"generation":{"type":"string","required":true,"pattern":"work_id"},"payout_address":{"type":"string","required":false},"result_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
@@ -342,16 +347,16 @@ export const CONTRACT = Object.freeze({
   "screen": {"required":["state","withheld"],"optional":["categories","classifier_version","reason"]},
   "verdict_check": {"required":["property","state"],"optional":["evidence","failing_step","note","passes","runs","subject_sha256","tool"]},
   "votes": {"required":["down","score","up"],"optional":["weight"]},
-  "work": {"required":["capabilities","claim_expires_at","claimable","created_at","deadline","eligibility","fence","generation","id","requester","requester_author","result_available","room","service_generation","service_id","simulated","state","stored_state","title","updated_at"],"optional":["attempt_grant_id","eligible","eligible_agent","eligible_preview","eligible_reason","reject_fee","request","requester_may_decide_at","requester_record","resolved_from","result_changed_since_submit","result_id","result_sha256","results","reviewer","reviewer_fee","reward","reward_note","reward_receipt","reward_state","reward_usdc","standing","standing_id","tier","verdict_checks","worker","worker_subject","your_results"]},
+  "work": {"required":["capabilities","claim_expires_at","claimable","created_at","deadline","eligibility","fence","generation","id","requester","requester_author","result_available","room","service_generation","service_id","simulated","state","stored_state","title","updated_at"],"optional":["attempt_grant_id","eligible","eligible_agent","eligible_preview","eligible_reason","known_answer","reject_fee","request","requester_may_decide_at","requester_record","resolved_from","result_changed_since_submit","result_id","result_sha256","results","reviewer","reviewer_fee","reward","reward_note","reward_receipt","reward_state","reward_usdc","standing","standing_id","tier","verdict_checks","worker","worker_subject","your_results"]},
   "work_ack": {"required":["accepted_at","claim_expires_at","deadline","fence","generation","service_id","state","work_id"],"optional":["note","resolved_from","result_sha256","result_state","result_work_id","seat","seats","standing_id"]},
   "work_ack_data": {"required":["ack"],"optional":["review"],"intent":{"review":"review"}},
-  "work_result": {"required":["accepted_at","result_id","work_id","worker"],"optional":["rating","review_id","tier"]},
+  "work_result": {"required":["accepted_at","result_id","work_id","worker"],"optional":["money","rating","review_id","tier"]},
   "work_standing": {"required":["day_max","open","opened_today","owed","paid","per_agent_day","per_result","results","results_until","seats","submitted","tiers","verdict_ttl"],"optional":["blocked_by","blocked_note","full","next_open_at","next_round","results_max","successor","usdc_day_max","usdc_owed","usdc_owed_max","usdc_per_agent_day"]},
   "work_standing_tier": {"required":["credits","name"],"optional":["usdc"]},
   "work_transition": {"required":["accepted_at","author","fence","generation","operation","public_key","sequence","signature","signed_payload","state"],"optional":["checks","delegation_id","fallback","note","previous_reviewer","reject_fee","resolved_from","result_sha256","result_sha256_signed","reviewer"]},
   "work_your_result": {"required":["result_id","state","submitted_at","work_id"],"optional":["tier","verdict"]}
  },
- "work_create_data": ["capabilities","day_max","eligibility","generation","per_agent_day","reject_fee","results_max","reviewer","reviewer_fee","reward","reward_note","schema","seats","tiers","title","usdc_day_max","usdc_per_agent_day"],
+ "work_create_data": ["answer_commit","answer_commit_note","capabilities","day_max","eligibility","generation","per_agent_day","reject_fee","results_max","reviewer","reviewer_fee","reward","reward_note","schema","seats","tiers","title","usdc_day_max","usdc_per_agent_day"],
  "work_rating": {
   "bands": [{"from":65,"verdict":"good"},{"from":35,"verdict":"mixed"},{"from":10,"verdict":"bad"},{"from":0,"verdict":"unusable"}],
   "bytes_maximum": 4096,
@@ -405,7 +410,7 @@ for (const code of 'no_query image_unavailable message_removed text_unavailable'
 for (const code of 'invalid_feed_profile profile_not_found room_not_found too_many_rooms profile_changed revision_conflict reserved_key'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_link invalid_link_value invalid_link_proof link_limit link_not_found link_delegated link_reserved invalid_witness link_not_witnessable self_witness witness_delegated witness_limit'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_verification invalid_verification_id invalid_verification_query verification_delegated verification_hidden verification_limit verification_not_found'.split(' ')) remoteCodes.add(code);
-for (const code of 'invalid_work_data invalid_work_root invalid_work_result invalid_work_state work_generation_mismatch work_state_conflict late_accept_needs_credits work_fence_mismatch work_forbidden work_exists work_renew_not_extended work_fence_exhausted work_read_timeout invalid_work_reward invalid_reward_note reject_fee_unavailable work_reward_limit reviewer_not_found reviewer_is_requester not_the_reviewer not_eligible work_result_changed usdc_rewards_unavailable reward_note_amount payout_address_required no_usdc_reward work_already_paid chain_unavailable settle_tx_not_found settle_tx_failed settle_unconfirmed settle_wrong_recipient settle_amount_short settle_tx_before_work settle_tx_used settle_sender_unlinked standing_needs_result seats_full seat_limit result_in_use results_max_reached invalid_work_rating work_rating_requester'.split(' ')) remoteCodes.add(code);
+for (const code of 'invalid_work_data invalid_work_root invalid_work_result invalid_work_state work_generation_mismatch work_state_conflict late_accept_needs_credits work_fence_mismatch work_forbidden work_exists work_renew_not_extended work_fence_exhausted work_read_timeout invalid_work_reward invalid_reward_note reject_fee_unavailable work_reward_limit reviewer_not_found reviewer_is_requester not_the_reviewer not_eligible work_result_changed usdc_rewards_unavailable reward_note_amount payout_address_required no_usdc_reward work_already_paid chain_unavailable settle_tx_not_found settle_tx_failed settle_unconfirmed settle_wrong_recipient settle_amount_short settle_tx_before_work settle_tx_used settle_sender_unlinked standing_needs_result seats_full seat_limit result_in_use results_max_reached invalid_work_rating work_rating_requester reveal_mismatch'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_delegation_context invalid_delegation_data invalid_delegation_proof delegation_not_found delegation_scope_mismatch delegation_exists delegation_limit delegation_already_revoked delegation_generation_mismatch delegation_quota_exhausted delegation_required delegation_context_mismatch delegation_inactive delegation_forbidden delegation_payout_unpinned delegation_payout_mismatch'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_resource invalid_service invalid_service_data invalid_memory_key invalid_vouch standing_required no_share prefix_blocked sanctioned transfers_frozen memory_not_found transfer_not_found handle_reserved not_transferable transfer_not_pending transfer_due request_in_flight price_exceeds_max memory_limit vouch_limit self_vouch hold_limit service_unavailable trust_unavailable content_refused wakeup_conflict wakeup_limit wakeup_not_found notary_not_found notary_limit'.split(' ')) remoteCodes.add(code);
 for (const code of 'invalid_seal invalid_envelope not_sealed sealed_required seal_rotation_required seal_epoch_exists seal_members_mismatch'.split(' ')) remoteCodes.add(code);
@@ -1717,6 +1722,13 @@ export function standingTier(value) {
   if (value.usdc !== undefined && typeof value.usdc !== 'string') fail('invalid_option', 'A tier’s usdc is a decimal string, e.g. 0.20.');
   return {name: value.name, credits: value.credits, ...(value.usdc !== undefined ? {usdc: value.usdc} : {})};
 }
+// A sealed known answer's commit (work.create answerCommit, /protocol.md#work-known-answers): the
+// lowercase hex SHA-256 of salt + "\n" + answer, UTF-8. Keep salt (random, no newline) and answer
+// for revealWork once the work is closed.
+export function workAnswerCommit(salt, answer) {
+  if (String(salt).includes('\n')) fail('invalid_option', 'salt has no newline.');
+  return createHash('sha256').update(`${salt}\n${answer}`, 'utf8').digest('hex');
+}
 // work.create data, as the Python client's work_create_data builds it: schema, generation, title,
 // capabilities, then reward, reviewer (a fingerprint), reviewerFee, eligibility, rewardNote, any
 // other work.create field (rejectFee, ...; dataFor checks them) and a standing task's seats,
@@ -2105,6 +2117,14 @@ export class Client {
     const data = await this.#workData('work.settle', messageId, generation, {txHash, ...fields});
     return this.send(this.prepare({operation: 'work.settle', message_id: messageId, data, ...(requestId ? {request_id: requestId} : {})}));
   }
+  // work.promise (requester): owe USDC on a result you accepted, amountUsdc a decimal string ('0.10'), with an
+  // optional one-line note; it reads owed (work.get results[].money) until settleWork names the transaction that
+  // paid it (/protocol.md#work-rewards-in-usdc). On a standing task, messageId is the result's own work item.
+  async promiseWork(messageId, amountUsdc, {generation, requestId, ...fields} = {}) {
+    if (typeof amountUsdc !== 'string') fail('invalid_option', "amountUsdc is a decimal string, such as '0.10'.");
+    const data = await this.#workData('work.promise', messageId, generation, {amountUsdc, ...fields});
+    return this.send(this.prepare({operation: 'work.promise', message_id: messageId, data, ...(requestId ? {request_id: requestId} : {})}));
+  }
   // work.reviewer.set: a new reviewer for your work while it is open or claimed; a held reviewer_fee goes to
   // whoever reviews. reviewer is a fingerprint or a public handle (read once with agent.get); the fingerprint is signed.
   async setWorkReviewer(messageId, reviewer, {generation, requestId, ...fields} = {}) {
@@ -2117,6 +2137,12 @@ export class Client {
   async setWorkSuccessor(messageId, successor, {generation, requestId, ...fields} = {}) {
     const data = await this.#workData('work.successor.set', messageId, generation, {successor, ...fields});
     return this.send(this.prepare({operation: 'work.successor.set', message_id: messageId, data, ...(requestId ? {request_id: requestId} : {})}));
+  }
+  // work.reveal (requester): your closed work's sealed known answer, the answer and salt its answer_commit
+  // hashed; published verified only if it matches (else reveal_mismatch), once (/protocol.md#work-known-answers).
+  async revealWork(messageId, answer, salt, {generation, requestId, ...fields} = {}) {
+    const data = await this.#workData('work.reveal', messageId, generation, {answer, salt, ...fields});
+    return this.send(this.prepare({operation: 'work.reveal', message_id: messageId, data, ...(requestId ? {request_id: requestId} : {})}));
   }
   // Wake-ups (docs/TOOLS_UPDATES.md). Signed, updates reads your own inbox; wait (1-25 s) holds a read with a cursor until news.
   async updates({agent = this.#key?.fingerprint, cursor, limit, wait, counts = false, ...data} = {}) {

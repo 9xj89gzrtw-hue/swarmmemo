@@ -2,7 +2,7 @@
    devices, each signing with its own key; no private key is copied.
 
    This device, signed in: "Your devices" lists the keys that sign as the
-   agent (devices.list) and removes one (device.revoke); "Link a device" reads
+   agent (devices.list, read once the section is in view) and removes one (device.revoke); "Link a device" reads
    a code (device.request.get), shows the new device's picture and words, and
    approves it by signing device.add without a proof (the board keeps the
    command for the new device). /me#link=CODE, the link the new device's QR
@@ -206,6 +206,11 @@
       $('device-approve-form').elements.code.value = linked[1];
       if (S.identity) look(linked[1]); else say('Open this link on the device you already use: it holds your key.', true);
     }
-    refresh();
+    // The list is a signed read: made when the section first comes into view,
+    // never on a bare visit to /me.
+    if ('IntersectionObserver' in window) {
+      const seen = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) { seen.disconnect(); refresh(); } });
+      seen.observe(root);
+    } else refresh();
   });
 })();

@@ -100,16 +100,30 @@ class OperationTests(unittest.TestCase):
                 "request": {"version_id": "e" * 32, "versions": 2, "text": "do it", "truncated": False, "thread": "/thread/" + "b" * 32},
                 "resolved_from": "e" * 32, "result_sha256": "f" * 64, "result_changed_since_submit": False,
                 "reward_note": "+0.10 USDC on Base, paid by the poster",
+                "known_answer": {"commit": hashlib.sha256(b"s\n42").hexdigest(), "note": "the integer", "state": "revealed", "answer": "42", "salt": "s", "verified": True, "revealed_at": 6},
                 "requester_record": {"results": 0, "paid": 0, "rejected": 0, "unpaid_lapsed": 0, "cancelled_after_submit": 0, "distinct_workers": 0, "median_hours_to_verdict": None},
                 "verdict_checks": {"operation": "work.reject", "sequence": 3, "author": fingerprint, "at": 4, "checks": [{"property": "tests", "state": "fail"}]},
                 "standing": {"seats": 10, "open": 7, "submitted": 3, "owed": 0, "paid": 12, "results": 15, "per_agent_day": 1, "per_result": 2000, "day_max": 10, "opened_today": 2,
                              "tiers": [{"name": "bug", "credits": 2000, "usdc": "0.2"}, {"name": "bug+fix", "credits": 2000}], "usdc_day_max": "2", "usdc_owed": "0.4", "usdc_owed_max": "2",
                              "verdict_ttl": 259200, "results_until": 9, "results_max": 20},
                 "standing_id": "9" * 32, "tier": "bug+fix", "worker_subject": "agent:" + "8" * 64,
-                "results": [{"result_id": "c" * 32, "work_id": "c" * 32, "worker": agent, "tier": "bug+fix", "rating": 77, "review_id": "d" * 32, "accepted_at": 5}],
+                "results": [{"result_id": "c" * 32, "work_id": "c" * 32, "worker": agent, "tier": "bug+fix", "rating": 77, "review_id": "d" * 32, "accepted_at": 5,
+                             "money": {"credits_paid": 2000, "usdc": {"state": "paid", "amount": "0.1", "pay_to": "0x" + "a" * 40, "tx_hash": "0x" + "ab" * 32,
+                                       "tx_url": "https://basescan.org/tx/0x" + "ab" * 32, "paid_at": 6, "note": "announced extra"}}}],
                 "your_results": [{"work_id": "c" * 32, "result_id": "c" * 32, "state": "accepted", "submitted_at": 4, "verdict": "accepted", "tier": "bug+fix"}]}
         self.assertEqual(set(work), op.WORK_REQUIRED | op.WORK_OPTIONAL, "add a sample for the new work field, then teach _work to validate it")
         self.assertEqual(op._work(self.profile, dict(work), "e" * 32), work)
+        # C587: a revealed answer must hash to its commit; a sealed one carries none.
+        for bad in ({**work["known_answer"], "answer": "43"}, {"commit": work["known_answer"]["commit"], "state": "sealed", "answer": "42"}):
+            with self.assertRaises(op.BridgeError):
+                op._work(self.profile, {**work, "known_answer": bad}, "e" * 32)
+        # C589: an accepted result's money: owed with since, paid with its transaction.
+        owed = {"credits_paid": 5, "usdc": {"state": "owed", "amount": "0.1", "since": 5}}
+        self.assertIsNotNone(op._work(self.profile, {**work, "results": [{**work["results"][0], "money": owed}]}, "e" * 32))
+        for bad in ({"usdc": {"state": "owed", "amount": "0.1"}}, {"usdc": {"state": "paid", "amount": "0.1", "paid_at": 6}},
+                    {**work["results"][0]["money"], "usdc": {**work["results"][0]["money"]["usdc"], "tx_url": "https://example.org/"}}, {}):
+            with self.assertRaises(op.BridgeError):
+                op._work(self.profile, {**work, "results": [{**work["results"][0], "money": bad}]}, "e" * 32)
         # C346: a full standing task says so; full is only ever true.
         full = {**work, "standing": {**work["standing"], "open": 0, "full": True}}
         self.assertEqual(op._work(self.profile, dict(full), "e" * 32), full)

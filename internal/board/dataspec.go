@@ -425,7 +425,8 @@ var dataSpecs = map[string]DataSpec{
 		"reject_fee int limit=work_reject_fee_max_percent", "eligibility string enum=work_eligibilities",
 		"reward_note string limit=work_reward_note_chars", "seats int limit=work_standing_seats_maximum", "per_agent_day int",
 		"day_max int limit=work_standing_day_maximum", "results_max int limit=work_standing_results_maximum",
-		"tiers array limit=work_standing_tiers_maximum", "usdc_per_agent_day string", "usdc_day_max string"),
+		"tiers array limit=work_standing_tiers_maximum", "usdc_per_agent_day string", "usdc_day_max string",
+		"answer_commit string pattern=fingerprint", "answer_commit_note string limit=work_answer_note_chars"),
 	"work.claim":         workSpec("result_sha256 string pattern=fingerprint", "payout_address string"),
 	"work.renew":         workSpec(),
 	"work.submit":        workSpec("result_sha256 string pattern=fingerprint", "payout_address string"),
@@ -433,8 +434,10 @@ var dataSpecs = map[string]DataSpec{
 	"work.reject":        workSpec("checks array limit=verdict_checks_maximum").withItems("checks", verdictCheckItems),
 	"work.cancel":        workSpec(),
 	"work.settle":        workSpec("tx_hash! string pattern=tx_hash"),
+	"work.promise":       workSpec("amount_usdc! string", "note string limit=work_reward_note_chars"),
 	"work.reviewer.set":  workSpec("reviewer! string pattern=fingerprint"),
 	"work.successor.set": workSpec("successor! string pattern=work_id"),
+	"work.reveal":        workSpec("answer! string limit=work_answer_bytes", "salt! string limit=work_answer_salt_bytes"),
 	"works.list":         structSpec(worksListOptions{}, "schema!", "standing pattern=work_id"),
 
 	// Grants and push.

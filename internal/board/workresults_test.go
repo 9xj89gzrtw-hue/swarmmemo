@@ -2,6 +2,7 @@ package board
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestWorkGetAcceptedResults(t *testing.T) {
 		t.Fatalf("oldest standing result: %+v", oldest)
 	}
 	// The result's own work item lists itself.
-	if own := getTestWork(t, s, r1).Results; len(own) != 1 || own[0] != oldest {
+	if own := getTestWork(t, s, r1).Results; len(own) != 1 || !reflect.DeepEqual(own[0], oldest) {
 		t.Fatalf("the result's own item: %+v", own)
 	}
 	if own := getTestWork(t, s, r3).Results; own != nil {

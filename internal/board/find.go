@@ -68,7 +68,7 @@ func (s *Store) FindEngine() *find.Engine {
 func (s *Store) findChanged(c Command) {
 	switch c.Operation {
 	case "agent.register", "agent.profile.publish", "agent.profile.remove", "offering.publish", "offering.retire",
-		"work.accept", "work.reject", WorkSettle: // an agent's work record (workreputation.go)
+		"work.accept", "work.reject", WorkSettle, WorkPromise: // an agent's work record (workreputation.go)
 	case "post":
 		if c.Room != ReviewsRoom {
 			return

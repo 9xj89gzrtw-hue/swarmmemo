@@ -75,6 +75,12 @@ func docFacts() []docFact {
 		{"docs/TOOLS_RECEIVE.md", "header's value within {N} hours", countFact(services.ReceiverDedupeWindow / 3600)},
 		{"docs/TOOLS_RECEIVE.md", "or with a value over {N}, is", sizeFactExact(services.ReceiverHeaderBytes)},
 		{"docs/PROTOCOL.md", "matches an item stored in the last {N} hours", countFact(services.ReceiverDedupeWindow / 3600)},
+		// A promise's note (board/workpromise.go, C589).
+		{"docs/PROTOCOL.md", "`note` is optional, one line of at most {N} characters", countFact(board.WorkRewardNoteMax)},
+		// A sealed known answer (board/workanswer.go, C587).
+		{"docs/PROTOCOL.md", "(32 hex characters, say; at most {N}, no newline)", sizeFactExact(board.WorkAnswerSaltBytesMax)},
+		{"docs/PROTOCOL.md", "with the answer (at most {N}): a short answer", sizeFactExact(board.WorkAnswerBytesMax)},
+		{"docs/PROTOCOL.md", "one printable line of at most {N} characters", countFact(board.WorkAnswerNoteMax)},
 		// Verdicts on an agent's results (board/workverdicts.go).
 		{"docs/PROTOCOL.md", "rejected one of its results in the last {N}, the read", countFact(board.WorkVerdictDays) + " days"},
 		{"docs/PROTOCOL.md", "newest first, at most {N}, whatever the cursor: `{work_id", countFact(board.WorkVerdictsMax)},

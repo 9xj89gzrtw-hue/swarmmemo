@@ -357,6 +357,12 @@ def _valid_create_options(data):
         # line, no leading or trailing space.
         note = data["reward_note"]
         if not isinstance(note, str) or not 1 <= len(note) <= LIMITS["work_reward_note_chars"] or note.strip() != note or not note.isprintable(): return False
+    # A sealed known answer (/protocol.md#work-known-answers): the commit, and a note only beside it.
+    if "answer_commit" in data and (not isinstance(data["answer_commit"], str) or not re.fullmatch(HEX64, data["answer_commit"])): return False
+    if "answer_commit_note" in data:
+        note = data["answer_commit_note"]
+        if ("answer_commit" not in data or not isinstance(note, str) or not 1 <= len(note) <= LIMITS["work_answer_note_chars"]
+                or note.strip() != note or not note.isprintable()): return False
     # A standing task (/protocol.md#standing-tasks): seats with a reward that
     # has credits or 1 to 3 tiers, its limits and USDC caps, and no reviewer.
     standing = set(memo.WORK_STANDING_CREATE) & data.keys()
@@ -413,6 +419,26 @@ def _standing(standing):
     return standing
 
 
+USDC_AMOUNT = r"[0-9]{1,13}(\.[0-9]{1,6})?"
+
+
+def _valid_result_money(money):
+    """An accepted result's money (work.get results[].money, /protocol.md#work-rewards-in-usdc):
+    credits paid, and USDC owed (since) or paid (tx_hash, its explorer link, paid_at)."""
+    if not isinstance(money, dict) or set(money) - {"credits_paid", "usdc"} or not money: return False
+    if "credits_paid" in money and (type(money["credits_paid"]) is not int or money["credits_paid"] < 1): return False
+    usdc = money.get("usdc")
+    if usdc is None: return "usdc" not in money
+    if (not isinstance(usdc, dict) or set(usdc) - {"state", "amount", "since", "pay_to", "tx_hash", "tx_url", "paid_at", "note"}
+            or usdc.get("state") not in ("owed", "paid") or not isinstance(usdc.get("amount"), str) or not re.fullmatch(USDC_AMOUNT, usdc["amount"])
+            or any(name in usdc and type(usdc[name]) is not int for name in ("since", "paid_at"))
+            or any(name in usdc and not isinstance(usdc[name], str) for name in ("pay_to", "tx_hash", "tx_url", "note"))): return False
+    if usdc["state"] == "paid":
+        return isinstance(usdc.get("tx_hash"), str) and bool(re.fullmatch(r"0x[0-9a-f]{64}", usdc["tx_hash"])) and type(usdc.get("paid_at")) is int and (
+            "tx_url" not in usdc or usdc["tx_url"] == "https://basescan.org/tx/" + usdc["tx_hash"])
+    return type(usdc.get("since")) is int and "tx_hash" not in usdc
+
+
 def _work(profile, work, expected=None):
     if not isinstance(work, dict) or set(work) - WORK_REQUIRED - WORK_OPTIONAL or not WORK_REQUIRED <= work.keys(): raise BridgeError("invalid_response")
     # reward_usdc is a reward's USDC asset (amount a decimal string, RFC 0016);
@@ -430,6 +456,18 @@ def _work(profile, work, expected=None):
         note = work["reward_note"]
         if (not isinstance(note, str) or not 1 <= len(note) <= LIMITS["work_reward_note_chars"] or note != note.strip()
                 or any(ord(ch) < 32 or 127 <= ord(ch) < 160 or ch in "  " for ch in note)):
+            raise BridgeError("invalid_response")
+    # known_answer: a sealed commit, or once revealed the answer and salt it hashed,
+    # checked here too: sha256(salt + "\n" + answer) (/protocol.md#work-known-answers).
+    if "known_answer" in work:
+        known = work["known_answer"]
+        if (not isinstance(known, dict) or set(known) - {"commit", "note", "state", "answer", "salt", "verified", "revealed_at"}
+                or not isinstance(known.get("commit"), str) or not re.fullmatch(HEX64, known["commit"]) or not isinstance(known.get("note", ""), str)
+                or known.get("state") not in ("sealed", "revealed")
+                or (known["state"] == "sealed" and known.keys() & {"answer", "salt", "verified", "revealed_at"})
+                or (known["state"] == "revealed" and (not isinstance(known.get("answer"), str) or not isinstance(known.get("salt"), str)
+                    or known.get("verified") is not True or type(known.get("revealed_at")) is not int
+                    or hashlib.sha256((known["salt"] + "\n" + known["answer"]).encode()).hexdigest() != known["commit"]))):
             raise BridgeError("invalid_response")
     if "requester_may_decide_at" in work and (type(work["requester_may_decide_at"]) is not int or not 0 <= work["requester_may_decide_at"] < 2**63): raise BridgeError("invalid_response")
     # standing: a standing task's seats; standing_id and tier: a result it opened.
@@ -493,7 +531,8 @@ def _work(profile, work, expected=None):
                     or type(item.get("accepted_at")) is not int
                     or ("tier" in item and (not isinstance(item["tier"], str) or not re.fullmatch(STANDING_TIER, item["tier"])))
                     or ("rating" in item and (type(item["rating"]) is not int or not 0 <= item["rating"] <= 100))
-                    or ("review_id" in item and (not isinstance(item["review_id"], str) or not re.fullmatch(HEX32, item["review_id"])))):
+                    or ("review_id" in item and (not isinstance(item["review_id"], str) or not re.fullmatch(HEX32, item["review_id"])))
+                    or ("money" in item and not _valid_result_money(item["money"]))):
                 raise BridgeError("invalid_response")
     if work["room"] != profile.room: raise BridgeError("scope_mismatch")
     if expected and work["id"] != expected and work.get("resolved_from") != expected: raise BridgeError("invalid_response")
@@ -564,7 +603,7 @@ def _transition(profile, item, work_id):
             if field in ("timestamp", "ttl", "amount"):
                 if type(value) is not int or not 0 <= value < 2**63: raise ValueError()
             elif not isinstance(value, str) or "\x00" in value: raise ValueError()
-        expected_state = {"work.create": "open", "work.claim": "claimed", "work.renew": "claimed", "work.submit": "submitted", "work.accept": "accepted", "work.reject": "open", "work.cancel": "cancelled", "work.reviewer.set": item["state"], "work.successor.set": item["state"], "work.settle": "accepted"}[item["operation"]]
+        expected_state = {"work.create": "open", "work.claim": "claimed", "work.renew": "claimed", "work.submit": "submitted", "work.accept": "accepted", "work.reject": "open", "work.cancel": "cancelled", "work.reviewer.set": item["state"], "work.successor.set": item["state"], "work.settle": "accepted", "work.promise": "accepted", "work.reveal": item["state"]}[item["operation"]]
         # Naming a standing task's next round leaves its state as it was.
         if item["operation"] == "work.successor.set" and item["state"] not in ("open", "cancelled"): raise ValueError()
         # A reviewer change leaves the state as it was, open or claimed.
@@ -614,6 +653,16 @@ def _transition(profile, item, work_id):
         if isinstance(data, dict) and "payout_address" in data and item["operation"] in ("work.claim", "work.submit"):
             if not isinstance(data["payout_address"], str) or not re.fullmatch(PAYOUT_ADDRESS, data["payout_address"]): raise ValueError()
             data_fields = data_fields | {"payout_address"}
+        # A reveal of a sealed known answer signs the answer and its salt.
+        if item["operation"] == "work.reveal":
+            if (not isinstance(data, dict) or not isinstance(data.get("answer"), str) or not 1 <= len(data["answer"].encode()) <= LIMITS["work_answer_bytes"]
+                    or not isinstance(data.get("salt"), str) or not 1 <= len(data["salt"].encode()) <= LIMITS["work_answer_salt_bytes"] or "\n" in data["salt"]): raise ValueError()
+            data_fields = data_fields | {"answer", "salt"}
+        # A promise signs the USDC owed on an accepted result, and may add a note.
+        if item["operation"] == "work.promise":
+            if (not isinstance(data, dict) or not isinstance(data.get("amount_usdc"), str) or not re.fullmatch(USDC_AMOUNT, data["amount_usdc"])
+                    or not isinstance(data.get("note", ""), str) or len(data.get("note", "")) > LIMITS["work_reward_note_chars"]): raise ValueError()
+            data_fields = data_fields | {"amount_usdc"} | (set(data) & {"note"})
         if item["operation"] == "work.settle":
             if not isinstance(data, dict) or not isinstance(data.get("tx_hash"), str) or not re.fullmatch(r"0x[0-9a-f]{64}", data["tx_hash"]): raise ValueError()
             data_fields = data_fields | {"tx_hash"}

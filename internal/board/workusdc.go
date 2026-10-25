@@ -86,6 +86,7 @@ type WorkRewardUSDC struct {
 	PayToSource string `json:"pay_to_source,omitempty"`
 	AcceptedAt  int64  `json:"accepted_at,omitempty"`
 	TxHash      string `json:"tx_hash,omitempty"`
+	TxURL       string `json:"tx_url,omitempty"`
 	Payer       string `json:"payer,omitempty"`
 	PaidAmount  string `json:"paid_amount,omitempty"`
 	Block       int64  `json:"block,omitempty"`
@@ -397,6 +398,9 @@ func (s *Store) settleWorkUSDC(ctx context.Context, tx *sql.Tx, w workRow, d wor
 	if err != nil {
 		return err
 	}
+	if err = fillPayTo(ctx, tx, r); err != nil {
+		return err
+	}
 	// A requester with verified wallet links pays from one of them: only
 	// those transfers count. Without any, any sender is accepted and the
 	// settlement says so (sender_unlinked).
@@ -625,7 +629,7 @@ func projectWorkUSDC(ctx context.Context, tx *sql.Tx, id, effective string) (*Wo
 		return nil, nil, err
 	}
 	p := &WorkRewardUSDC{Amount: services.FormatUSDC(r.Amount), Units: r.Amount, Unit: "usdc", Network: r.Network, Asset: r.Asset, State: r.State, PromisedAt: r.Created,
-		PayTo: r.PayTo, PayToSource: r.PayToSource, AcceptedAt: r.Accepted, TxHash: r.TxHash, Payer: r.Payer, PaidAmount: r.PaidAmount, Block: r.Block, SettledAt: r.Settled, Reason: r.Reason}
+		PayTo: r.PayTo, PayToSource: r.PayToSource, AcceptedAt: r.Accepted, TxHash: r.TxHash, TxURL: USDCTxURL(r.Network, r.TxHash), Payer: r.Payer, PaidAmount: r.PaidAmount, Block: r.Block, SettledAt: r.Settled, Reason: r.Reason}
 	if p.State == "promised" && (effective == "expired" || effective == "review_lapsed" || effective == "cancelled") {
 		p.State, p.Reason = "void", effective
 	}
@@ -680,6 +684,8 @@ func (s *Store) WorkUSDCCapabilities() map[string]any {
 		"custody": "none: the payer pays the worker directly; the board verifies", "states": WorkUSDCStates(),
 		"payout_address": "work.claim or work.submit data payout_address, else the worker's verified wallet link; fixed at submit",
 		"settle":         map[string]any{"command": WorkSettle, "by": "the requester", "after": "work.accept", "data": "tx_hash", "checks": []string{"status success", "confirmations", "token transfer to the payout address", "amount at least owed", "mined after the work was created", "hash never used before", "sent from one of the requester's verified wallet links when it has any (else accepted with note sender_unlinked)"}},
+		"promise":        map[string]any{"command": WorkPromise, "by": "the requester", "on": "an accepted result (a standing task's: the result's own work item)", "data": "amount_usdc (decimal string), note (optional, one line)", "then": "payable, owed to the worker's payout address; work.settle pays it"},
+		"result_money":   "work.get results[].money: credits_paid, usdc {state owed|paid, amount, since, tx_hash, tx_url, paid_at, note}",
 		"reward_state":   WorkRewardStates(),
 		"receipt":        WorkRewardSchemaAll, "instructions": "/protocol.md#work-rewards-in-usdc"}
 	if c := s.config.WorkUSDC; c != nil {

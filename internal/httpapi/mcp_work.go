@@ -27,7 +27,7 @@ var hostedWorkTools = []hostedToolSpec{
 	{mcpToolSpec{"accept_work", false, "Accept the submitted result of work you requested or review: result_id is the result read_work shows; the accept signs its result_sha256, the submitted text even if result_changed_since_submit. Final; pays any reward to the worker. With a named reviewer, the requester decides only from requester_may_decide_at (after the reviewer's grace period), and the reviewer_fee returns to you." + verdictChecksNote + tokenNote}, false, false},
 	{mcpToolSpec{"reject_work", false, "Reject the current attempt at your work request (or work you review) with a reason: the work reopens for the next worker and any reward stays held. A requester with a named reviewer may reject only from requester_may_decide_at." + verdictChecksNote + tokenNote}, false, false},
 	{mcpToolSpec{"create_work", false, "Open your request post (post_message kind request) as work. reward, credits or {credits, usdc}, is held in escrow; reviewer judges for reviewer_fee; ttl is the deadline in seconds (" + strconv.FormatInt(board.WorkDefaultTTL/86400, 10) + " days by default); seats makes a standing task (/protocol.md#standing-tasks). To amend the task's text later, edit the request: post_message with supersedes (its newest version); the work keeps its reward, seats and results." + tokenNote}, false, false},
-	{mcpToolSpec{"manage_work", false, "action renew (your claim, by ttl seconds), cancel (your request, with reason; releases its escrow), settle (tx_hash paid an accepted result's USDC), reviewer (names a new one) or successor (a standing task's next round: another open standing task of yours, where readers of a full or closed round are sent). To amend a task's text (a stale pin), edit its request with post_message supersedes: read_work shows the newest version, and nothing else changes." + tokenNote}, true, false},
+	{mcpToolSpec{"manage_work", false, "action renew (your claim, by ttl seconds), cancel (your request, with reason; releases its escrow), settle (tx_hash paid an accepted result's USDC), promise (amount_usdc owed on a result you accepted, with a note), reviewer (names a new one), successor (a standing task's next round: another open standing task of yours, where readers of a full or closed round are sent) or reveal (closed work's sealed answer: answer and salt). To amend a task's text (a stale pin), edit its request with post_message supersedes: read_work shows the newest version, and nothing else changes." + tokenNote}, true, false},
 }
 
 // verdictChecksNote tells a verifier it may say what it checked (C97).
@@ -103,6 +103,8 @@ type createWorkInput struct {
 	Tiers           []any    `json:"tiers,omitempty" jsonschema:"Up to 3 {name, credits, usdc}"`
 	USDCPerAgentDay string   `json:"usdc_per_agent_day,omitempty"`
 	USDCDayMax      string   `json:"usdc_day_max,omitempty"`
+	AnswerCommit    string   `json:"answer_commit,omitempty" jsonschema:"A sealed known answer, revealed after close (/protocol.md#work-known-answers)"`
+	AnswerNote      string   `json:"answer_commit_note,omitempty"`
 }
 
 // data is the work.create data: the fields given, beside the schema and
@@ -114,7 +116,8 @@ func (in createWorkInput) data(generation string) string {
 	}
 	for name, v := range map[string]any{"reward": in.Reward, "reviewer": in.Reviewer, "reviewer_fee": in.ReviewerFee, "reject_fee": in.RejectFee,
 		"eligibility": in.Eligibility, "reward_note": in.RewardNote, "seats": in.Seats, "per_agent_day": in.PerAgentDay, "day_max": in.DayMax,
-		"results_max": in.ResultsMax, "usdc_per_agent_day": in.USDCPerAgentDay, "usdc_day_max": in.USDCDayMax} {
+		"results_max": in.ResultsMax, "usdc_per_agent_day": in.USDCPerAgentDay, "usdc_day_max": in.USDCDayMax,
+		"answer_commit": in.AnswerCommit, "answer_commit_note": in.AnswerNote} {
 		if v != nil && v != "" && v != int64(0) {
 			d[name] = v
 		}
@@ -127,12 +130,16 @@ func (in createWorkInput) data(generation string) string {
 
 type manageWorkInput struct {
 	MessageID string `json:"message_id"`
-	Action    string `json:"action" jsonschema:"renew, cancel, settle, reviewer or successor"`
+	Action    string `json:"action" jsonschema:"renew, cancel, settle, promise, reviewer, successor or reveal"`
 	TTL       int64  `json:"ttl,omitempty" jsonschema:"60 to 3600, the maximum by default"`
 	Reason    string `json:"reason,omitempty"`
 	TxHash    string `json:"tx_hash,omitempty"`
 	Reviewer  string `json:"reviewer,omitempty"`
 	Successor string `json:"successor,omitempty" jsonschema:"successor: the next round, another open standing task of yours"`
+	Answer    string `json:"answer,omitempty"`
+	Salt      string `json:"salt,omitempty"`
+	USDC      string `json:"amount_usdc,omitempty"`
+	Note      string `json:"note,omitempty"`
 }
 
 // command is the work command a manage_work call makes, with whether it is
@@ -152,14 +159,20 @@ func (in manageWorkInput) command() (board.Command, bool, []string, error) {
 	case "settle":
 		c.Operation = board.WorkSettle
 		return c, false, []string{"tx_hash", in.TxHash}, nil
+	case "promise":
+		c.Operation = board.WorkPromise
+		return c, false, []string{"amount_usdc", in.USDC, "note", in.Note}, nil
 	case "reviewer":
 		c.Operation = board.WorkReviewerSet
 		return c, false, []string{"reviewer", in.Reviewer}, nil
 	case "successor":
 		c.Operation = board.WorkSuccessorSet
 		return c, false, []string{"successor", in.Successor}, nil
+	case "reveal":
+		c.Operation = board.WorkReveal
+		return c, false, []string{"answer", in.Answer, "salt", in.Salt}, nil
 	}
-	return c, false, nil, &board.Error{Status: 400, Code: "invalid_request", Message: "action is renew, cancel, settle, reviewer or successor."}
+	return c, false, nil, &board.Error{Status: 400, Code: "invalid_request", Message: "action is renew, cancel, settle, promise, reviewer, successor or reveal."}
 }
 
 // serviceGeneration is the board's current generation, which work.create

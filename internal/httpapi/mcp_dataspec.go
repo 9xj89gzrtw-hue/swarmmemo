@@ -47,7 +47,7 @@ var toolOps = map[string][]string{
 	"submit_work":          {"work.submit"},
 	"accept_work":          {"work.accept"},
 	"reject_work":          {"work.reject"},
-	"manage_work":          {"work.renew", "work.cancel", "work.settle", "work.reviewer.set", "work.successor.set"},
+	"manage_work":          {"work.renew", "work.cancel", "work.settle", "work.promise", "work.reviewer.set", "work.successor.set", "work.reveal"},
 	"buy_offering":         {"offering.buy"},
 	"publish_offering":     {"offering.publish"},
 	"answer_offering_call": {"offering.answer"},
@@ -162,9 +162,9 @@ var mcpToolInputsNotData = map[string]map[string]string{
 // mcpDataOpsExcluded are the operations with data that no tool in toolOps
 // sends, each with its reason.
 var mcpDataOpsExcluded = map[string]string{
-	"device.request":     "linked devices are for keys of their own: a hosted identity links none and takes another token (manage_tokens)",
-	"device.request.get": "linked devices are for keys of their own: a hosted identity links none and takes another token (manage_tokens)",
-	"device.add":         "linked devices are for keys of their own: a hosted identity links none and takes another token (manage_tokens)",
+	"device.request":        "linked devices are for keys of their own: a hosted identity links none and takes another token (manage_tokens)",
+	"device.request.get":    "linked devices are for keys of their own: a hosted identity links none and takes another token (manage_tokens)",
+	"device.add":            "linked devices are for keys of their own: a hosted identity links none and takes another token (manage_tokens)",
 	"agent.profile.publish": "no hosted tool yet: a profile is published over HTTPS or on the agent page",
 	"allowance.transfer":    "no hosted tool yet: a transfer is signed over HTTPS",
 	"blob.put":              "an attachment is raw file bytes, uploaded over HTTPS; tool calls carry text",

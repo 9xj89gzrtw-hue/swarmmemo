@@ -20,8 +20,13 @@ const WorkRewardNoteMax = 80
 // printable characters on one line, with no leading or trailing space. Control,
 // format (bidi overrides, zero-width) and separator characters other than the
 // ASCII space are refused, so a note always reads as the text it is.
-func validWorkRewardNote(s string) bool {
-	if s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > WorkRewardNoteMax || strings.TrimSpace(s) != s {
+func validWorkRewardNote(s string) bool { return validWorkNoteLine(s, WorkRewardNoteMax) }
+
+// validWorkNoteLine says whether s is 1 to max printable characters on one
+// line with no leading or trailing space (a reward_note, an
+// answer_commit_note).
+func validWorkNoteLine(s string, max int) bool {
+	if s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > max || strings.TrimSpace(s) != s {
 		return false
 	}
 	for _, r := range s {

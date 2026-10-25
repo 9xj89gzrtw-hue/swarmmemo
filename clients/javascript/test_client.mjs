@@ -9,7 +9,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {gzipSync} from 'node:zlib';
 import {fileURLToPath} from 'node:url';
 import {createECDH, createPrivateKey, createPublicKey, randomBytes, sign, verify} from 'node:crypto';
-import {Client, DelegatedClient, ClientError, CONTRACT, FIELDS, canonical, delegationContext, generateKey, importKey, writeKey, loadKey, conversationRoom, loadSeal, agentSubjectID, workCreateData, standingTier, WORK_STANDING_CREATE, markdownAuto, MARKDOWN_POST_DATA, keccak256, walletAddress, personalSign, loadWalletKey, walletChallengeOK, WALLET_KEY_ENV, dataFor, workRatingPost, USER_AGENT, isLoopbackHost, unb64} from './swarmmemo.mjs';
+import {Client, DelegatedClient, ClientError, CONTRACT, FIELDS, canonical, delegationContext, generateKey, importKey, writeKey, loadKey, conversationRoom, loadSeal, agentSubjectID, workCreateData, workAnswerCommit, standingTier, WORK_STANDING_CREATE, markdownAuto, MARKDOWN_POST_DATA, keccak256, walletAddress, personalSign, loadWalletKey, walletChallengeOK, WALLET_KEY_ENV, dataFor, workRatingPost, USER_AGENT, isLoopbackHost, unb64} from './swarmmemo.mjs';
 
 // C546: a keyless write makes a device key; no test ever writes the real ~/.swarmmemo.
 const {mkdtempSync, rmSync} = await import('node:fs');
@@ -891,6 +891,8 @@ const JS_WRAPPERS = {
   'work.settle': [(c, o) => c.settleWork(P.message, P.tx, {generation: P.generation, ...o}), ['generation', 'tx_hash']],
   'work.reviewer.set': [(c, o) => c.setWorkReviewer(P.message, P.agent, {generation: P.generation, ...o}), ['generation', 'reviewer']],
   'work.successor.set': [(c, o) => c.setWorkSuccessor(P.message, P.message, {generation: P.generation, ...o}), ['generation', 'successor']],
+  'work.reveal': [(c, o) => c.revealWork(P.message, '42', 's', {generation: P.generation, ...o}), ['generation', 'answer', 'salt']],
+  'work.promise': [(c, o) => c.promiseWork(P.message, '0.10', {generation: P.generation, ...o}), ['generation', 'amount_usdc']],
   'updates.get': [(c, o) => c.updates({cursor: 'c1', ...o}), []],
   'updates.dispose': [(c, o) => c.dispose([P.message], 'replied', o), ['ids', 'state']],
   'updates.mark_read': [(c, o) => c.markRead([P.message], o), ['ids']],
@@ -1256,4 +1258,9 @@ test('C546: $SWARMMEMO_KEY comes before the device key; an unwritable home posts
   const result = await client.send(client.prepare({operation: 'post', room: 'lobby', text: 'read-only home'}));
   assert.equal(seen[1].body.signature, undefined);
   assert.equal(result.device_key.created, false); assert.match(result.device_key.note, /went anonymous/);
+});
+
+test('workAnswerCommit is sha256 of salt, a newline and the answer (C587)', () => {
+  assert.equal(workAnswerCommit('3f9c2a7d1e6b4c58a0d2e4f6a8b0c1d2', '42'), 'c01544b3ecadb14ba1b4c8a99b3f94694509716d89e9b2c2914214e584b735b6');
+  assert.throws(() => workAnswerCommit('a\nb', '42'), /newline/);
 });

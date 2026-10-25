@@ -114,6 +114,8 @@ PY_WRAPPERS = {
     "work.settle": (lambda c, kw: c.work_settle(MESSAGE, TX, generation=GENERATION, **kw), "kwargs"),
     "work.reviewer.set": (lambda c, kw: c.work_set_reviewer(MESSAGE, AGENT, generation=GENERATION, **kw), "kwargs"),
     "work.successor.set": (lambda c, kw: c.work_set_successor(MESSAGE, MESSAGE, generation=GENERATION, **kw), "kwargs"),
+    "work.reveal": (lambda c, kw: c.work_reveal(MESSAGE, "42", "s", generation=GENERATION, **kw), "kwargs"),
+    "work.promise": (lambda c, kw: c.work_promise(MESSAGE, "0.10", generation=GENERATION, **kw), "kwargs"),
     "offering.publish": (lambda c, kw: c.offering_publish({"name": "n", "title": "t", "price": "0.01", "pay_to": "0x" + "1" * 40, **kw}), "kwargs"),
     "offering.answer": (lambda c, kw: c.offering_answer("k" * 32, "body", **kw), "kwargs"),
     "offering.refund": (lambda c, kw: c.offering_refund("k" * 32, TX, **kw), "kwargs"),
@@ -137,6 +139,7 @@ PY_WRAPPERS = {
 PY_BASE = {
     **{op: {"generation"} for op in PY_WRAPPERS if op.startswith("work.")},
     "work.settle": {"generation", "tx_hash"}, "work.reviewer.set": {"generation", "reviewer"}, "work.successor.set": {"generation", "successor"},
+    "work.reveal": {"generation", "answer", "salt"}, "work.promise": {"generation", "amount_usdc"},
     "offering.answer": {"body"}, "offering.refund": {"tx_hash"},
 }
 # A field a wrapper takes under another argument: the kwargs that send it.
@@ -243,7 +246,7 @@ class PythonParity(unittest.TestCase):
     def test_wrappers_take_a_data_passthrough(self):
         # Each wrapper that sends data takes **data (post and messages: a data dict;
         # offering_publish: its listing; gate: challenge_data and verify_data).
-        for name in ("works", "work_create", "work_claim", "work_submit", "work_accept", "work_reject", "work_cancel", "work_settle",
+        for name in ("works", "work_create", "work_claim", "work_submit", "work_accept", "work_reject", "work_cancel", "work_settle", "work_promise",
                      "work_set_reviewer", "offering_answer", "offering_refund", "x402_submit", "updates", "follow_updates", "verify_publish",
                      "dispose", "mark_read", "review", "find", "vote", "vouch", "transfer", "link", "witness", "webhook_create", "prepare_enrollment"):
             with self.subTest(wrapper=name):
@@ -296,7 +299,9 @@ CLI_COMMANDS = {
     "work.cancel": ["work", "cancel", MESSAGE, "done", "--generation", GENERATION],
     "work.reviewer.set": ["work", "reviewer", MESSAGE, AGENT, "--generation", GENERATION],
     "work.successor.set": ["work", "successor", MESSAGE, MESSAGE, "--generation", GENERATION],
+    "work.reveal": ["work", "reveal", MESSAGE, "42", "s", "--generation", GENERATION],
     "work.settle": ["work", "settle", MESSAGE, TX, "--generation", GENERATION],
+    "work.promise": ["work", "promise", MESSAGE, "0.10", "--generation", GENERATION],
     "updates.get": ["updates", "--cursor", "c1"],
     "updates.dispose": ["dispose", MESSAGE, "--state", memo.ENUMS["inbox_dispose_states"][0]],
     "updates.mark_read": ["mark-read", MESSAGE],
@@ -322,7 +327,7 @@ CLI_ARGUMENTS = {
     ("work.create", "usdc_day_max"): ["--seats", "2", "--reward", "5", "--usdc-day-max", "0.10"],
     ("work.create", "reviewer_fee"): ["--reviewer", AGENT, "--reviewer-fee", "2"],
     ("work.accept", "review"): ["--rating", "80"],
-    ("work.reviewer.set", "reviewer"): None, ("work.successor.set", "successor"): None, ("work.settle", "tx_hash"): None,
+    ("work.reviewer.set", "reviewer"): None, ("work.successor.set", "successor"): None, ("work.reveal", "answer"): None, ("work.reveal", "salt"): None, ("work.settle", "tx_hash"): None, ("work.promise", "amount_usdc"): None,
     ("updates.get", "wait"): ["--wait", "5"], ("updates.dispose", "ids"): None, ("updates.dispose", "state"): None,
     ("updates.mark_read", "ids"): None, ("updates.mark_read", "all"): ["--all"],
 }
@@ -420,6 +425,15 @@ class CLIParity(unittest.TestCase):
         self.assertEqual(args.checks, [{"property": "a", "state": "pass"}, {"property": "b", "state": "fail"}])
         args = parser.parse_args(["work", "create", MESSAGE, "--title", "t", "--reward", '{"credits":5,"usdc":"0.10"}', "--reject-fee", "2"])
         self.assertEqual((args.reward, args.reject_fee), ({"credits": 5, "usdc": "0.10"}, 2))
+
+
+class WorkAnswerCommitTests(unittest.TestCase):
+    def test_commit_is_sha256_of_salt_newline_answer(self):
+        # The server's own vector (internal/board/workanswer_test.go).
+        self.assertEqual(memo.work_answer_commit("3f9c2a7d1e6b4c58a0d2e4f6a8b0c1d2", "42"),
+                         "c01544b3ecadb14ba1b4c8a99b3f94694509716d89e9b2c2914214e584b735b6")
+        with self.assertRaises(ValueError):
+            memo.work_answer_commit("a\nb", "42")
 
 
 if __name__ == "__main__":

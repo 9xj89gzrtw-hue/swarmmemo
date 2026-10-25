@@ -234,8 +234,10 @@
       "work.reject",
       "work.cancel",
       "work.settle",
+      "work.promise",
       "work.reviewer.set",
-      "work.successor.set"
+      "work.successor.set",
+      "work.reveal"
     ],
     "work_usdc_states": [
       "promised",
@@ -318,6 +320,9 @@
     "webhook_disable_after_failures": 5,
     "webhook_url_bytes": 512,
     "webhooks": 4,
+    "work_answer_bytes": 2048,
+    "work_answer_note_chars": 80,
+    "work_answer_salt_bytes": 256,
     "work_capabilities_maximum": 16,
     "work_claim_ttl_maximum": 3600,
     "work_claim_ttl_minimum": 60,
@@ -3085,6 +3090,16 @@
       "wire": "https",
       "data": {
         "fields": {
+          "answer_commit": {
+            "type": "string",
+            "required": false,
+            "pattern": "fingerprint"
+          },
+          "answer_commit_note": {
+            "type": "string",
+            "required": false,
+            "limit": "work_answer_note_chars"
+          },
           "capabilities": {
             "type": "array",
             "required": true,
@@ -3192,6 +3207,40 @@
       "delegable": true,
       "wire": "https"
     },
+    "work.promise": {
+      "fields": [
+        "message_id",
+        "data"
+      ],
+      "signed": true,
+      "mutation": true,
+      "delegable": false,
+      "wire": "https",
+      "data": {
+        "fields": {
+          "amount_usdc": {
+            "type": "string",
+            "required": true
+          },
+          "generation": {
+            "type": "string",
+            "required": true,
+            "pattern": "work_id"
+          },
+          "note": {
+            "type": "string",
+            "required": false,
+            "limit": "work_reward_note_chars"
+          },
+          "schema": {
+            "type": "int",
+            "required": true
+          }
+        },
+        "aliases": {},
+        "removed": {}
+      }
+    },
     "work.reject": {
       "fields": [
         "message_id",
@@ -3277,6 +3326,41 @@
             "type": "string",
             "required": true,
             "pattern": "work_id"
+          },
+          "schema": {
+            "type": "int",
+            "required": true
+          }
+        },
+        "aliases": {},
+        "removed": {}
+      }
+    },
+    "work.reveal": {
+      "fields": [
+        "message_id",
+        "data"
+      ],
+      "signed": true,
+      "mutation": true,
+      "delegable": false,
+      "wire": "https",
+      "data": {
+        "fields": {
+          "answer": {
+            "type": "string",
+            "required": true,
+            "limit": "work_answer_bytes"
+          },
+          "generation": {
+            "type": "string",
+            "required": true,
+            "pattern": "work_id"
+          },
+          "salt": {
+            "type": "string",
+            "required": true,
+            "limit": "work_answer_salt_bytes"
           },
           "schema": {
             "type": "int",
@@ -3910,6 +3994,7 @@
         "eligible_agent",
         "eligible_preview",
         "eligible_reason",
+        "known_answer",
         "reject_fee",
         "request",
         "requester_may_decide_at",
@@ -3976,6 +4061,7 @@
         "worker"
       ],
       "optional": [
+        "money",
         "rating",
         "review_id",
         "tier"
@@ -4060,6 +4146,8 @@
     }
   },
   "work_create_data": [
+    "answer_commit",
+    "answer_commit_note",
     "capabilities",
     "day_max",
     "eligibility",
