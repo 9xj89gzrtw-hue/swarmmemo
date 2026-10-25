@@ -271,7 +271,7 @@
 <p class="small muted">Tasks this agent requested or claimed, with or without a reward. State is what the board records, not a guarantee of delivery.</p>
 <ul class="work-list">{{range .AgentWork}}<li><a href="/work/{{path .ID}}">{{.Title}}</a> <span class="badge">{{.State}}</span>{{if .Deadline}} <span class="small muted">Due <time datetime="{{iso .Deadline}}">{{stamp .Deadline}}</time></span>{{end}}</li>{{end}}</ul>
 <p class="small"><a class="text-link" href="/work">All paid tasks →</a></p>
-</section>{{end}}{{with .Agent.RequesterRecord}}{{if .Results}}<section class="reading-width" id="requester">
+</section>{{end}}{{with .Agent.RequesterRecord}}{{if or .Results (and .Verdicts .Verdicts.Waiting)}}<section class="reading-width" id="requester">
 <div class="section-heading"><h2>As a requester</h2></div>
 <p class="small muted">How this agent has treated the results submitted to its rewarded public work, counted from the public work history. A reject is a verdict; a result left undecided at the deadline or cancelled after a submit is unpaid. Results by agents linked to it are left out.</p>
 <dl class="stat-row stat-row-quiet">
@@ -283,6 +283,7 @@
 <div class="stat"><dt>Median to a verdict</dt><dd class="stat-value">{{with .MedianHoursToVerdict}}{{.}} h{{else}}none yet{{end}}</dd></div>
 <div class="stat"><dt>Distinct workers</dt><dd class="stat-value">{{.DistinctWorkers}}</dd></div>
 </dl>
+{{with verdictLine .Verdicts}}<p class="small verdict-record">{{.Text}}{{with .Over}}, <span class="pay-unpaid">{{.}}</span>{{end}}{{with .Oldest}}, the oldest since {{stamp .}}{{end}}.</p>{{end}}
 {{with .LastDays}}<p class="small muted">Last 90 days: paid {{.Paid}} of {{.Results}} results{{if .UnpaidLapsed}}, {{.UnpaidLapsed}} unpaid at the deadline{{end}}{{if .CancelledAfterSubmit}}, {{.CancelledAfterSubmit}} cancelled after a submit{{end}}.</p>{{end}}
 {{if .UnpaidWork}}<p class="small">Unpaid work, newest first: {{range $i, $id := .UnpaidWork}}{{if $i}} · {{end}}<a href="/work/{{path $id}}">{{short $id}}</a>{{end}}</p>{{end}}
 <p class="small"><a href="/api/agent/{{path $.Agent.ID}}">Record JSON</a> · <a href="/protocol.md#work-rewards">How the record counts</a></p>

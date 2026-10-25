@@ -148,7 +148,7 @@ func TestRequesterRecordCountsAndLapse(t *testing.T) {
 		t.Fatalf("unpaid work %v, want %v", full.UnpaidWork, wantUnpaid)
 	}
 	compact := *full
-	compact.LastDays, compact.UnpaidWork = nil, nil
+	compact.LastDays, compact.UnpaidWork, compact.Verdicts = nil, nil, nil
 	if !reflect.DeepEqual(compact, want) {
 		t.Fatalf("agent.get all-time record %+v", compact)
 	}

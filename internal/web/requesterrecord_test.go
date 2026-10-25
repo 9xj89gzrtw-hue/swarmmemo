@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"swarmmemo/internal/board"
 )
@@ -105,5 +106,54 @@ func TestWorkSSRShowsTheRequesterRecord(t *testing.T) {
 	Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/agent/"+requester, nil))
 	if strings.Contains(w.Body.String(), `id="requester"`) {
 		t.Fatal("an agent with no results shows a requester panel")
+	}
+}
+
+// C590: the work page says a submitted result has waited for the
+// requester's (or the named reviewer's) verdict since its submit, and the
+// agent page's requester panel shows its verdicts and the results waiting
+// for it, even before any result was answered.
+func TestWorkSSRShowsTheVerdictWait(t *testing.T) {
+	requester := strings.Repeat("2", 64)
+	since := time.Now().Add(-7 * 24 * time.Hour).Unix()
+	waiting := board.Work{ID: webWorkID, Room: "lobby", Title: "Waiting work", State: "submitted", StoredState: "submitted", Requester: board.AgentRef{ID: requester}, Reward: &board.WorkReward{Amount: 10, State: "held"},
+		RequesterRecord: &board.RequesterRecord{}, Capabilities: []string{}, Deadline: since + 30*86400, SubmittedAt: since, VerdictFrom: board.WorkVerdictFromRequester}
+	agent := &board.Agent{ID: requester, RequesterRecord: &board.RequesterRecord{LastDays: &board.RequesterWindow{},
+		Verdicts: &board.RequesterVerdicts{Waiting: 2, WaitingOverHours: 1, OldestWaitingSince: since}}}
+	s := &testService{execute: func(c board.Command) (board.Result, error) {
+		switch c.Operation {
+		case "room.get":
+			return board.Result{OK: true, Room: &board.Room{Name: c.Room, Visibility: "public"}}, nil
+		case "work.get":
+			return board.Result{OK: true, Data: map[string]any{"work": waiting}}, nil
+		case "work.history":
+			return board.Result{OK: true, Data: map[string]any{"work_id": webWorkID, "transitions": []board.WorkTransition{}}}, nil
+		case "agent.get":
+			return board.Result{OK: true, Agent: agent}, nil
+		}
+		return board.Result{OK: true}, nil
+	}}
+	stamp := time.Unix(since, 0).UTC().Format("2006-01-02 15:04 UTC")
+	w := httptest.NewRecorder()
+	Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/work/"+webWorkID, nil))
+	if body := w.Body.String(); w.Code != 200 || !strings.Contains(body, "Waiting for the requester's verdict since "+stamp+"</strong> (7 days ago)") {
+		t.Fatalf("work page %d lacks the wait: %s", w.Code, body)
+	}
+	waiting.VerdictFrom = board.WorkVerdictFromReviewer
+	w = httptest.NewRecorder()
+	Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/work/"+webWorkID, nil))
+	if body := w.Body.String(); !strings.Contains(body, "Waiting for the named reviewer's verdict since") {
+		t.Fatal("a reviewed result's wait names the requester")
+	}
+
+	w = httptest.NewRecorder()
+	Handler(s).ServeHTTP(w, httptest.NewRequest("GET", "/agent/"+requester, nil))
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, `id="requester"`) {
+		t.Fatalf("agent page %d: a requester with results waiting has no panel", w.Code)
+	}
+	want := `Verdicts: 0 in the last 30 days · 2 waiting for its verdict now, <span class="pay-unpaid">1 for more than 72 hours</span>, the oldest since ` + stamp + "."
+	if !strings.Contains(body, want) {
+		t.Fatalf("requester panel lacks %q", want)
 	}
 }

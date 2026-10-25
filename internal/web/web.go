@@ -376,6 +376,7 @@ var templates = template.Must(template.New("page.html").Funcs(template.FuncMap{
 	"avatarID":     avatarIDHTML,
 	"freshness":    linkFreshness,
 	"payLine":      payLine,
+	"verdictLine":  verdictLine,
 	"evidenceHref": evidenceHref,
 	"short": func(s string) string {
 		if len(s) > 12 {

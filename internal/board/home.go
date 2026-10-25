@@ -102,6 +102,8 @@ type homeWork struct {
 	// deadline is the work's; closes, past it, when a late accept of its
 	// undecided result closes (worklate.go).
 	deadline, closes int64
+	// since is the row's updated_at: on a submitted result, its submit.
+	since int64
 }
 
 // homeAgent is the agent a home read is for: the signed caller itself
@@ -165,19 +167,19 @@ func (s *Store) countHome(ctx context.Context, tx *sql.Tx, agent, account string
 			h.counts[kind] = n
 		}
 	}
-	work := func(kind, state, where string, args ...any) error {
+	work := func(kind, state, order, where string, args ...any) error {
 		args = append(args, now, h.generation, now, state, caller, HomeCountMax)
-		rows, err := tx.QueryContext(ctx, `SELECT w.id,w.title,w.claim_expires_at,w.deadline FROM works w JOIN events e ON e.id=w.id JOIN rooms r ON r.name=e.room
+		rows, err := tx.QueryContext(ctx, `SELECT w.id,w.title,w.claim_expires_at,w.deadline,w.updated_at FROM works w JOIN events e ON e.id=w.id JOIN rooms r ON r.name=e.room
  WHERE `+where+` AND (`+workEffectiveSQL+`)=? AND e.hidden=0
  AND (r.visibility='public' OR EXISTS(SELECT 1 FROM members m WHERE m.room=e.room AND m.account=?))
- ORDER BY w.claim_expires_at, w.deadline LIMIT ?`, args...)
+ ORDER BY `+order+` LIMIT ?`, args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var w homeWork
-			if err = rows.Scan(&w.id, &w.title, &w.expires, &w.deadline); err != nil {
+			if err = rows.Scan(&w.id, &w.title, &w.expires, &w.deadline, &w.since); err != nil {
 				return err
 			}
 			if w.deadline <= now {
@@ -190,15 +192,20 @@ func (s *Store) countHome(ctx context.Context, tx *sql.Tx, agent, account string
 		}
 		return rows.Err()
 	}
-	if err := work("verdict_due", "submitted", "((w.requester=? AND w.reviewer='') OR w.reviewer=?)", account, account); err != nil {
+	// Results waiting for the agent's verdict, the longest waiting first
+	// (C590; a submitted row's updated_at is its submit): as the requester
+	// (on work with a reviewer, once the requester may decide in its
+	// place, requesterMayDecideAt) or as the named reviewer.
+	grace := s.ReviewerGrace()
+	if err := work("verdict_due", "submitted", "w.updated_at, w.deadline", "((w.requester=? AND (w.reviewer='' OR (w.updated_at+?<=? AND w.updated_at+?<w.deadline))) OR w.reviewer=?)", account, grace, now, grace, account); err != nil {
 		return h, err
 	}
 	// And the requester's results its deadline overtook undecided, while a
 	// late accept is open (C511, worklate.go): after those still in time.
-	if err := work("verdict_due", "expired", "w.requester=? AND w.state='submitted' AND w.standing_id='' AND w.generation=? AND w.deadline>?", account, h.generation, now-s.WorkLateAccept()); err != nil {
+	if err := work("verdict_due", "expired", "w.updated_at, w.deadline", "w.requester=? AND w.state='submitted' AND w.standing_id='' AND w.generation=? AND w.deadline>?", account, h.generation, now-s.WorkLateAccept()); err != nil {
 		return h, err
 	}
-	if err := work("claim_expiring", "claimed", "w.worker=? AND w.claim_expires_at<=?", account, now+HomeClaimSoon); err != nil {
+	if err := work("claim_expiring", "claimed", "w.claim_expires_at, w.deadline", "w.worker=? AND w.claim_expires_at<=?", account, now+HomeClaimSoon); err != nil {
 		return h, err
 	}
 	if own {
@@ -299,7 +306,7 @@ func (h homeCounts) item(k HomeKind, n int, now int64) HomeItem {
 		it.Text = plural("unread private message", "unread private messages")
 	case "verdict_due":
 		w := h.first[k.Kind]
-		it.Text = plural("result", "results") + " waiting for your verdict, first “" + clip(w.title) + "”"
+		it.Text = plural("result", "results") + " waiting for your verdict, oldest “" + clip(w.title) + "” waiting " + ageText(now-w.since)
 		if w.closes != 0 {
 			it.Text += ", past its deadline: you may still accept it for " + durationText(w.closes-now)
 		} else {
@@ -355,6 +362,15 @@ func durationText(sec int64) string {
 		return fmt.Sprintf("%d min", max(sec/60, 1))
 	}
 	return fmt.Sprintf("%d h", sec/3600)
+}
+
+// ageText is how long something has waited: durationText under two days,
+// whole days from then ("7 days").
+func ageText(sec int64) string {
+	if sec < 2*86400 {
+		return durationText(max(sec, 60))
+	}
+	return fmt.Sprintf("%d days", sec/86400)
 }
 
 // WaitingFor is what waits for the agent a command concerns, for the

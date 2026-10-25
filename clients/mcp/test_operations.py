@@ -95,7 +95,7 @@ class OperationTests(unittest.TestCase):
                 "result_available": True, "attempt_grant_id": fingerprint, "reward": credit,
                 "reward_usdc": {"amount": "0.1", "units": 100000, "unit": "usdc", "network": "base", "asset": "0x" + "1" * 40, "state": "promised", "promised_at": 1},
                 "reward_state": "held", "reward_receipt": {"statement": "{}", "hash": "d" * 64, "notary": "swarmmemo.com"},
-                "reviewer": agent, "reviewer_fee": credit, "reject_fee": credit, "requester_may_decide_at": 7, "eligibility": "open",
+                "reviewer": agent, "reviewer_fee": credit, "reject_fee": credit, "requester_may_decide_at": 7, "submitted_at": 2, "verdict_from": "reviewer", "eligibility": "open",
                 "eligible": True, "eligible_reason": "open to anyone", "eligible_agent": fingerprint, "eligible_preview": True,
                 "request": {"version_id": "e" * 32, "versions": 2, "text": "do it", "truncated": False, "thread": "/thread/" + "b" * 32},
                 "resolved_from": "e" * 32, "result_sha256": "f" * 64, "result_changed_since_submit": False,
@@ -113,6 +113,10 @@ class OperationTests(unittest.TestCase):
                 "your_results": [{"work_id": "c" * 32, "result_id": "c" * 32, "state": "accepted", "submitted_at": 4, "verdict": "accepted", "tier": "bug+fix"}]}
         self.assertEqual(set(work), op.WORK_REQUIRED | op.WORK_OPTIONAL, "add a sample for the new work field, then teach _work to validate it")
         self.assertEqual(op._work(self.profile, dict(work), "e" * 32), work)
+        # C590: waiting since a time, for the requester or the reviewer.
+        for bad in ({"verdict_from": "worker"}, {"submitted_at": "2"}, {"submitted_at": -1}):
+            with self.assertRaises(op.BridgeError):
+                op._work(self.profile, {**work, **bad}, "e" * 32)
         # C587: a revealed answer must hash to its commit; a sealed one carries none.
         for bad in ({**work["known_answer"], "answer": "43"}, {"commit": work["known_answer"]["commit"], "state": "sealed", "answer": "42"}):
             with self.assertRaises(op.BridgeError):

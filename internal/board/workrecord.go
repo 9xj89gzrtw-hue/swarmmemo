@@ -49,6 +49,33 @@ type RequesterRecord struct {
 	Since                int64            `json:"since,omitempty"`
 	LastDays             *RequesterWindow `json:"last_90_days,omitempty"`
 	UnpaidWork           []string         `json:"unpaid_work,omitempty"`
+	// Verdicts is the requester's verdict accountability (C590), on
+	// agent.get only.
+	Verdicts *RequesterVerdicts `json:"verdicts,omitempty"`
+}
+
+// RequesterVerdictDays is the window of RequesterVerdicts.LastDays;
+// RequesterWaitingHours is how long a result waits before it counts in
+// WaitingOverHours.
+const (
+	RequesterVerdictDays  = 30
+	RequesterWaitingHours = 72
+)
+
+// RequesterVerdicts is how promptly a requester judges the results sent to
+// its rewarded public work, from the same transitions as the record:
+// LastDays the accepts and rejects it gave in the last 30 days, with their
+// median hours from submit (null with none); Waiting the results waiting
+// for its verdict now (before their deadline; on work with a reviewer,
+// once the requester may decide in its place), WaitingOverHours those
+// waiting more than 72 hours, and OldestWaitingSince when the longest
+// waiting one began to wait for it.
+type RequesterVerdicts struct {
+	LastDays           int64    `json:"last_30_days"`
+	MedianHours        *float64 `json:"median_hours_last_30_days"`
+	Waiting            int64    `json:"waiting"`
+	WaitingOverHours   int64    `json:"waiting_over_72h"`
+	OldestWaitingSince int64    `json:"oldest_waiting_since,omitempty"`
 }
 
 // RequesterWindow is a requester record's counts over a recent window.
@@ -169,16 +196,23 @@ func (t *requesterTally) add(worker string, outcome string, hours float64) {
 func (t *requesterTally) record() RequesterRecord {
 	r := t.rec
 	r.DistinctWorkers = int64(len(t.workers))
-	if n := len(t.hours); n > 0 {
-		sort.Float64s(t.hours)
-		m := t.hours[n/2]
-		if n%2 == 0 {
-			m = (t.hours[n/2-1] + t.hours[n/2]) / 2
-		}
-		m = math.Round(m*10) / 10
-		r.MedianHoursToVerdict = &m
-	}
+	r.MedianHoursToVerdict = medianHours(t.hours)
 	return r
+}
+
+// medianHours is the median of hours to one decimal, nil when empty.
+func medianHours(hours []float64) *float64 {
+	n := len(hours)
+	if n == 0 {
+		return nil
+	}
+	sort.Float64s(hours)
+	m := hours[n/2]
+	if n%2 == 0 {
+		m = (hours[n/2-1] + hours[n/2]) / 2
+	}
+	m = math.Round(m*10) / 10
+	return &m
 }
 
 // requesterRecords is the record of each account named, in one query; an
@@ -205,11 +239,38 @@ func requesterRecords(ctx context.Context, tx *sql.Tx, accounts []string, now in
 	all, recent := map[string]*requesterTally{}, map[string]*requesterTally{}
 	since := map[string]int64{}
 	unpaid := map[string][]string{}
+	verdicts, verdictHours := map[string]*RequesterVerdicts{}, map[string][]float64{}
 	for rows.Next() {
 		var requester, workID, reviewer, rewardState, verdict, worker string
 		var deadline, submitted, verdictAt int64
 		if err = rows.Scan(&requester, &workID, &reviewer, &deadline, &rewardState, &submitted, &verdict, &verdictAt, &worker); err != nil {
 			return nil, err
+		}
+		if full {
+			v := verdicts[requester]
+			if v == nil {
+				v = &RequesterVerdicts{}
+				verdicts[requester] = v
+			}
+			// A result waits for the requester from its submit, or, with a
+			// reviewer, from when the requester may decide in its place.
+			waitsFrom := submitted
+			if reviewer != "" {
+				waitsFrom = submitted + grace
+			}
+			switch {
+			case (verdict == "work.accept" || verdict == "work.reject") && verdictAt >= now-RequesterVerdictDays*86400:
+				v.LastDays++
+				verdictHours[requester] = append(verdictHours[requester], float64(verdictAt-submitted)/3600)
+			case verdict == "" && deadline > now && waitsFrom <= now && waitsFrom < deadline:
+				v.Waiting++
+				if waitsFrom <= now-RequesterWaitingHours*3600 {
+					v.WaitingOverHours++
+				}
+				if v.OldestWaitingSince == 0 || waitsFrom < v.OldestWaitingSince {
+					v.OldestWaitingSince = waitsFrom
+				}
+			}
 		}
 		outcome := ""
 		switch verdict {
@@ -268,6 +329,11 @@ func requesterRecords(ctx context.Context, tx *sql.Tx, accounts []string, now in
 			r.LastDays = &RequesterWindow{Results: last.Results, Paid: last.Paid, Rejected: last.Rejected, UnpaidLapsed: last.UnpaidLapsed,
 				CancelledAfterSubmit: last.CancelledAfterSubmit, MedianHoursToVerdict: last.MedianHoursToVerdict, DistinctWorkers: last.DistinctWorkers}
 			r.UnpaidWork = unpaid[account]
+			r.Verdicts = &RequesterVerdicts{}
+			if v := verdicts[account]; v != nil {
+				r.Verdicts = v
+			}
+			r.Verdicts.MedianHours = medianHours(verdictHours[account])
 		}
 	}
 	return out, nil

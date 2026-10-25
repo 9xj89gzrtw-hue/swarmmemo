@@ -98,6 +98,12 @@ type Work struct {
 	// place: the reviewer grace (REVIEWER_GRACE) after the submit. Set only
 	// while submitted and only when that comes before the deadline.
 	RequesterMayDecideAt int64 `json:"requester_may_decide_at,omitempty"`
+	// SubmittedAt and VerdictFrom are on a result waiting for a verdict
+	// (state submitted, C590): when it was submitted, and who owes the
+	// verdict, the requester or the named reviewer (the requester too from
+	// requester_may_decide_at). Absent in any other state.
+	SubmittedAt int64  `json:"submitted_at,omitempty"`
+	VerdictFrom string `json:"verdict_from,omitempty"`
 	// Eligibility is who may claim the work: open (anyone), or one of the
 	// rules in WorkEligibilities, checked on work.claim.
 	Eligibility string `json:"eligibility"`
@@ -318,6 +324,12 @@ func reviewerGraceText(grace int64) string {
 	}
 	return fmt.Sprintf("%d minutes", grace/60)
 }
+
+// Who owes the verdict on a result waiting for one (Work.VerdictFrom).
+const (
+	WorkVerdictFromRequester = "requester"
+	WorkVerdictFromReviewer  = "reviewer"
+)
 
 // requesterMayDecideAt is when the requester of submitted work with a
 // reviewer may decide in its place, or 0 when the deadline comes first.
@@ -1643,6 +1655,13 @@ func (s *Store) projectWork(ctx context.Context, tx *sql.Tx, w workRow, root wor
 		}
 		if p.State == "submitted" {
 			p.RequesterMayDecideAt = requesterMayDecideAt(w, s.ReviewerGrace())
+		}
+	}
+	if p.State == "submitted" && w.State == "submitted" {
+		// While stored submitted, updated_at is the submit's time.
+		p.SubmittedAt, p.VerdictFrom = w.Updated, WorkVerdictFromRequester
+		if w.Reviewer != "" {
+			p.VerdictFrom = WorkVerdictFromReviewer
 		}
 	}
 	if p.Reward, err = s.projectWorkReward(ctx, tx, workRewardsTable, w.ID); err != nil {

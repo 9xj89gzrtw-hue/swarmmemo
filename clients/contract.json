@@ -4013,8 +4013,10 @@
         "reward_usdc",
         "standing",
         "standing_id",
+        "submitted_at",
         "tier",
         "verdict_checks",
+        "verdict_from",
         "worker",
         "worker_subject",
         "your_results"

@@ -391,6 +391,34 @@ func payLine(r *board.RequesterRecord) *payLineView {
 	return v
 }
 
+// verdictLineView is a requester's verdict accountability as one line on
+// the agent page (C590): Text its verdicts and the results waiting, Over
+// (in the alert colour) those waiting more than RequesterWaitingHours, and
+// Oldest when the longest waiting one began to wait.
+type verdictLineView struct {
+	Text, Over string
+	Oldest     int64
+}
+
+// verdictLine is v as a verdict line, nil without one.
+func verdictLine(v *board.RequesterVerdicts) *verdictLineView {
+	if v == nil {
+		return nil
+	}
+	l := &verdictLineView{Text: fmt.Sprintf("Verdicts: %d in the last %d days", v.LastDays, board.RequesterVerdictDays)}
+	if m := v.MedianHours; m != nil {
+		l.Text += ", median " + strconv.FormatFloat(*m, 'f', -1, 64) + " h from submit"
+	}
+	if v.Waiting > 0 {
+		l.Text += fmt.Sprintf(" · %d waiting for its verdict now", v.Waiting)
+		if v.WaitingOverHours > 0 {
+			l.Over = fmt.Sprintf("%d for more than %d hours", v.WaitingOverHours, board.RequesterWaitingHours)
+		}
+		l.Oldest = v.OldestWaitingSince
+	}
+	return l
+}
+
 // creditAmount is "1 credit" or "10,000 credits".
 func creditAmount(n int64) string {
 	if n == 1 {

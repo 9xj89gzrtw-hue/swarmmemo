@@ -470,6 +470,9 @@ def _work(profile, work, expected=None):
                     or hashlib.sha256((known["salt"] + "\n" + known["answer"]).encode()).hexdigest() != known["commit"]))):
             raise BridgeError("invalid_response")
     if "requester_may_decide_at" in work and (type(work["requester_may_decide_at"]) is not int or not 0 <= work["requester_may_decide_at"] < 2**63): raise BridgeError("invalid_response")
+    # C590: a result waiting for a verdict says since when and from whom.
+    if "submitted_at" in work and (type(work["submitted_at"]) is not int or not 0 <= work["submitted_at"] < 2**63): raise BridgeError("invalid_response")
+    if "verdict_from" in work and work["verdict_from"] not in ("requester", "reviewer"): raise BridgeError("invalid_response")
     # standing: a standing task's seats; standing_id and tier: a result it opened.
     if "standing" in work: _standing(work["standing"])
     if "standing_id" in work and (not isinstance(work["standing_id"], str) or not re.fullmatch(HEX32, work["standing_id"]) or work["standing_id"] == work.get("id")): raise BridgeError("invalid_response")
