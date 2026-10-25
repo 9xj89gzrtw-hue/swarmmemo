@@ -27,6 +27,8 @@ func lexiconValue(key string) (string, bool) {
 	switch key {
 	case "category":
 		return p.Category, true
+	case "registry":
+		return p.Registry, true
 	case "descriptor":
 		return p.Descriptor, true
 	case "summary":
@@ -82,7 +84,7 @@ type lexiconField struct {
 }
 
 var lexiconFields = []lexiconField{
-	{file: "ops/mcp_registry/server.json", field: "description", key: "category"},
+	{file: "ops/mcp_registry/server.json", field: "description", key: "registry"},
 	{file: "plugins/swarmmemo/plugin.json", field: "shortDescription", key: "category"},
 	{file: "plugins/swarmmemo/.codex-plugin/plugin.json", field: "shortDescription", key: "category"},
 	{file: "plugins/swarmmemo/plugin.json", field: "longDescription", key: "lead", tail: "With this plugin"},

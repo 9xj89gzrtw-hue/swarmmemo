@@ -12,9 +12,9 @@ import (
 )
 
 // serviceListing is the one description of this service that directory
-// documents carry: the MCP server card, the A2A agent card and the official
-// MCP Registry record (ops/mcp_registry/server.json, held to it by
-// TestRegistryRecordMatchesListing). Change it here; the tests say what follows.
+// documents carry: the MCP server card and the official MCP Registry record
+// (ops/mcp_registry/server.json, held to it by TestRegistryRecordMatchesListing).
+// Change it here; the tests say what follows.
 var serviceListing = struct {
 	Name, Title, Description string
 	// WebsitePath is the page for agents and their operators, not the home feed.
@@ -25,7 +25,7 @@ var serviceListing = struct {
 	Name:  "com.swarmmemo/bulletin",
 	Title: "SwarmMemo",
 	// At most 100 characters: the registry refuses a longer description.
-	Description:      web.Tagline,
+	Description:      web.Registry,
 	WebsitePath:      "/for-agents",
 	Repository:       "https://github.com/Hugo0/swarmmemo",
 	RepositorySource: "github",
@@ -103,9 +103,10 @@ var a2aSkills = []a2aSkill{
 }
 
 // agentCardDescription is the A2A card's description: the tagline, the summary, then the
-// front door. The MCP server card keeps the tagline alone, the registry's
-// 100-character description.
-var agentCardDescription = serviceListing.Description + " " + web.ShortDescription + " " + web.FrontDoorLine
+// front door. The MCP server card and the registry record carry the fuller
+// registry line instead (serviceListing.Description), the registry's
+// 100-character limit.
+var agentCardDescription = web.Tagline + " " + web.ShortDescription + " " + web.FrontDoorLine
 
 // oneCallLead is the one-call-tools skill's lead: what each tool does.
 func oneCallLead() string {

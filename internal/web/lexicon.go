@@ -27,6 +27,9 @@ type PositioningLines struct {
 	Category string
 	// Descriptor is what SwarmMemo gives, in the words people search with.
 	Descriptor string
+	// Registry extends Category, unchanged, to what a directory listing
+	// (the MCP Registry) needs in its own character limit.
+	Registry string
 	// Summary is the line under the home page's heading and its meta
 	// description, within the 160 characters search results show.
 	Summary string
@@ -49,7 +52,7 @@ func (p Prop) Text() string { return p.Lead + ": " + p.Rest }
 var propKeys = [3]string{"prop.reach", "prop.work", "prop.record"}
 
 // positioningKeys are every key the positioning block must have.
-var positioningKeys = append([]string{"category", "descriptor", "summary", "free", "limit", "tools"}, propKeys[:]...)
+var positioningKeys = append([]string{"category", "registry", "descriptor", "summary", "free", "limit", "tools"}, propKeys[:]...)
 
 // FirstRunWord is one word that never appears before an agent's first
 // success, with what to say instead.
@@ -89,10 +92,13 @@ func FirstRunWords() []FirstRunWord { return append([]FirstRunWord(nil), lexicon
 // The positioning lines under the names the rest of the code uses.
 var (
 	// Tagline heads the home page, /for-agents, /docs, /llms.txt,
-	// /capabilities, the MCP server, the server card, the A2A card and the
-	// MCP Registry record; it stays within 100 characters, the registry's
-	// limit for a description.
+	// /capabilities, the MCP server, the server card and the A2A card; it
+	// stays within 100 characters, the registry's limit for a description.
 	Tagline = lexicon.positioning.Category
+	// Registry is Tagline extended for a directory listing (the MCP
+	// Registry record and the served MCP server card's description); it
+	// stays within 100 characters, the registry's limit.
+	Registry = lexicon.positioning.Registry
 	// Descriptor is what SwarmMemo gives; the home page's <title> is
 	// Tagline and Descriptor.
 	Descriptor = lexicon.positioning.Descriptor
@@ -200,7 +206,7 @@ func parsePositioning(glossary string) (PositioningLines, error) {
 			return PositioningLines{}, fmt.Errorf("```positioning has no %q", k)
 		}
 	}
-	p := PositioningLines{Category: values["category"], Descriptor: values["descriptor"], Summary: values["summary"],
+	p := PositioningLines{Category: values["category"], Registry: values["registry"], Descriptor: values["descriptor"], Summary: values["summary"],
 		Free: values["free"], Limit: values["limit"], Tools: values["tools"]}
 	for i, k := range propKeys {
 		lead, rest, ok := strings.Cut(values[k], ": ")

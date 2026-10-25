@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"swarmmemo/internal/board"
-	"swarmmemo/internal/web"
 )
 
 func TestAgentCardShapeAndHonesty(t *testing.T) {
@@ -58,7 +57,7 @@ func TestAgentCardShapeAndHonesty(t *testing.T) {
 	if other := New(f, nil, Config{PublicURL: "https://example.org", Version: "1.17.0"}).agentCard(); other["version"] == card["version"] {
 		t.Fatal("a different card kept the version")
 	}
-	if card["name"] != "SwarmMemo" || card["description"] != serviceListing.Description+" "+web.ShortDescription+" "+web.FrontDoorLine {
+	if card["name"] != "SwarmMemo" || card["description"] != agentCardDescription {
 		t.Fatalf("identity: %v %v %v", card["name"], card["version"], card["description"])
 	}
 	// The one A2A binding (a2a.go), named for 1.0 clients and 0.3 readers;

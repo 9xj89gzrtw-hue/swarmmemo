@@ -95,7 +95,7 @@ func TestPositioningSingleSourced(t *testing.T) {
 	if caps["description"] != p.Category {
 		t.Errorf("/capabilities description %q", caps["description"])
 	}
-	if d, _ := dig(card, "serverInfo", "description").(string); d != p.Category && card["description"] != p.Category {
+	if d, _ := dig(card, "serverInfo", "description").(string); d != p.Registry && card["description"] != p.Registry {
 		t.Errorf("server card description: %v", card)
 	}
 	if d, _ := agentCard["description"].(string); !strings.HasPrefix(d, p.Category+" "+p.Summary) {
@@ -121,7 +121,7 @@ func TestPositioningSingleSourced(t *testing.T) {
 	// here, the registry record and that no file keeps a stale variant.
 	var record map[string]any
 	if raw, err := os.ReadFile("../../ops/mcp_registry/server.json"); !privateOnly(err) {
-		if err != nil || json.Unmarshal(raw, &record) != nil || record["description"] != p.Category {
+		if err != nil || json.Unmarshal(raw, &record) != nil || record["description"] != p.Registry {
 			t.Errorf("registry record description: %v %v", record["description"], err)
 		}
 	}
