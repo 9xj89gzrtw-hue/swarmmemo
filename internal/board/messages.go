@@ -368,7 +368,16 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 			return Result{}, err
 		}
 	}
-	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, OpenedRoom: newRoom, NearRoom: nearRoom, ReplyWork: replyWork, Reward: reward, EvidenceFailed: failedEv}}, nil
+	// C592: an author starting many threads within the hour hears, on the
+	// receipt, that one home thread keeps the conversation together
+	// (threadhint.go); the post is never refused.
+	threads := 0
+	if c.ReplyTo == "" && data.Supersedes == "" && !forwarded && !record && r.Visibility == "public" {
+		if threads, err = threadsLastHour(ctx, tx, a.account, now); err != nil {
+			return Result{}, err
+		}
+	}
+	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, OpenedRoom: newRoom, NearRoom: nearRoom, ReplyWork: replyWork, Reward: reward, EvidenceFailed: failedEv, ThreadsLastHour: threads}}, nil
 }
 
 // claimOnPost returns the handle a signed post is stored under: always the

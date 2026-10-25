@@ -105,6 +105,7 @@ func PublicLimits() []Limit {
 		{"identity_witnesses_per_day", IdentityWitnessesPerDay, "", "identity.witness per key per UTC day"},
 		{"verifications_per_day", VerificationsPerDay, "", "verify.publish per agent per UTC day"},
 		{"verification_data_bytes", VerificationDataBytes, "bytes", "verify.publish data"},
+		{"verification_output_bytes", VerificationOutputBytes, "bytes", "verify.publish output: the exact bytes output_sha256 hashes, decoded"},
 		{"identity_link_witnesses_shown", IdentityLinkWitnessesShown, "", "Current witnesses shown per link, newest first"},
 		{"key_backup_bytes", KeyBackupBytes, "bytes", "key.backup.put data"},
 		{"key_backup_puts_per_day", KeyBackupPutsPerDay, "", "Key backup replacements per agent per rolling day"},

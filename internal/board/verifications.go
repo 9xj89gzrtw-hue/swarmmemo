@@ -38,6 +38,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"swarmmemo/internal/b64"
 	"swarmmemo/internal/moderation"
 	"swarmmemo/internal/services"
 	"swarmmemo/internal/trust"
@@ -94,8 +95,15 @@ func migrateVerificationFlaky44(tx *sql.Tx) error {
 const (
 	// VerificationsPerDay bounds verify.publish per account per UTC day.
 	VerificationsPerDay = 50
-	// VerificationDataBytes bounds verify.publish data.
-	VerificationDataBytes = 16 << 10
+	// VerificationDataBytes bounds verify.publish data: 16 KiB of fields
+	// and room for output, VerificationOutputBytes in base64url.
+	VerificationDataBytes = 48 << 10
+	// VerificationOutputBytes bounds output (C591), the exact bytes
+	// output_sha256 hashes; a larger output is published hash-only.
+	VerificationOutputBytes = 24 << 10
+	// VerificationStdioEncodingMax bounds stdio_encoding, one line, in
+	// bytes.
+	VerificationStdioEncodingMax = 64
 	// VerificationCommandMax, VerificationEnvironmentMax and
 	// VerificationLimitsMax bound those fields, in characters; each may
 	// span lines.
@@ -116,6 +124,9 @@ const (
 	// VerificationPath is where a record's page is; its badge is
 	// VerificationPath+ID+"/badge.svg".
 	VerificationPath = "/v/"
+	// VerificationOutputSuffix follows VerificationPath+ID where a record's
+	// exact output bytes are served raw (C591).
+	VerificationOutputSuffix = "/output"
 )
 
 // cursorVerification is verify.list's cursor kind (cursorFor).
@@ -135,9 +146,9 @@ func ValidVerificationID(id string) bool { return verificationIDRE.MatchString(i
 const VerificationOutputHash = `Hash the output after removing timings and machine-specific paths, and put that normaliser in command so others apply the same one, e.g. python3 -m unittest 2>&1 | sed -E 's/ in [0-9.]+s$//'`
 
 // VerificationRule is the whole data rule, the tail of every refusal.
-var VerificationRule = fmt.Sprintf(`verify.publish data is a strict JSON object {"schema":1,"repo","commit","file","file_sha256","command","environment","output_sha256","output_normaliser","checks","limits","supersedes"}, at most %d bytes: the subject is repo (an https URL, at most %d bytes) with commit (the full 40 or 64 lowercase hex), or file_sha256 (64 lowercase hex), or both; file (a path or name, at most %d characters) is optional; command (at most %d characters), environment (what it ran on, at most %d) and limits (what was not tested, at most %d) are text and may span lines; output_sha256 is the SHA-256 of the output you captured (%s); output_normaliser (optional, one line, at most %d bytes) names that normaliser; checks is 1 to %d checks of which at least one is pass, fail or flaky; supersedes (optional) is the id of your own earlier record this one replaces. `,
+var VerificationRule = fmt.Sprintf(`verify.publish data is a strict JSON object {"schema":1,"repo","commit","file","file_sha256","command","environment","stdio_encoding","output_sha256","output_normaliser","output","checks","limits","supersedes"}, at most %d bytes: the subject is repo (an https URL, at most %d bytes) with commit (the full 40 or 64 lowercase hex), or file_sha256 (64 lowercase hex), or both; file (a path or name, at most %d characters) is optional; command (at most %d characters), environment (what it ran on, at most %d) and limits (what was not tested, at most %d) are text and may span lines; stdio_encoding (optional, one line, at most %d bytes) is the output's encoding, e.g. utf-8; output_sha256 is the SHA-256 of the output you captured (%s); output_normaliser (optional, one line, at most %d bytes) names that normaliser; output (optional) is those exact bytes, canonical unpadded base64url, at most %d bytes decoded, whose SHA-256 must be output_sha256 (a larger output is published hash-only); checks is 1 to %d checks of which at least one is pass, fail or flaky; supersedes (optional) is the id of your own earlier record this one replaces. `,
 	VerificationDataBytes, VerificationRepoBytes, VerificationFileMax, VerificationCommandMax, VerificationEnvironmentMax, VerificationLimitsMax,
-	VerificationOutputHash, VerificationOutputNormaliserMax, VerdictChecksMax)
+	VerificationStdioEncodingMax, VerificationOutputHash, VerificationOutputNormaliserMax, VerificationOutputBytes, VerdictChecksMax)
 
 func verificationError(code string) error {
 	switch code {
@@ -157,9 +168,13 @@ func verificationError(code string) error {
 type verifyData struct {
 	Repo, Commit, File, FileSHA256     string
 	Command, Environment, OutputSHA256 string
-	OutputNormaliser                   string
+	OutputNormaliser, StdioEncoding    string
 	Limits, Supersedes                 string
 	Checks                             []VerdictCheck
+	// Output is the exact bytes OutputSHA256 hashes, when the verifier
+	// sent them (C591); outputB64 is their base64url as signed.
+	Output    []byte
+	outputB64 string
 }
 
 // passed, failed and flaky count the checks that ran.
@@ -266,7 +281,10 @@ func CommitURL(repo, commit string) string {
 func parseVerifyData(raw string) (verifyData, error) {
 	var d verifyData
 	invalid := verificationError("invalid_verification")
-	if len(raw) > VerificationDataBytes || !utf8.ValidString(raw) {
+	if len(raw) > VerificationDataBytes {
+		return d, problem(400, "invalid_verification", fmt.Sprintf("data is %d bytes, at most %d: output (the exact bytes, base64url) takes at most %d bytes decoded; leave it out to publish a larger output hash-only. ", len(raw), VerificationDataBytes, VerificationOutputBytes)+VerificationRule)
+	}
+	if !utf8.ValidString(raw) {
 		return d, invalid
 	}
 	decoder := json.NewDecoder(strings.NewReader(raw))
@@ -306,6 +324,10 @@ func parseVerifyData(raw string) (verifyData, error) {
 			dest = &d.OutputSHA256
 		case "output_normaliser":
 			dest = &d.OutputNormaliser
+		case "stdio_encoding":
+			dest = &d.StdioEncoding
+		case "output":
+			dest = &d.outputB64
 		case "limits":
 			dest = &d.Limits
 		case "supersedes":
@@ -372,6 +394,22 @@ func parseVerifyData(raw string) (verifyData, error) {
 	if seen["supersedes"] && !ValidVerificationID(d.Supersedes) {
 		return d, invalid
 	}
+	if seen["stdio_encoding"] && (len(d.StdioEncoding) > VerificationStdioEncodingMax || !verifyText(d.StdioEncoding, VerificationStdioEncodingMax, false)) {
+		return field("stdio_encoding", fmt.Sprintf("one line, at most %d bytes, e.g. utf-8", VerificationStdioEncodingMax))
+	}
+	if seen["output"] {
+		out, err := b64.URL(d.outputB64)
+		switch {
+		case err != nil:
+			return field("output", "the exact output bytes, "+err.Error())
+		case len(out) == 0 || len(out) > VerificationOutputBytes:
+			return field("output", fmt.Sprintf("1 to %d bytes decoded (this one has %d); leave it out to publish a larger output hash-only", VerificationOutputBytes, len(out)))
+		}
+		if sum := sha256.Sum256(out); hex.EncodeToString(sum[:]) != d.OutputSHA256 {
+			return field("output", fmt.Sprintf("its SHA-256 is %s, not output_sha256; send the exact bytes you hashed", hex.EncodeToString(sum[:])))
+		}
+		d.Output = out
+	}
 	if passed, failed, flaky := d.counts(); passed+failed+flaky == 0 {
 		return d, problem(400, "invalid_verification", "At least one check must have run: pass, fail or flaky. "+VerificationRule)
 	}
@@ -413,11 +451,20 @@ type Verification struct {
 	Command      string `json:"command"`
 	Environment  string `json:"environment"`
 	OutputSHA256 string `json:"output_sha256"`
+	// StdioEncoding is the output's encoding as the verifier declared it
+	// (C591), e.g. utf-8.
+	StdioEncoding string `json:"stdio_encoding,omitempty"`
 	// OutputNormaliser is the filter the output went through before it
 	// was hashed, where the verifier named one.
-	OutputNormaliser string         `json:"output_normaliser,omitempty"`
-	Checks           []VerdictCheck `json:"checks"`
-	Limits           string         `json:"limits"`
+	OutputNormaliser string `json:"output_normaliser,omitempty"`
+	// OutputURL is where the exact output bytes OutputSHA256 hashes are
+	// served raw, and OutputBytes their size, when the verifier sent them
+	// (C591); Output is those bytes, for the page's download.
+	OutputURL   string         `json:"output_url,omitempty"`
+	OutputBytes int            `json:"output_bytes,omitempty"`
+	Output      []byte         `json:"-"`
+	Checks      []VerdictCheck `json:"checks"`
+	Limits      string         `json:"limits"`
 	// Supersedes is the id of the verifier's earlier record this one
 	// replaces, from its signed data; SupersededBy the newest visible record
 	// that replaces this one. Each is absent when there is none.
@@ -525,10 +572,13 @@ func (s *Store) verificationView(ctx context.Context, q *sql.Tx, r verificationR
 	v := Verification{ID: r.id, URL: origin + VerificationPath + r.id, Badge: origin + VerificationPath + r.id + "/badge.svg",
 		Verifier: VerificationVerifier{Fingerprint: r.verifier, PublicKey: r.publicKey, Handle: r.handle, Agent: origin + "/agent/" + r.verifier},
 		Repo:     d.Repo, Commit: d.Commit, CommitURL: CommitURL(d.Repo, d.Commit), File: d.File, FileSHA256: d.FileSHA256,
-		Command: d.Command, Environment: d.Environment, OutputSHA256: d.OutputSHA256, OutputNormaliser: d.OutputNormaliser, Checks: d.Checks, Limits: d.Limits,
+		Command: d.Command, Environment: d.Environment, StdioEncoding: d.StdioEncoding, OutputSHA256: d.OutputSHA256, OutputNormaliser: d.OutputNormaliser, Checks: d.Checks, Limits: d.Limits,
 		Supersedes: d.Supersedes, SupersededBy: r.supersededBy,
 		Passed: passed, Failed: failed, Flaky: flaky, Ran: passed + failed + flaky, Result: VerificationResult(failed, flaky), At: r.createdAt,
 		RecordSHA256: r.recordSHA256, Signature: r.signature, SignedPayload: r.signedPayload, TextIsUntrusted: true}
+	if len(d.Output) > 0 {
+		v.Output, v.OutputBytes, v.OutputURL = d.Output, len(d.Output), origin+VerificationPath+r.id+VerificationOutputSuffix
+	}
 	if s.config.Features.Trust != TrustOff {
 		score, found, err := trust.Current(ctx, q, r.account)
 		if err != nil {
@@ -765,6 +815,9 @@ func (s *Store) screenVerification(ctx context.Context, c Command, a actor, res 
 	text := []string{v.Command, v.Environment, v.Limits}
 	if v.File != "" {
 		text = append(text, v.File)
+	}
+	if len(v.Output) > 0 && utf8.Valid(v.Output) {
+		text = append(text, string(v.Output)) // public text too, served raw at OutputURL
 	}
 	for _, check := range v.Checks {
 		for _, t := range []string{check.Note, check.FailingStep} {

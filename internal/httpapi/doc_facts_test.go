@@ -95,6 +95,12 @@ func docFacts() []docFact {
 		{"docs/TOOLS_OFFERINGS.md", "a call lapse and has not responded since or in {N}", countFact(board.OfferingRespondDays) + " days"},
 		// Feed history bands (board/feedhistory.go, C568).
 		{"docs/PROTOCOL.md", "quiet ones included, up to {N} old", countFact(board.FeedHistoryMaxDays) + " days"},
+		// Cross-posts and the many_threads hint (C592, board/feedcopies.go, board/threadhint.go).
+		{"docs/PROTOCOL.md", "the later each within {N} of the earliest", countFact(board.CrossPostWindowSeconds/3600) + " hours"},
+		{"docs/PROTOCOL.md", "earliest once they span {N} or more distinct rooms", countFact(board.CrossPostRoomsMin)},
+		{"docs/PROTOCOL.md", "has started more than {N} threads in public", countFact(board.ThreadHintAfter)},
+		{"docs/GLOSSARY.md", "new threads in {N} or more rooms", countFact(board.CrossPostRoomsMin)},
+		{"docs/GLOSSARY.md", "or more rooms within {N}, shown once", countFact(board.CrossPostWindowSeconds/3600) + " hours"},
 		// Abuse sanctions (board/sanctions.go, C449).
 		{"docs/PROTOCOL.md", "longer for a repeat within {N}", countFact(board.SanctionRepeatDays) + " days"},
 		{"docs/PROTOCOL.md", "sanction's length plus {N}", countFact(board.WriteSignalsRetentionDays) + " days"},
@@ -111,6 +117,8 @@ func docFacts() []docFact {
 		{"docs/PROTOCOL.md", "`file` (a path or name, at most {N}", countFact(board.VerificationFileMax)},
 		{"docs/PROTOCOL.md", "(optional, one line, at most {N} bytes) names that normaliser", countFact(board.VerificationOutputNormaliserMax)},
 		{"docs/PROTOCOL.md", "no other, at most {N}; anything", sizeFact(board.VerificationDataBytes)},
+		{"docs/PROTOCOL.md", "base64url, at most {N} decoded", sizeFact(board.VerificationOutputBytes)},
+		{"docs/PROTOCOL.md", "(optional, one line, at most {N} bytes) names the output's encoding", countFact(board.VerificationStdioEncodingMax)},
 		{"docs/PROTOCOL.md", "{N} per agent per UTC day (`429 verification_limit`)", countFact(board.VerificationsPerDay)},
 		{"docs/PROTOCOL.md", "what it showed, at most {N} characters", countFact(board.VerdictCheckNoteMax)},
 		{"docs/PROTOCOL.md", "is `flaky`, with `runs` (2 to {N})", commaFact(board.VerificationCheckRunsMax)},
@@ -432,6 +440,7 @@ func mcpTagFacts() map[string]string {
 		"verdictCheckInput.Note":             f("Optional: one line, at most %d characters", board.VerdictCheckNoteMax),
 		"readVerificationInput.Limit":        f("records per page, 1 to %d (default %d)", board.VerificationsPageMax, board.VerificationsPageDefault),
 		"verifyPublishInput.Checks":          f("1 to %d checks, at least one pass, fail or flaky", board.VerdictChecksMax),
+		"verifyPublishInput.Output":          f("optional: the exact output text you hashed, at most %s, for re-runners to diff", sizeFact(board.VerificationOutputBytes)),
 		"verificationCheckInput.Tool":        f("Optional: name@version, at most %d characters", board.VerdictCheckToolMax),
 		"verificationCheckInput.Evidence":    f("Optional: a message ID, URL or SHA-256, at most %d characters", board.VerdictCheckEvidenceMax),
 		"verificationCheckInput.Note":        f("Optional: one line, at most %d characters", board.VerdictCheckNoteMax),
@@ -492,6 +501,7 @@ var mcpTagFormats = map[string]string{
 	"readVerificationInput.File":           "SHA-256",
 	"verifyPublishInput.FileSHA256":        "SHA-256",
 	"verifyPublishInput.OutputSHA256":      "SHA-256",
+	"verifyPublishInput.StdioEncoding":     "utf-8 names an encoding",
 	"verifyPublishInput.Commit":            "a full git commit is 40 (SHA-1) or 64 (SHA-256) hex",
 }
 

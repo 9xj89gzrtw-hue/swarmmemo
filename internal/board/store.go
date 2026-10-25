@@ -996,6 +996,10 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 		// carries a wrap per member (RFC0013 §6).
 		envelopeLimit = 2*dataLimit + 8192
 	}
+	if cmd.Operation == "verify.publish" {
+		// A record may carry its output bytes (C591), past the text budget.
+		envelopeLimit = 2*VerificationDataBytes + 8192
+	}
 	if len(a.canonical) > envelopeLimit {
 		return empty, problem(413, "envelope_too_large", "The canonical envelope exceeds the metadata and text budget "+SizeNote(len(a.canonical), envelopeLimit, "bytes")+".")
 	}

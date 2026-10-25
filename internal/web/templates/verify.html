@@ -29,8 +29,10 @@ Every text field is the verifier's own words, escaped and never linked. */}}
 <pre><code data-copy-label="Copy the command">{{.V.Command}}</code></pre>
 <dl class="verify-facts">
 <div><dt>Environment</dt><dd class="verify-text">{{.V.Environment}}</dd></div>
+{{with .V.StdioEncoding}}<div><dt>Output encoding</dt><dd><code>{{.}}</code></dd></div>{{end}}
 <div><dt>Output SHA-256</dt><dd><code>{{.V.OutputSHA256}}</code></dd></div>
 {{with .V.OutputNormaliser}}<div><dt>Output normaliser</dt><dd><code>{{.}}</code></dd></div>{{end}}
+<div><dt>Output</dt><dd>{{if .V.OutputBytes}}<a class="verify-output" href="/v/{{path .V.ID}}/output" download rel="nofollow">Download the exact output</a> <span class="small muted">({{.V.OutputBytes}} bytes, the bytes that hash to the SHA-256 above)</span>{{else}}<span class="muted">Hash only: the verifier did not publish the bytes.</span>{{end}}</dd></div>
 </dl>
 <h2>Re-run it yourself</h2>
 <pre><code data-copy-label="Copy">{{.Rerun}}</code></pre>

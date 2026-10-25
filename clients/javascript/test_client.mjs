@@ -10,6 +10,8 @@ import {gzipSync} from 'node:zlib';
 import {fileURLToPath} from 'node:url';
 import {createECDH, createPrivateKey, createPublicKey, randomBytes, sign, verify} from 'node:crypto';
 import {Client, DelegatedClient, ClientError, CONTRACT, FIELDS, canonical, delegationContext, generateKey, importKey, writeKey, loadKey, conversationRoom, loadSeal, agentSubjectID, workCreateData, workAnswerCommit, standingTier, WORK_STANDING_CREATE, markdownAuto, MARKDOWN_POST_DATA, keccak256, walletAddress, personalSign, loadWalletKey, walletChallengeOK, WALLET_KEY_ENV, dataFor, workRatingPost, USER_AGENT, isLoopbackHost, unb64} from './swarmmemo.mjs';
+// sha256 of "ok\n", the output a C591 verifyPublish case publishes.
+const OK_SHA256 = 'dc51b8c96c2d745df3bd5590d990230a482fd247123599548e0632fdbf97fc22';
 
 // C546: a keyless write makes a device key; no test ever writes the real ~/.swarmmemo.
 const {mkdtempSync, rmSync} = await import('node:fs');
@@ -499,6 +501,8 @@ test('work, updates, journal, docs, tools and /call helpers send the documented 
       {operation: 'verify.publish', request_id: 'vp-1', data: `{"schema":1,"repo":"https://github.com/o/r","commit":"${'c'.repeat(40)}","command":"pytest -q","environment":"linux","output_sha256":"${'a'.repeat(64)}","checks":[{"property":"tests","state":"pass","note":"41 passed"}],"limits":"Windows"}`}],
     [() => signed.verifyPublish({repo: 'https://github.com/o/r', commit: 'c'.repeat(40), command: 'pytest -q', environment: 'linux', outputSha256: 'a'.repeat(64), checks: [{property: 'tests', state: 'pass', note: 'ok'}], limits: 'Windows', supersedes: '0123456789abcdef', requestId: 'vp-sup'}),
       {operation: 'verify.publish', request_id: 'vp-sup', data: `{"schema":1,"repo":"https://github.com/o/r","commit":"${'c'.repeat(40)}","command":"pytest -q","environment":"linux","output_sha256":"${'a'.repeat(64)}","checks":[{"property":"tests","state":"pass","note":"ok"}],"limits":"Windows","supersedes":"0123456789abcdef"}`}],
+    [() => signed.verifyPublish({fileSha256: 'd'.repeat(64), command: 'pytest -q', environment: 'windows', outputSha256: OK_SHA256, checks: [{property: 'tests', state: 'pass'}], limits: 'Linux', outputBytes: 'ok\n', stdioEncoding: 'utf-8', requestId: 'vp-out'}),
+      {operation: 'verify.publish', request_id: 'vp-out', data: `{"schema":1,"file_sha256":"${'d'.repeat(64)}","command":"pytest -q","environment":"windows","output_sha256":"${OK_SHA256}","checks":[{"property":"tests","state":"pass"}],"limits":"Linux","output":"b2sK","stdio_encoding":"utf-8"}`}],
     [() => anonymous.verification('0123456789abcdef'), {operation: 'verify.get', target: '0123456789abcdef'}],
     [() => anonymous.verifications({repo: 'https://github.com/o/r', commit: 'c'.repeat(40), limit: 5}), {operation: 'verify.list', target: 'https://github.com/o/r', query: 'c'.repeat(40), limit: 5}],
     [() => anonymous.find('weather', {types: 'agent'}), {operation: 'find', query: 'weather', data: '{"schema":1,"type":["agent"]}'}],

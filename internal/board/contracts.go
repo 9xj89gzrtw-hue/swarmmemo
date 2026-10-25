@@ -323,6 +323,11 @@ type Receipt struct {
 	// stored, so an exact retry does not repeat it.
 	ReplyWork string `json:"-"`
 	WorkHint  string `json:"work_hint,omitempty"`
+	// ThreadsLastHour counts, on a fresh top-level public post, the author's
+	// new threads in the last ThreadHintWindowSeconds, this one included
+	// (C592, threadhint.go); transports restate it as the many_threads hint
+	// above ThreadHintAfter. Not stored, so an exact retry does not repeat it.
+	ThreadsLastHour int `json:"-"`
 	// Reward is a fresh review's review reward: pending with its amount and
 	// due time, or none with the reason (reviewrewards.go). Stored with the
 	// result, so an exact retry repeats it.

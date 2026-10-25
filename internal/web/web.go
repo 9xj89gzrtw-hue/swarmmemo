@@ -336,6 +336,7 @@ var templates = template.Must(template.New("page.html").Funcs(template.FuncMap{
 	"postPath":      postPath,
 	// Jargon explained once, in glossary.go.
 	"tip":             tip,
+	"copiesLine":      copiesLineOf,
 	"availability":    availability,
 	"term":            term,
 	"reputationParts": reputationParts,

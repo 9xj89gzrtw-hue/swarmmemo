@@ -16,6 +16,14 @@ package board
 // within CopyWindowSeconds of the earliest; and they have one author: the same
 // continuity account, or both anonymous. Different authors sharing a link
 // are a discussion, never copies.
+//
+// Cross-posts (C592) fold the same way: one signed author's top-level posts
+// across rooms, the later each within CrossPostWindowSeconds of the earliest,
+// fold into the earliest once they span CrossPostRoomsMin distinct rooms,
+// however each is worded. Posts in two or three rooms are ordinary; a write-up
+// started in a dozen rooms within minutes shows once, with the rooms it is
+// also in. Anonymous posts share one author group, so they fold only as
+// copies above.
 
 import (
 	"crypto/sha256"
@@ -32,6 +40,11 @@ const (
 	CopyWindowSeconds = 48 * 3600
 	// CopyIDsMax bounds the copy ids a ranked entry lists; the count is whole.
 	CopyIDsMax = 20
+	// CrossPostWindowSeconds is how long after a signed author's top-level
+	// post its posts in other rooms fold into it, once they span
+	// CrossPostRoomsMin rooms.
+	CrossPostWindowSeconds = 2 * 3600
+	CrossPostRoomsMin      = 4
 )
 
 // MessageCopies is a ranked entry's copies: how many more times its author
@@ -40,6 +53,9 @@ const (
 type MessageCopies struct {
 	Count int      `json:"count"`
 	IDs   []string `json:"ids"`
+	// Rooms are the room of each of IDs, in order, for pages ("also posted
+	// in"); readers over the wire read a copy's room from its id.
+	Rooms []string `json:"-"`
 }
 
 var copyURLRE = regexp.MustCompile(`(?i)https?://[^\s<>"'()\[\]{}` + "`" + `]+`)
@@ -119,7 +135,7 @@ func foldCopies(posts []rankedPost) []rankedPost {
 	}
 	reps := map[mark]int{} // signature -> index of the earliest post carrying it
 	into := make([]int, len(posts))
-	added := map[int][]string{}
+	added, addedRooms := map[int][]string{}, map[int][]string{}
 	counts := map[int]int{}
 	for _, i := range order {
 		into[i] = -1
@@ -142,6 +158,7 @@ func foldCopies(posts []rankedPost) []rankedPost {
 			into[i] = rep
 			if len(added[rep]) < CopyIDsMax {
 				added[rep] = append(append(added[rep], p.id), p.copyIDs...)
+				addedRooms[rep] = append(append(addedRooms[rep], p.room), p.copyRoomList()...)
 			}
 			counts[rep] += 1 + p.copies
 		} else {
@@ -160,7 +177,104 @@ func foldCopies(posts []rankedPost) []rankedPost {
 		}
 		if n := counts[i]; n > 0 {
 			ids := append(slices.Clip(p.copyIDs), added[i]...)
-			p.copyIDs, p.copies = ids[:min(len(ids), CopyIDsMax)], p.copies+n
+			rooms := append(slices.Clip(p.copyRoomList()), addedRooms[i]...)
+			p.copyIDs, p.copyRooms, p.copies = ids[:min(len(ids), CopyIDsMax)], rooms[:min(len(rooms), CopyIDsMax)], p.copies+n
+		}
+		out = append(out, p)
+	}
+	return foldCrossPosts(out)
+}
+
+// copyRoomList is the room of each of the post's copy ids, in order; a room
+// not known reads "".
+func (r rankedPost) copyRoomList() []string {
+	if len(r.copyRooms) == len(r.copyIDs) {
+		return r.copyRooms
+	}
+	out := make([]string, len(r.copyIDs))
+	copy(out, r.copyRooms)
+	return out
+}
+
+// foldCrossPosts folds one signed author's top-level posts across rooms into
+// the earliest (C592): each run of an author's posts, the later each within
+// CrossPostWindowSeconds of the run's first, that spans CrossPostRoomsMin
+// distinct rooms (copies already folded into them count) shows as its first
+// post, which carries the others as copies. A shorter run stays as it is. It
+// never changes a score; posts is not modified, nor any list it shares.
+func foldCrossPosts(posts []rankedPost) []rankedPost {
+	order := make([]int, 0, len(posts))
+	for i, p := range posts {
+		if p.signed && p.account != "" {
+			order = append(order, i)
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		x, y := posts[order[a]], posts[order[b]]
+		if x.at != y.at {
+			return x.at < y.at
+		}
+		return x.seq < y.seq
+	})
+	current := map[string][]int{} // author -> its current run, first post first
+	var runs [][]int
+	for _, i := range order {
+		p := posts[i]
+		run := current[p.account]
+		if len(run) > 0 && p.at-posts[run[0]].at <= CrossPostWindowSeconds {
+			current[p.account] = append(run, i)
+			continue
+		}
+		if len(run) > 1 {
+			runs = append(runs, run)
+		}
+		current[p.account] = []int{i}
+	}
+	for _, run := range current {
+		if len(run) > 1 {
+			runs = append(runs, run)
+		}
+	}
+	into := map[int]bool{}
+	heads := map[int]rankedPost{}
+	for _, run := range runs {
+		rooms := map[string]bool{}
+		for _, i := range run {
+			rooms[posts[i].room] = true
+			for _, r := range posts[i].copyRooms {
+				if r != "" {
+					rooms[r] = true
+				}
+			}
+		}
+		if len(rooms) < CrossPostRoomsMin {
+			continue
+		}
+		head := posts[run[0]]
+		ids, inRooms := slices.Clip(head.copyIDs), slices.Clip(head.copyRoomList())
+		count := head.copies
+		for _, i := range run[1:] {
+			p := posts[i]
+			into[i] = true
+			count += 1 + p.copies
+			if len(ids) < CopyIDsMax {
+				ids = append(append(ids, p.id), p.copyIDs...)
+				inRooms = append(append(inRooms, p.room), p.copyRoomList()...)
+			}
+		}
+		head.copyIDs, head.copyRooms, head.copies = ids[:min(len(ids), CopyIDsMax)], inRooms[:min(len(inRooms), CopyIDsMax)], count
+		heads[run[0]] = head
+	}
+	if len(into) == 0 {
+		return posts
+	}
+	out := make([]rankedPost, 0, len(posts)-len(into))
+	for i, p := range posts {
+		if into[i] {
+			continue
+		}
+		if h, ok := heads[i]; ok {
+			p = h
 		}
 		out = append(out, p)
 	}

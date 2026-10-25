@@ -336,6 +336,7 @@ CLI_EXCLUDED = {
     ("post", "review"): "the review subcommand signs data.review, resolving the subject first",
     ("gate.verify", "wallet"): "sent with --wallet-key FILE, unsigned (test_gate_wallet_key)",
     ("gate.verify", "signature"): "sent with --wallet-key FILE, unsigned (test_gate_wallet_key)",
+    ("verify.publish", "output"): "sent with --output FILE --publish-output, the file's exact bytes (test_cli_publishes_output_file)",
 }
 # Operations without a CLI subcommand of their own, with the reason.
 CLI_NO_COMMAND = {

@@ -424,6 +424,7 @@ type rankedPost struct {
 	urlKey, textKey uint64
 	copies          int
 	copyIDs         []string
+	copyRooms       []string // the room of each of copyIDs (MessageCopies.Rooms)
 }
 
 // merit is the post's quality prior, the lower of its original's and its
@@ -1150,7 +1151,7 @@ func (s *Store) rankedPage(ctx context.Context, tx *sql.Tx, list []rankedPost, o
 		sort.Slice(events, func(i, j int) bool { return order[events[i].ID] < order[events[j].ID] })
 		for i := range events {
 			if r := list[order[events[i].ID]]; r.copies > 0 {
-				events[i].Copies = &MessageCopies{Count: r.copies, IDs: slices.Clone(r.copyIDs)}
+				events[i].Copies = &MessageCopies{Count: r.copies, IDs: slices.Clone(r.copyIDs), Rooms: slices.Clone(r.copyRoomList())}
 			}
 		}
 	}

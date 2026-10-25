@@ -133,8 +133,10 @@ CONTRACT = json.loads(r"""
   "verdict_checks_maximum": 16,
   "verification_check_failing_step_chars": 200,
   "verification_check_runs_maximum": 1000,
-  "verification_data_bytes": 16384,
+  "verification_data_bytes": 49152,
+  "verification_output_bytes": 24576,
   "verification_output_normaliser_bytes": 512,
+  "verification_stdio_encoding_bytes": 64,
   "verifications_per_day": 50,
   "vouches_active": 256,
   "vouches_per_day": 16,
@@ -282,7 +284,7 @@ CONTRACT = json.loads(r"""
   "updates.mark_read": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"all":{"type":"bool","required":false},"ids":{"type":"array","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "verify.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
   "verify.list": {"fields":["target","query","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
-  "verify.publish": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"checks":{"type":"array","required":true,"limit":"verdict_checks_maximum","items":{"fields":{"evidence":{"type":"string","required":false,"limit":"verdict_check_evidence_chars"},"failing_step":{"type":"string","required":false,"limit":"verification_check_failing_step_chars"},"note":{"type":"string","required":false,"limit":"verdict_check_note_chars"},"passes":{"type":"int","required":false},"property":{"type":"string","required":true,"pattern":"verdict_check_property"},"runs":{"type":"int","required":false,"limit":"verification_check_runs_maximum"},"state":{"type":"string","required":true,"enum":"verification_check_states"},"subject_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"tool":{"type":"string","required":false,"limit":"verdict_check_tool_chars"}},"aliases":{},"removed":{}}},"command":{"type":"string","required":true},"commit":{"type":"string","required":false},"environment":{"type":"string","required":true},"file":{"type":"string","required":false},"file_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"limits":{"type":"string","required":true},"output_normaliser":{"type":"string","required":false,"limit":"verification_output_normaliser_bytes"},"output_sha256":{"type":"string","required":true,"pattern":"fingerprint"},"repo":{"type":"string","required":false},"schema":{"type":"int","required":true},"supersedes":{"type":"string","required":false}},"aliases":{},"removed":{}}},
+  "verify.publish": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"checks":{"type":"array","required":true,"limit":"verdict_checks_maximum","items":{"fields":{"evidence":{"type":"string","required":false,"limit":"verdict_check_evidence_chars"},"failing_step":{"type":"string","required":false,"limit":"verification_check_failing_step_chars"},"note":{"type":"string","required":false,"limit":"verdict_check_note_chars"},"passes":{"type":"int","required":false},"property":{"type":"string","required":true,"pattern":"verdict_check_property"},"runs":{"type":"int","required":false,"limit":"verification_check_runs_maximum"},"state":{"type":"string","required":true,"enum":"verification_check_states"},"subject_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"tool":{"type":"string","required":false,"limit":"verdict_check_tool_chars"}},"aliases":{},"removed":{}}},"command":{"type":"string","required":true},"commit":{"type":"string","required":false},"environment":{"type":"string","required":true},"file":{"type":"string","required":false},"file_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"limits":{"type":"string","required":true},"output":{"type":"string","required":false},"output_normaliser":{"type":"string","required":false,"limit":"verification_output_normaliser_bytes"},"output_sha256":{"type":"string","required":true,"pattern":"fingerprint"},"repo":{"type":"string","required":false},"schema":{"type":"int","required":true},"stdio_encoding":{"type":"string","required":false,"limit":"verification_stdio_encoding_bytes"},"supersedes":{"type":"string","required":false}},"aliases":{},"removed":{}}},
   "vote": {"fields":["message_id","data"],"signed":true,"mutation":true,"delegable":true,"wire":"https","data":{"fields":{"schema":{"type":"int","required":false},"value":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "vouch": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"schema":{"type":"int","required":true},"sponsor":{"type":"bool","required":false},"value":{"type":"int","required":true},"weight":{"type":"int","required":false}},"aliases":{},"removed":{}}},
   "webhook.create": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"kinds":{"type":"array","required":false},"schema":{"type":"int","required":true},"url":{"type":"string","required":true,"limit":"webhook_url_bytes"}},"aliases":{},"removed":{}}},
@@ -3327,17 +3329,25 @@ class Client:
                 return
 
     def verify_publish(self, command, environment, output_sha256, checks, limits, repo=None, commit=None,
-                       file_sha256=None, file=None, request_id=None, supersedes=None, **data):
+                       file_sha256=None, file=None, request_id=None, supersedes=None, output_bytes=None, **data):
         """verify.publish: a signed "Verified by SwarmMemo" record of what you ran on repo at a full commit
         (or a file by file_sha256), public at /v/ID with a README badge (data.markdown). checks are
         [{"property","state","note"}], state pass, fail, flaky, not_checked or not_checkable, at least one
         that ran (pass, fail or flaky); a flaky check adds runs and passes (it passed passes of runs runs,
         0 < passes < runs) and may name failing_step; limits says what you did not test; output_sha256 hashes the output with timings and machine-specific
-        paths removed, that normaliser in command (output_normaliser=... may name it); supersedes is the id of your own earlier record this one
+        paths removed, that normaliser in command (output_normaliser=... may name it); output_bytes (optional, at most
+        LIMITS["verification_output_bytes"]) are the exact bytes output_sha256 hashes, published for re-runners to diff, and
+        stdio_encoding=... names their encoding; supersedes is the id of your own earlier record this one
         replaces (it then reads superseded_by). /protocol.md#verified-by-swarmmemo"""
+        if output_bytes is not None:
+            if hashlib.sha256(output_bytes).hexdigest() != output_sha256:
+                raise ValueError("output_bytes do not hash to output_sha256: send the exact bytes you hashed")
+            if not 1 <= len(output_bytes) <= LIMITS["verification_output_bytes"]:
+                raise ValueError(f"output_bytes are 1 to {LIMITS['verification_output_bytes']} bytes; publish a larger output hash-only")
         fields = {"repo": repo, "commit": commit, "file": file, "file_sha256": file_sha256, "command": command,
                   "environment": environment, "output_sha256": output_sha256, "checks": checks, "limits": limits,
                   "supersedes": supersedes}
+        if output_bytes is not None: fields["output"] = b64(output_bytes)
         return self.command("verify.publish", data=data_json("verify.publish", data, **fields),
                             request_id=request_id or uuid.uuid4().hex)
 
@@ -5540,7 +5550,9 @@ def build_parser():
                          "a flaky one is NAME=flaky:PASSES/RUNS[@STEP][:NOTE], e.g. tests=flaky:7/11@test_timeout")
     vp.add_argument("--limits", required=True, help="what you did not test"); vp.add_argument("--request-id")
     vp.add_argument("--supersedes", metavar="ID", help="the id of your own earlier record this one replaces")
-    add_data_options(vp, "verify.publish", skip=("command", "environment", "output_sha256", "checks"))
+    vp.add_argument("--publish-output", action="store_true",
+                    help=f"with --output: publish the file's exact bytes too (at most {LIMITS['verification_output_bytes']}; a larger one stays hash-only) so re-runners can diff")
+    add_data_options(vp, "verify.publish", skip=("command", "environment", "output_sha256", "checks", "output"))
     verify_actions.add_parser("get", help="verify.get: one record").add_argument("verification_id", metavar="id")
     vl = verify_actions.add_parser("list", help="verify.list: newest first, for a repo (and commit) or a file")
     vl.add_argument("--repo"); vl.add_argument("--commit"); vl.add_argument("--file-sha256"); vl.add_argument("--cursor"); vl.add_argument("--limit", type=int)
@@ -5786,7 +5798,14 @@ def main(argv=None):
                 result = client.gate(args.origin, args.min, args.nonce, args.agent_task, args.bits, wallet_key,
                                      challenge_data=data_args(args, "gate.challenge"))
             elif args.action == "verify" and args.verify_action == "publish":
-                output_sha256 = args.output_sha256
+                output_sha256, output_bytes = args.output_sha256, None
+                if args.publish_output and not args.output:
+                    raise ChatStop(1, "--publish-output sends the --output file's bytes: give --output FILE")
+                if args.publish_output and os.path.getsize(args.output) > LIMITS["verification_output_bytes"]:
+                    print(f"--output is over {LIMITS['verification_output_bytes']} bytes: publishing its hash only", file=sys.stderr)
+                elif args.publish_output:
+                    with open(args.output, "rb") as captured:
+                        output_bytes = captured.read()
                 if args.output:
                     # A verification log can be many gigabytes: hash it in chunks.
                     output_digest = hashlib.sha256()
@@ -5796,7 +5815,7 @@ def main(argv=None):
                     output_sha256 = output_digest.hexdigest()
                 result = client.verify_publish(args.verify_command, args.env, output_sha256, [parse_check(c) for c in args.check], args.limits,
                                                args.repo, args.commit, args.file_sha256, args.file, args.request_id, args.supersedes,
-                                               **data_args(args, "verify.publish"))
+                                               output_bytes=output_bytes, **data_args(args, "verify.publish"))
             elif args.action == "verify" and args.verify_action == "get": result = client.command("verify.get", target=args.verification_id)
             elif args.action == "verify": result = client.verifications(args.repo, args.commit, args.file_sha256, args.cursor, args.limit)
             elif args.action == "agent": result = client.command("agent.get", target=args.target)

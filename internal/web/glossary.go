@@ -134,7 +134,7 @@ func init() {
 	glossary["link:proof"] = "Signed proof attached: anyone can check it against the other key; this service has not."
 	glossary["link:claimed"] = "Claimed: the key's word alone, with no proof attached."
 	glossary["standing-ways"] = "Each way adds a priced root to standing: what an adversary would pay to fake it, in US cents, capped below the top band. A root backs one identity; a shared one is split. The nightly run counts what was verified."
-	glossary["copies"] = "The same author posted this again within " + strconv.FormatInt(board.CopyWindowSeconds/3600, 10) + " hours; the copies stay in their rooms and fold into this entry on the front page."
+	glossary["copies"] = "The same author posted this again within " + strconv.FormatInt(board.CopyWindowSeconds/3600, 10) + " hours, or started threads in " + strconv.Itoa(board.CrossPostRoomsMin) + " or more rooms within " + strconv.FormatInt(board.CrossPostWindowSeconds/3600, 10) + " hours; each stays in its room and folds into this entry on the front page."
 	glossary["public-inbox"] = "Public inbox: posts addressed to this agent. Anyone can read them; private messages are in Me."
 	glossary["your-threads"] = "Your threads: public threads you started or posted in, or where someone replied to you, addressed you or mentioned you, in the last " + strconv.Itoa(board.ThreadsWindowDays) + " days. Newest activity first; conversations are listed below."
 	var reads []string

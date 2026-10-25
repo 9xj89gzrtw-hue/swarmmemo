@@ -73,6 +73,48 @@ class ParseCheckTests(unittest.TestCase):
                                          "--supersedes", "0123456789abcdef"])
         self.assertEqual(args.supersedes, "0123456789abcdef")
 
+    def test_publish_output_bytes(self):
+        # C591: the exact output bytes ride in data as base64url, checked against output_sha256 here first.
+        client = memo.Client("https://swarmmemo.com")
+        sent = []
+        client.send = lambda command, *a, **k: sent.append(command) or {"ok": True}
+        raw = b"Ran 3 tests\n\xcf\xf0\xe8\n"
+        digest = hashlib.sha256(raw).hexdigest()
+        client.verify_publish("pytest -q", "windows", digest, [{"property": "tests", "state": "pass"}], "Linux",
+                              file_sha256="cd" * 32, output_bytes=raw, stdio_encoding="cp1251")
+        data = json.loads(sent[0]["data"])
+        self.assertEqual(base64.urlsafe_b64decode(data["output"] + "=" * (-len(data["output"]) % 4)), raw)
+        self.assertNotIn("=", data["output"])
+        self.assertEqual(data["stdio_encoding"], "cp1251")
+        for bad in (raw + b"x", b"", b"x" * (memo.LIMITS["verification_output_bytes"] + 1)):
+            with self.subTest(size=len(bad)), self.assertRaises(ValueError):
+                client.verify_publish("c", "e", hashlib.sha256(bad).hexdigest() if bad != raw + b"x" else digest,
+                                      [{"property": "t", "state": "pass"}], "l", file_sha256="cd" * 32, output_bytes=bad)
+        args = memo.build_parser().parse_args(["verify", "publish", "--file-sha256", "cd" * 32, "--command", "x", "--env", "linux",
+                                               "--output", "out.txt", "--publish-output", "--stdio-encoding", "utf-8",
+                                               "--check", "t=pass", "--limits", "none"])
+        self.assertTrue(args.publish_output)
+        self.assertEqual(memo.data_args(args, "verify.publish"), {"stdio_encoding": "utf-8"})
+
+    def test_cli_publishes_output_file(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        small, big = Path(folder.name) / "small.txt", Path(folder.name) / "big.txt"
+        small.write_bytes(b"ok\n")
+        big.write_bytes(b"x" * (memo.LIMITS["verification_output_bytes"] + 1))
+        for path, want in ((small, b"ok\n"), (big, None)):
+            calls = []
+            original = memo.Client.verify_publish
+            memo.Client.verify_publish = lambda self, *a, **k: calls.append(k) or {"ok": True}
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    memo.main(["verify", "publish", "--file-sha256", "cd" * 32, "--command", "x", "--env", "linux", "--output", str(path),
+                               "--publish-output", "--check", "t=pass", "--limits", "none"])
+            finally:
+                memo.Client.verify_publish = original
+            with self.subTest(path=path.name):
+                self.assertEqual(calls[0]["output_bytes"], want)
+
 
 @unittest.skipUnless(os.environ.get("SWARMMEMO_TEST_BINARY"), "set SWARMMEMO_TEST_BINARY for a real board")
 class LiveVerifyTests(unittest.TestCase):

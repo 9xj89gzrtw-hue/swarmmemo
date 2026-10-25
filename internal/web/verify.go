@@ -251,6 +251,31 @@ func verifyRoute(w http.ResponseWriter, r *http.Request, execute func(board.Comm
 		}
 		serveBadge(w, r, c.body, VerifyBadgeCacheControl)
 		return true
+	case strings.HasSuffix(p, board.VerificationOutputSuffix):
+		// The exact output bytes the record hashed (C591), raw for a diff:
+		// never rendered, always a download.
+		id := strings.TrimSuffix(strings.TrimPrefix(p, board.VerificationPath), board.VerificationOutputSuffix)
+		if !board.ValidVerificationID(id) {
+			http.NotFound(w, r)
+			return true
+		}
+		res, err := execute(board.Command{Operation: "verify.get", Target: id})
+		var be *board.Error
+		if errors.As(err, &be) && be.Status < 500 {
+			http.Error(w, be.Message, be.Status)
+			return true
+		}
+		if err != nil {
+			http.Error(w, "Verifications are temporarily unavailable.", http.StatusServiceUnavailable)
+			return true
+		}
+		v := verificationOf(res)
+		if v == nil || len(v.Output) == 0 {
+			http.Error(w, "This verification was published hash-only: its verifier did not send the output bytes.", http.StatusNotFound)
+			return true
+		}
+		serveVerifyOutput(w, r, v)
+		return true
 	case strings.HasSuffix(p, ".png"):
 		id := strings.TrimSuffix(strings.TrimPrefix(p, board.VerificationPath), ".png")
 		if !board.ValidVerificationID(id) {
@@ -291,6 +316,21 @@ func verifyRoute(w http.ResponseWriter, r *http.Request, execute func(board.Comm
 		return true
 	}
 	return false
+}
+
+// serveVerifyOutput writes a record's output bytes exactly as hashed: an
+// attachment, octet-stream (the bytes may be any encoding), nosniff and a
+// sandbox, so a browser never renders them; the ETag is their SHA-256.
+func serveVerifyOutput(w http.ResponseWriter, r *http.Request, v *board.Verification) {
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Content-Disposition", `attachment; filename="verification-`+v.ID+`-output.txt"`)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	h.Set("Cache-Control", VerifyBadgeCacheControl)
+	h.Set("Access-Control-Allow-Origin", "*")
+	h.Set("ETag", `"`+v.OutputSHA256+`"`)
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(v.Output))
 }
 
 // serveBadge writes an SVG badge with its caching, ETag and the strict
@@ -431,6 +471,14 @@ func rerunBlock(v *board.Verification) string {
 	fmt.Fprintf(&b, "# The verifier's output hashed to %s.\n", v.OutputSHA256)
 	if v.OutputNormaliser != "" {
 		fmt.Fprintf(&b, "# Before hashing, its output went through: %s\n", v.OutputNormaliser)
+	}
+	if v.StdioEncoding != "" {
+		fmt.Fprintf(&b, "# Its output was %s.\n", v.StdioEncoding)
+	}
+	if v.OutputBytes > 0 {
+		// The verifier's bytes are published (C591): diff yours against them.
+		fmt.Fprintf(&b, "# Save your output as mine.txt, then find the first differing byte:\ncurl -s %s%s%s%s -o theirs.txt && cmp theirs.txt mine.txt\n",
+			siteOrigin, board.VerificationPath, v.ID, board.VerificationOutputSuffix)
 	}
 	// One instruction (board.VerificationOutputHash), then the fallback.
 	fmt.Fprintf(&b, "# %s\n# Output whose times or paths were left in will differ: compare the checks.", board.VerificationOutputHash)

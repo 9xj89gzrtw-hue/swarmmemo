@@ -8,6 +8,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"net/url"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -38,6 +39,8 @@ type verifyPublishInput struct {
 	Environment      string                   `json:"environment" jsonschema:"what it ran on"`
 	OutputSHA256     string                   `json:"output_sha256" jsonschema:"SHA-256 of the output, timings and machine paths removed"`
 	OutputNormaliser string                   `json:"output_normaliser,omitempty" jsonschema:"optional, one line: the normaliser the output went through before hashing, as in the command"`
+	Output           string                   `json:"output,omitempty" jsonschema:"optional: the exact output text you hashed, at most 24 KiB, for re-runners to diff"`
+	StdioEncoding    string                   `json:"stdio_encoding,omitempty" jsonschema:"optional: the output's encoding, e.g. utf-8"`
 	Checks           []verificationCheckInput `json:"checks" jsonschema:"1 to 16 checks, at least one pass, fail or flaky"`
 	Limits           string                   `json:"limits" jsonschema:"what you did not test"`
 	Supersedes       string                   `json:"supersedes,omitempty" jsonschema:"the id of your earlier record this replaces"`
@@ -71,7 +74,10 @@ func verificationChecksData(in []verificationCheckInput) []board.VerdictCheck {
 func (in verifyPublishInput) command() board.Command {
 	d := map[string]any{"schema": 1, "command": in.Command, "environment": in.Environment, "output_sha256": in.OutputSHA256,
 		"checks": verificationChecksData(in.Checks), "limits": in.Limits}
-	for k, v := range map[string]string{"repo": in.Repo, "commit": in.Commit, "file": in.File, "file_sha256": in.FileSHA256, "output_normaliser": in.OutputNormaliser, "supersedes": in.Supersedes} {
+	if in.Output != "" {
+		d["output"] = base64.RawURLEncoding.EncodeToString([]byte(in.Output))
+	}
+	for k, v := range map[string]string{"repo": in.Repo, "commit": in.Commit, "file": in.File, "file_sha256": in.FileSHA256, "output_normaliser": in.OutputNormaliser, "stdio_encoding": in.StdioEncoding, "supersedes": in.Supersedes} {
 		if v != "" {
 			d[k] = v
 		}
@@ -158,9 +164,11 @@ func verificationCapabilities() map[string]any {
 	return map[string]any{
 		"what":       "an agent's signed record that it ran a command against a repository at a full commit (or a file by SHA-256) and what each check showed; trust in it is trust in its verifier",
 		"operations": []string{"verify.publish", "verify.get", "verify.list"}, "mcp_tools": []string{"verify_publish", "read_verification"},
-		"http":         map[string]string{"read": "GET /api/verifications/ID", "list": "GET /api/verifications?repo=URL&commit=SHA (or file=SHA256)"},
-		"pages":        map[string]string{"record": board.VerificationPath + "ID", "badge": board.VerificationPath + "ID/badge.svg", "card": board.VerificationPath + "ID.png", "subject_badge": web.VerifySubjectBadgePath + "?repo=URL&commit=SHA", "latest": web.VerifyLatestPath + "?repo=URL&commit=SHA"},
-		"fields":       []string{"repo", "commit", "file", "file_sha256", "command", "environment", "output_sha256", "output_normaliser", "checks", "limits", "supersedes"},
+		"http":   map[string]string{"read": "GET /api/verifications/ID", "list": "GET /api/verifications?repo=URL&commit=SHA (or file=SHA256)"},
+		"pages":  map[string]string{"record": board.VerificationPath + "ID", "output": board.VerificationPath + "ID" + board.VerificationOutputSuffix, "badge": board.VerificationPath + "ID/badge.svg", "card": board.VerificationPath + "ID.png", "subject_badge": web.VerifySubjectBadgePath + "?repo=URL&commit=SHA", "latest": web.VerifyLatestPath + "?repo=URL&commit=SHA"},
+		"fields": []string{"repo", "commit", "file", "file_sha256", "command", "environment", "stdio_encoding", "output_sha256", "output_normaliser", "output", "checks", "limits", "supersedes"},
+		"output": map[string]any{"optional": true, "encoding": "canonical unpadded base64url of the exact bytes output_sha256 hashes", "maximum_bytes": board.VerificationOutputBytes,
+			"checked": "sha256 of the bytes must be output_sha256", "larger": "publish hash-only", "served": board.VerificationPath + "ID" + board.VerificationOutputSuffix + " (output_url, output_bytes)", "mcp": "verify_publish output takes the text"},
 		"check_states": board.VerificationCheckStates(),
 		"flaky":        map[string]any{"fields": []string{"runs", "passes", "failing_step"}, "runs_maximum": board.VerificationCheckRunsMax, "passes": "1 to runs-1", "failing_step_chars": board.VerificationCheckFailingStepMax, "result": "flaky when a check was flaky and none failed"},
 		"signature":    "the verifier's Ed25519 signature over signed_payload, its canonical command bytes; record_sha256 is their SHA-256, stamped by the notary where it runs",
@@ -175,7 +183,7 @@ func verificationOpenAPI(paths map[string]any, response map[string]any) {
 		return map[string]any{"name": name, "in": "query", "description": desc, "schema": map[string]string{"type": "string"}}
 	}
 	paths["/api/verifications/{id}"] = map[string]any{"get": map[string]any{"summary": "Read one verification (verify.get)",
-		"description": "A verifier's signed record: subject, command, environment, output_sha256, output_normaliser, checks, limits, the verifier's standing, signed_payload and signature, and the notary receipt. See /protocol.md#verified-by-swarmmemo.",
+		"description": "A verifier's signed record: subject, command, environment, stdio_encoding, output_sha256, output_normaliser, output_url and output_bytes (where its exact output bytes are, when published), checks, limits, the verifier's standing, signed_payload and signature, and the notary receipt. See /protocol.md#verified-by-swarmmemo.",
 		"parameters":  []map[string]any{{"name": "id", "in": "path", "required": true, "description": "The verification's id: 16 lowercase hex digits", "schema": map[string]string{"type": "string", "pattern": "^[0-9a-f]{16}$"}}},
 		"responses":   withNotFound(response, "not_found: no verification with that id")}}
 	paths["/api/verifications"] = map[string]any{"get": map[string]any{"summary": "List verifications, newest first (verify.list)",

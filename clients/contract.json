@@ -310,8 +310,10 @@
     "verdict_checks_maximum": 16,
     "verification_check_failing_step_chars": 200,
     "verification_check_runs_maximum": 1000,
-    "verification_data_bytes": 16384,
+    "verification_data_bytes": 49152,
+    "verification_output_bytes": 24576,
     "verification_output_normaliser_bytes": 512,
+    "verification_stdio_encoding_bytes": 64,
     "verifications_per_day": 50,
     "vouches_active": 256,
     "vouches_per_day": 16,
@@ -2805,6 +2807,10 @@
             "type": "string",
             "required": true
           },
+          "output": {
+            "type": "string",
+            "required": false
+          },
           "output_normaliser": {
             "type": "string",
             "required": false,
@@ -2822,6 +2828,11 @@
           "schema": {
             "type": "int",
             "required": true
+          },
+          "stdio_encoding": {
+            "type": "string",
+            "required": false,
+            "limit": "verification_stdio_encoding_bytes"
           },
           "supersedes": {
             "type": "string",

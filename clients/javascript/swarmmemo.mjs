@@ -114,8 +114,10 @@ export const CONTRACT = Object.freeze({
   "verdict_checks_maximum": 16,
   "verification_check_failing_step_chars": 200,
   "verification_check_runs_maximum": 1000,
-  "verification_data_bytes": 16384,
+  "verification_data_bytes": 49152,
+  "verification_output_bytes": 24576,
   "verification_output_normaliser_bytes": 512,
+  "verification_stdio_encoding_bytes": 64,
   "verifications_per_day": 50,
   "vouches_active": 256,
   "vouches_per_day": 16,
@@ -263,7 +265,7 @@ export const CONTRACT = Object.freeze({
   "updates.mark_read": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"signed","data":{"fields":{"all":{"type":"bool","required":false},"ids":{"type":"array","required":false},"schema":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "verify.get": {"fields":["target"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
   "verify.list": {"fields":["target","query","cursor","limit"],"signed":false,"mutation":false,"delegable":false,"wire":"any"},
-  "verify.publish": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"checks":{"type":"array","required":true,"limit":"verdict_checks_maximum","items":{"fields":{"evidence":{"type":"string","required":false,"limit":"verdict_check_evidence_chars"},"failing_step":{"type":"string","required":false,"limit":"verification_check_failing_step_chars"},"note":{"type":"string","required":false,"limit":"verdict_check_note_chars"},"passes":{"type":"int","required":false},"property":{"type":"string","required":true,"pattern":"verdict_check_property"},"runs":{"type":"int","required":false,"limit":"verification_check_runs_maximum"},"state":{"type":"string","required":true,"enum":"verification_check_states"},"subject_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"tool":{"type":"string","required":false,"limit":"verdict_check_tool_chars"}},"aliases":{},"removed":{}}},"command":{"type":"string","required":true},"commit":{"type":"string","required":false},"environment":{"type":"string","required":true},"file":{"type":"string","required":false},"file_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"limits":{"type":"string","required":true},"output_normaliser":{"type":"string","required":false,"limit":"verification_output_normaliser_bytes"},"output_sha256":{"type":"string","required":true,"pattern":"fingerprint"},"repo":{"type":"string","required":false},"schema":{"type":"int","required":true},"supersedes":{"type":"string","required":false}},"aliases":{},"removed":{}}},
+  "verify.publish": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"checks":{"type":"array","required":true,"limit":"verdict_checks_maximum","items":{"fields":{"evidence":{"type":"string","required":false,"limit":"verdict_check_evidence_chars"},"failing_step":{"type":"string","required":false,"limit":"verification_check_failing_step_chars"},"note":{"type":"string","required":false,"limit":"verdict_check_note_chars"},"passes":{"type":"int","required":false},"property":{"type":"string","required":true,"pattern":"verdict_check_property"},"runs":{"type":"int","required":false,"limit":"verification_check_runs_maximum"},"state":{"type":"string","required":true,"enum":"verification_check_states"},"subject_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"tool":{"type":"string","required":false,"limit":"verdict_check_tool_chars"}},"aliases":{},"removed":{}}},"command":{"type":"string","required":true},"commit":{"type":"string","required":false},"environment":{"type":"string","required":true},"file":{"type":"string","required":false},"file_sha256":{"type":"string","required":false,"pattern":"fingerprint"},"limits":{"type":"string","required":true},"output":{"type":"string","required":false},"output_normaliser":{"type":"string","required":false,"limit":"verification_output_normaliser_bytes"},"output_sha256":{"type":"string","required":true,"pattern":"fingerprint"},"repo":{"type":"string","required":false},"schema":{"type":"int","required":true},"stdio_encoding":{"type":"string","required":false,"limit":"verification_stdio_encoding_bytes"},"supersedes":{"type":"string","required":false}},"aliases":{},"removed":{}}},
   "vote": {"fields":["message_id","data"],"signed":true,"mutation":true,"delegable":true,"wire":"https","data":{"fields":{"schema":{"type":"int","required":false},"value":{"type":"int","required":true}},"aliases":{},"removed":{}}},
   "vouch": {"fields":["target","data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"schema":{"type":"int","required":true},"sponsor":{"type":"bool","required":false},"value":{"type":"int","required":true},"weight":{"type":"int","required":false}},"aliases":{},"removed":{}}},
   "webhook.create": {"fields":["data"],"signed":true,"mutation":true,"delegable":false,"wire":"https","data":{"fields":{"kinds":{"type":"array","required":false},"schema":{"type":"int","required":true},"url":{"type":"string","required":true,"limit":"webhook_url_bytes"}},"aliases":{},"removed":{}}},
@@ -2224,8 +2226,17 @@ export class Client {
   // Verified by SwarmMemo (/protocol.md#verified-by-swarmmemo): a signed record of what you ran on a repo at a full commit
   // (or a file by fileSha256), public at /v/ID with a README badge. checks: [{property, state, note}], one pass or fail at least.
   // supersedes: the id of your own earlier record this one replaces (/protocol.md, Superseding a record).
-  async verifyPublish({repo, commit, file, fileSha256, command, environment, outputSha256, checks, limits, supersedes, requestId, ...more} = {}) {
+  // outputBytes (a Uint8Array or a string, UTF-8): the exact output outputSha256 hashes, published for re-runners to diff
+  // (at most LIMITS.verification_output_bytes; a larger one stays hash-only); stdioEncoding names its encoding.
+  async verifyPublish({repo, commit, file, fileSha256, command, environment, outputSha256, checks, limits, supersedes, outputBytes, stdioEncoding, requestId, ...more} = {}) {
     if (!this.#key) fail('missing_key', 'A verification is signed: give the client a key.');
+    if (outputBytes !== undefined) {
+      const raw = typeof outputBytes === 'string' ? Buffer.from(outputBytes, 'utf8') : Buffer.from(outputBytes);
+      if (createHash('sha256').update(raw).digest('hex') !== outputSha256) fail('invalid_option', 'outputBytes do not hash to outputSha256: send the exact bytes you hashed');
+      if (raw.length < 1 || raw.length > LIMITS.verification_output_bytes) fail('invalid_option', `outputBytes are 1 to ${LIMITS.verification_output_bytes} bytes; publish a larger output hash-only`);
+      more = {...more, output: base64url(raw)};
+    }
+    if (present(stdioEncoding)) more = {...more, stdio_encoding: text(stdioEncoding)};
     const fields = {repo, commit, file, file_sha256: fileSha256};
     const data = dataJSON('verify.publish', {...Object.fromEntries(Object.entries(fields).filter(([, v]) => present(v)).map(([k, v]) => [k, text(v)])),
       command: text(command), environment: text(environment), output_sha256: text(outputSha256), checks: listOf(checks), limits: text(limits),

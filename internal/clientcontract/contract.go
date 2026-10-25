@@ -144,6 +144,7 @@ func Build() map[string]any {
 		"verification_check_runs_maximum":       board.VerificationCheckRunsMax,
 		"verification_check_failing_step_chars": board.VerificationCheckFailingStepMax,
 		"verification_output_normaliser_bytes":  board.VerificationOutputNormaliserMax,
+		"verification_stdio_encoding_bytes":     board.VerificationStdioEncodingMax,
 		"work_answer_bytes":                     board.WorkAnswerBytesMax,
 		"work_answer_note_chars":                board.WorkAnswerNoteMax,
 		"work_answer_salt_bytes":                board.WorkAnswerSaltBytesMax,
