@@ -513,6 +513,58 @@ func TestBundlerQuoteCoversTheCharge(t *testing.T) {
 	}
 }
 
+// TestBundlerListedVsLiveQuote (C579): a search hit whose index price is
+// stale shows it labelled listed (with the page's price_note), tools_get shows
+// the live probe's price labelled live, both priced with bundlerCost; a later
+// search shows the cached live price and the listed one beside it; and a call
+// whose max_cost covers only the listed cost is refused before any payment.
+func TestBundlerListedVsLiveQuote(t *testing.T) {
+	h, api := newBundlerHarness(t, "", "")
+	api.hits = `[{"id":"` + toolOK + `","title":"Options","description":"Options ticker","invoke_ready":true,"price_usd":0.005,"payment":{"price_hint":"0.005"}}]`
+	api.probes[toolOK] = `{"id":"` + toolOK + `","live":true,"price_usd":0.01,"payable":true}`
+	page, err := h.bundlerRead(testSubject, "tools_search", `{"query":"options ticker"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listedCost := creditsFor(bundlerCost(5000))
+	hit := hitsByID(page)["tool:"+toolOK]
+	if hit["price_usd"] != "0.005" || hit["price_source"] != "listed" || hit["cost"] != float64(listedCost) || page["price_note"] != bundlerListedNote || hit["listed_price_usd"] != nil {
+		t.Fatalf("listed hit %v (note %v)", hit, page["price_note"])
+	}
+	tool, err := h.bundlerRead(testSubject, "tools_get", `{"id":"tool:`+toolOK+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveCost := creditsFor(bundlerCost(10000))
+	if tool["price_usd"] != "0.01" || tool["price_source"] != "live" || tool["cost"] != float64(liveCost) || liveCost <= listedCost {
+		t.Fatalf("tools_get %v, want the live $0.01 at %d", tool, liveCost)
+	}
+	// With the probe cached, the search shows the live price and says the
+	// index lists another.
+	page, _ = h.bundlerRead(testSubject, "tools_search", `{"query":"options ticker"}`)
+	hit = hitsByID(page)["tool:"+toolOK]
+	if hit["price_usd"] != "0.01" || hit["price_source"] != "live" || hit["cost"] != float64(liveCost) || hit["listed_price_usd"] != "0.005" || page["price_note"] != nil {
+		t.Fatalf("live hit %v (note %v)", hit, page["price_note"])
+	}
+	// A call at the listed cost is refused before payment; at the live quote
+	// it runs, the bundler allowed at most that quote.
+	before := h.charged()
+	if _, err := h.call(testSubject, `{"resource":"tool:`+toolOK+`","body":{}}`, listedCost); errCode(err) != "price_exceeds_max" {
+		t.Fatalf("call at the listed cost: %v", err)
+	}
+	if _, _, _, n := api.count(); n != 0 || h.charged() != before {
+		t.Fatalf("a refused call was paid or charged: %d invokes, %d credits", n, h.charged()-before)
+	}
+	if _, err := h.call(testSubject, `{"resource":"tool:`+toolOK+`","body":{}}`, liveCost); err != nil || api.lastInvoke["max_usd"] != formatUSDFloat(bundlerCost(10000)) {
+		t.Fatalf("call at the live quote: %v, max_usd %v", err, api.lastInvoke["max_usd"])
+	}
+	if got := h.charged() - before; got > liveCost {
+		t.Fatalf("charged %d over the quote %d", got, liveCost)
+	}
+}
+
+func formatUSDFloat(micro int64) float64 { return float64(micro) / 1e6 }
+
 // budgetExceededBody is the upstream's budget_exceeded answer as it sends it:
 // HTTP 200, no billing, nothing delivered or charged.
 const budgetExceededBody = `{"result":{"calls":[{"id":"` + toolOK + `","body":{"error":"budget_exceeded","estimate_usd":0.001,"needs_usd":0.00615},"charged_usd":0,"delivered":false,"status":402}],"delivered":0,"requested":1},"receipts":[{"tool":"` + toolOK + `","amount":"0","delivered":false,"reason":"budget_exceeded"}]}`

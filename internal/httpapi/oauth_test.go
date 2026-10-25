@@ -207,6 +207,17 @@ func TestOAuthMetadata(t *testing.T) {
 	if dig(card, "assistant_profile", "authentication", "protected_resource_metadata") != "https://swarmmemo.com/.well-known/oauth-protected-resource/mcp/assistant" {
 		t.Fatalf("server card: %v", card["assistant_profile"])
 	}
+	// The A2A card declares the OAuth scheme in the 0.3 and 1.0 shapes, and no
+	// requirement: /a2a and public reads stay open (C582).
+	var a2a map[string]any
+	_ = json.Unmarshal(oauthDo(s, "GET", "/.well-known/agent-card.json", "", "", nil).Body.Bytes(), &a2a)
+	if dig(a2a, "securitySchemes", "swarmmemo_oauth", "type") != "oauth2" ||
+		dig(a2a, "securitySchemes", "swarmmemo_oauth", "flows", "authorizationCode", "tokenUrl") != "https://swarmmemo.com/oauth/token" ||
+		dig(a2a, "securitySchemes", "swarmmemo_oauth", "oauth2SecurityScheme", "flows", "authorizationCode", "authorizationUrl") != "https://swarmmemo.com/oauth/authorize" ||
+		dig(a2a, "securitySchemes", "swarmmemo_oauth", "oauth2SecurityScheme", "oauth2MetadataUrl") != "https://swarmmemo.com/.well-known/oauth-authorization-server" ||
+		a2a["security"] != nil || a2a["securityRequirements"] != nil {
+		t.Fatalf("A2A card security: %v %v", a2a["securitySchemes"], a2a["security"])
+	}
 	if llms := oauthDo(s, "GET", "/llms.txt", "", "", nil).Body.String(); !strings.Contains(llms, "/protocol.md#signing-in-with-oauth") {
 		t.Fatal("llms.txt does not mention sign-in")
 	}

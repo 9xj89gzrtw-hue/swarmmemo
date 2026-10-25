@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -137,7 +140,61 @@ func oneCallExamples() []string {
 // data parts only name a skill and its arguments. The rest of the board is spoken
 // over HTTP commands or MCP, described by the SwarmMemo extension under
 // capabilities, pointing at the same documents /capabilities lists.
+//
+// The card's version is its content's, not the binary's (C582): directories
+// count version changes as churn, and a patch deploy rarely changes the
+// card. agentCardVersion hashes everything else in the card.
 func (s *Server) agentCard() map[string]any {
+	card := s.agentCardContent()
+	card["version"] = agentCardVersion(card)
+	return card
+}
+
+// agentCardVersion is 1.0.0 with a build tag of the card's content hash
+// (the version field left out): it changes exactly when the card does.
+func agentCardVersion(card map[string]any) string {
+	content := make(map[string]any, len(card))
+	for k, v := range card {
+		if k != "version" {
+			content[k] = v
+		}
+	}
+	// encoding/json sorts map keys, so equal cards hash equally.
+	b, err := json.Marshal(content)
+	if err != nil {
+		return "1.0.0"
+	}
+	sum := sha256.Sum256(b)
+	return "1.0.0+" + hex.EncodeToString(sum[:6])
+}
+
+// agentCardSecuritySchemes is how agents authenticate to SwarmMemo, in the
+// A2A card's securitySchemes: OAuth 2.1 sign-in for MCP clients, while
+// hosted identities are on. Each scheme carries the A2A 0.3 shape (type,
+// flows) and the 1.0 shape (oauth2SecurityScheme). No security requirement
+// is declared: /a2a and public reads need no credentials. Ed25519 signed
+// commands sign the command body itself, which no A2A scheme type
+// describes; the extension's authentication parameter names them.
+func (s *Server) agentCardSecuritySchemes() map[string]any {
+	if s.oauthStore() == nil {
+		return nil
+	}
+	origin := s.cfg.PublicURL
+	scopes := map[string]string{board.OAuthScope: "Act as the hosted identity you sign in as or create"}
+	flow := map[string]any{"authorizationUrl": origin + oauthAuthorizePath, "tokenUrl": origin + oauthTokenPath, "refreshUrl": origin + oauthTokenPath, "scopes": scopes}
+	description := "OAuth 2.1 (authorization code, PKCE S256, public clients, dynamic registration) for MCP clients at " + origin + "/mcp, " + origin + web.AssistantMCPPath + " and " + origin + mcpProfileCore + ": signing in creates or recovers a hosted identity. Optional: public reads, anonymous posts and " + a2aPath + " need no credentials; agents with a key of their own sign commands with Ed25519 instead (" + origin + "/v1/command)."
+	return map[string]any{"swarmmemo_oauth": map[string]any{
+		"type": "oauth2", "description": description, "flows": map[string]any{"authorizationCode": flow},
+		"oauth2MetadataUrl": origin + oauthASMPath,
+		"oauth2SecurityScheme": map[string]any{
+			"description": description, "oauth2MetadataUrl": origin + oauthASMPath,
+			"flows": map[string]any{"authorizationCode": map[string]any{"authorizationUrl": flow["authorizationUrl"], "tokenUrl": flow["tokenUrl"], "refreshUrl": flow["refreshUrl"], "scopes": scopes, "pkceRequired": true}},
+		},
+	}}
+}
+
+// agentCardContent is the card without its version.
+func (s *Server) agentCardContent() map[string]any {
 	origin := s.cfg.PublicURL
 	skills := make([]map[string]any, 0, len(a2aSkills))
 	for _, skill := range a2aSkills {
@@ -175,17 +232,16 @@ func (s *Server) agentCard() map[string]any {
 		"capabilities":   origin + "/capabilities",
 		"mcp":            origin + "/mcp",
 		"mcp_card":       origin + mcpServerCardPath,
-		"authentication": "none for public reads and anonymous posts; optional Ed25519 signatures for identity, private rooms and private conversations; hosted identities on MCP for assistants without a key",
+		"authentication": "none for public reads, anonymous posts and " + a2aPath + "; optional Ed25519 signed commands (POST " + origin + "/v1/command, the signature over the command itself) for identity, private rooms and private conversations; OAuth sign-in (securitySchemes) to a hosted identity on MCP for assistants without a key",
 		"source_code":    serviceListing.Repository,
 	}
 	// The same free credit line /llms.txt leads with, while there is one.
 	if offer := s.freeCredit(); offer != nil {
 		params["free_credit"] = offer.LineAt(origin)
 	}
-	return map[string]any{
+	card := map[string]any{
 		"name":                serviceListing.Title,
 		"description":         agentCardDescription,
-		"version":             s.cfg.Version,
 		"provider":            map[string]any{"organization": serviceListing.Title, "url": origin},
 		"documentationUrl":    origin + "/llms.txt",
 		"iconUrl":             origin + serviceLogo,
@@ -207,6 +263,10 @@ func (s *Server) agentCard() map[string]any {
 		"defaultOutputModes": []string{"text/plain", "application/json"},
 		"skills":             skills,
 	}
+	if schemes := s.agentCardSecuritySchemes(); schemes != nil {
+		card["securitySchemes"] = schemes
+	}
+	return card
 }
 
 // a2aInterfaces is supportedInterfaces: the one JSON-RPC endpoint, once per

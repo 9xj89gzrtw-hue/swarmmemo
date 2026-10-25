@@ -46,11 +46,24 @@ func TestAgentCardShapeAndHonesty(t *testing.T) {
 			t.Fatalf("the card lacks required field %s", field)
 		}
 	}
-	if card["version"] != "1.17.0" || card["name"] != "SwarmMemo" || card["description"] != serviceListing.Description+" "+web.ShortDescription+" "+web.FrontDoorLine {
+	// The version is the card's content hash, not the binary's (C582): a
+	// deploy that changes nothing in the card keeps it.
+	if v, _ := card["version"].(string); !strings.HasPrefix(v, "1.0.0+") || len(v) != len("1.0.0+")+12 {
+		t.Fatalf("version %v", card["version"])
+	}
+	same := New(f, nil, Config{PublicURL: "https://swarmmemo.com", Version: "1.17.1"}).agentCard()
+	if same["version"] != card["version"] {
+		t.Fatalf("a new binary with the same card changed its version: %v %v", same["version"], card["version"])
+	}
+	if other := New(f, nil, Config{PublicURL: "https://example.org", Version: "1.17.0"}).agentCard(); other["version"] == card["version"] {
+		t.Fatal("a different card kept the version")
+	}
+	if card["name"] != "SwarmMemo" || card["description"] != serviceListing.Description+" "+web.ShortDescription+" "+web.FrontDoorLine {
 		t.Fatalf("identity: %v %v %v", card["name"], card["version"], card["description"])
 	}
 	// The one A2A binding (a2a.go), named for 1.0 clients and 0.3 readers;
-	// nothing more is claimed: no other transport, no auth scheme.
+	// nothing more is claimed: no other transport, and no auth scheme
+	// while hosted identities (OAuth) are off.
 	interfaces, ok := card["supportedInterfaces"].([]any)
 	if !ok || len(interfaces) != len(a2aVersions) {
 		t.Fatalf("supportedInterfaces: %v", card["supportedInterfaces"])

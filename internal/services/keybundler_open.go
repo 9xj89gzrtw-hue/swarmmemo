@@ -478,12 +478,15 @@ type bundlerHit struct {
 	Capabilities           []string
 	Category               string
 	Vetted                 bool
-	Price                  int64 // micro-USD; Priced says whether it is known
-	Priced, Probed         bool  // Probed: the price is a live probe's, not the listing's
-	Live                   *bool
-	Schema                 json.RawMessage
-	SchemaCut              bool
-	PayTo                  []EVMAddress // where the listing says payments go (bundlerPayTo)
+	// Price is the search index's price (micro-USD), a snapshot that may be
+	// stale: its probe's when invoke_ready, else the listing's price_hint.
+	// Priced says whether it is known.
+	Price     int64
+	Priced    bool
+	Live      *bool
+	Schema    json.RawMessage
+	SchemaCut bool
+	PayTo     []EVMAddress // where the listing says payments go (bundlerPayTo)
 	// Method and URL are the endpoint the listing invokes, when it says
 	// (invocation); catalogueMatch matches them to the catalogue's.
 	Method, URL string
@@ -544,7 +547,7 @@ func parseBundlerSearchPage(raw []byte) (bundlerSearchPage, error) {
 		hit.Truncated = hit.Truncated || utf8.RuneCountInString(hit.Description) >= bundlerDescriptionRunes
 		hit.Category = x402Categorize(hit.Title + " " + hit.Description + " " + strings.Join(hit.Capabilities, " "))
 		if p, ok := bundlerPrice(h.PriceUSD); ok && h.InvokeReady {
-			hit.Price, hit.Priced, hit.Probed = p, true, true
+			hit.Price, hit.Priced = p, true
 		} else if p, ok := bundlerPrice(h.Payment.PriceHint); ok {
 			hit.Price, hit.Priced = p, true
 		}
@@ -738,7 +741,9 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 	}
 	vets, _ := toolVets(ctx, x.db, ids...) // a failed read only shows the bundler's flags
 	hits, later := []any{}, []any{}
+	anyListed := false
 	for _, h := range page.hits {
+		q := f.cachedQuote(h, time.Now())
 		status := screenStatus(h.Description, verdicts)
 		desc := h.Description
 		if status == summaryWithheld {
@@ -749,9 +754,9 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 			host = strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 		}
 		v, has := vets[h.ID]
-		byOperator := has && !neverVetted(h.Category) && v.holds(host, h.Method, h.Price, h.Priced)
+		byOperator := has && !neverVetted(h.Category) && v.holds(host, h.Method, q.price, q.priced)
 		vetted := h.Vetted || byOperator
-		why := f.whyNot(vetted, h.Category, hosts[h.ID], h.Price, h.Priced)
+		why := f.whyNot(vetted, h.Category, hosts[h.ID], q.price, q.priced)
 		if why == "" && h.Live != nil && !*h.Live {
 			why = "tool_unavailable"
 		}
@@ -773,9 +778,11 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 		if f.firstParty(h.PayTo) || f.firstParty(f.cachedPayTo(h.ID)) {
 			e["first_party"] = true
 		}
-		if h.Priced {
-			e["price_usd"], e["cost"] = formatUnits(h.Price, 6), price.For(bundlerCost(h.Price))
-			e["price_source"] = map[bool]string{true: "probe", false: "listing"}[h.Probed]
+		q.put(e, price)
+		anyListed = anyListed || q.listed
+		if !q.listed && h.Priced && h.Price != q.price {
+			// The index lists another price than the live one: say so.
+			e["listed_price_usd"] = formatUnits(h.Price, 6)
 		}
 		if h.Live != nil {
 			e["live"] = *h.Live
@@ -795,12 +802,16 @@ func (x *x402) bundlerSearchRead(ctx context.Context, s bundlerSearch, price Pri
 	}
 	callable := len(hits)
 	hits = append(hits, later...)
-	return canonicalJSON(map[string]any{
+	out := map[string]any{
 		"hits": hits, "matched": len(hits), "callable": callable, "partial": page.partial, "cached": cached,
 		"tools": x.bundlerSummary(price), "call": bundlerCallNote,
 		// Titles, descriptions and schemas are the bundler's listings' text.
 		"text_is_untrusted": true,
-	}), nil
+	}
+	if anyListed {
+		out["price_note"] = bundlerListedNote
+	}
+	return canonicalJSON(out), nil
 }
 
 // catalogueViaNote says which index each of a hit's flags comes from.
@@ -1085,6 +1096,52 @@ type bundlerProbe struct {
 	schema        json.RawMessage
 }
 
+// bundlerQuote is a tool's price and where it comes from: "live" (the
+// bundler's probe, what a call is checked against) or "listed" (a listing's
+// price_hint or the search index's snapshot, which may be stale). It is the one
+// source of a tool's price_usd and cost (bundlerCost, fees included) in
+// tools_search, tools_get and bundlerGate (C579).
+type bundlerQuote struct {
+	price          int64
+	priced, listed bool
+}
+
+// liveQuote is the quote tools_get shows and bundlerGate holds a call to: the
+// probe's price, else the descriptor's listed one.
+func liveQuote(p bundlerProbe, d bundlerDescriptor) bundlerQuote {
+	if p.priced {
+		return bundlerQuote{price: p.price, priced: true}
+	}
+	return bundlerQuote{price: d.price, priced: d.priced, listed: d.priced}
+}
+
+// cost is what one call of the quoted tool may pay, in micro-USD.
+func (q bundlerQuote) cost() int64 { return bundlerCost(q.price) }
+
+// put writes the quote's price_usd, cost (credits) and price_source into e.
+func (q bundlerQuote) put(e map[string]any, price Price) {
+	if !q.priced {
+		return
+	}
+	e["price_usd"], e["cost"] = formatUnits(q.price, 6), price.For(q.cost())
+	e["price_source"] = map[bool]string{true: "listed", false: "live"}[q.listed]
+}
+
+// bundlerListedNote rides on a search answer whose hits show a listed price.
+const bundlerListedNote = "price_source listed is the search index's price and may be stale; tools_get gives the live quote, and a call charges at most that quote's cost."
+
+// cachedQuote is a hit's quote in a search: the live probe's when one is
+// cached, else the index's listed price.
+func (f *bundlerState) cachedQuote(h bundlerHit, now time.Time) bundlerQuote {
+	f.mu.Lock()
+	p, ok := f.probes.get(h.ID, now)
+	f.mu.Unlock()
+	if ok && p.priced {
+		return bundlerQuote{price: p.price, priced: true}
+	}
+	return bundlerQuote{price: h.Price, priced: h.Priced, listed: h.Priced}
+}
+
 func (x *x402) bundlerProbeOf(ctx context.Context, tool string) (bundlerProbe, error) {
 	f := x.fr
 	f.mu.Lock()
@@ -1148,13 +1205,8 @@ func (x *x402) bundlerToolRead(ctx context.Context, tool string, row bundlerTool
 	if x.fr.firstParty(d.payTo) {
 		out["first_party"] = true
 	}
-	priceNow, priced := p.price, p.priced
-	if !priced {
-		priceNow, priced = d.price, d.priced
-	}
-	if priced {
-		out["price_usd"], out["cost"] = formatUnits(priceNow, 6), price.For(bundlerCost(priceNow))
-	}
+	q := liveQuote(p, d)
+	q.put(out, price)
 	switch {
 	case p.schema != nil:
 		out["input_schema"] = p.schema
@@ -1164,12 +1216,12 @@ func (x *x402) bundlerToolRead(ctx context.Context, tool string, row bundlerTool
 	var why string
 	if known {
 		vetted := row.vetted
-		if x.liveVet(ctx, tool, d, priceNow, priced) {
+		if x.liveVet(ctx, tool, d, q.price, q.priced) {
 			vetted = true
 			out["vetted_by"], out["bundler_vetted"] = "operator", row.vetted
 		}
 		out["vetted"] = vetted
-		why = x.fr.whyNot(vetted, d.category, d.host, priceNow, priced)
+		why = x.fr.whyNot(vetted, d.category, d.host, q.price, q.priced)
 	} else {
 		// The bundler's vetting flag comes with search hits: a tool no recent
 		// search returned cannot be called until one does.
@@ -1298,26 +1350,22 @@ func (x *x402) bundlerGate(ctx context.Context, c Call, p *x402Plan) error {
 	if err != nil {
 		return err
 	}
-	// The price tools_get quotes: the probe's, else the descriptor's.
-	priceNow, priced := pr.price, pr.priced
-	if !priced {
-		priceNow, priced = d.price, d.priced
-	}
-	if byOperator && !x.liveVet(ctx, tool, d, priceNow, priced) {
+	// The quote tools_get shows: the probe's price, else the descriptor's.
+	q := liveQuote(pr, d)
+	if byOperator && !x.liveVet(ctx, tool, d, q.price, q.priced) {
 		return refusal("tool_unvetted")
 	}
-	cost := bundlerCost(priceNow)
 	switch {
 	case !pr.live || !pr.payable:
 		return refusal("tool_unavailable")
-	case priced && x.fr.overCap(priceNow):
+	case q.priced && x.fr.overCap(q.price):
 		return refusal("tool_price_over_cap")
-	case priced && cost > p.max:
+	case q.priced && q.cost() > p.max:
 		return refusal("price_exceeds_max")
 	}
 	// Never more than the quote: the bundler may bill at most the tool's cost.
-	if priced {
-		p.max = cost
+	if q.priced {
+		p.max = q.cost()
 	}
 	p.res.bundlerSearch = row.searchID
 	return nil
