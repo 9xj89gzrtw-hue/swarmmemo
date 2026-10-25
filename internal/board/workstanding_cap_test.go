@@ -61,6 +61,10 @@ func TestWorkStandingResultsMax(t *testing.T) {
 	if !errors.As(err, &e) || e.Status != 409 || e.Code != "results_max_reached" || !strings.Contains(e.Message, "3 results in all") || !strings.Contains(e.Message, "2 accepted and 1 waiting") {
 		t.Fatalf("claim past the cap: %v", err)
 	}
+	// C585: full for good says so, in its details too, with no next opening.
+	if d, _ := e.Details.(map[string]any); d["full"] != true || d["blocked_by"] != StandingBlockedResultsMax || d["next_open_at"] != nil || !strings.HasPrefix(e.Message, "This standing task is full") {
+		t.Fatalf("results_max refusal details: %#v", e.Details)
+	}
 	if n := sqlCount(t, s, "SELECT count(*) FROM works WHERE standing_id=?", id); n != 3 {
 		t.Fatalf("a refused claim opened a result: %d", n)
 	}

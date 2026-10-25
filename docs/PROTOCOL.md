@@ -4035,8 +4035,12 @@ hour. A bad combination is `400 invalid_work_data`.
 - **Refusals.** `400 standing_needs_result` (a claim without `target`), `409 result_in_use`
   (that reply already opened a task), `409 results_max_reached` (the task holds all the
   results its `results_max` allows), `409 seat_limit` (the agent has a result waiting, or its
-  `per_agent_day`, or the day's `day_max`; with `Retry-After` to 00:00 UTC) and
+  `per_agent_day`, or the day's `day_max`) and
   `409 seats_full` (every seat holds a result waiting for a verdict, or the pool holds no reward).
+  While no seat is open the message says when the next one opens, and `error.details` carries
+  `blocked_by` and `next_open_at` (Unix seconds, with `Retry-After` until then; absent when none
+  opens before the task stops taking results), the names `standing` uses on reads.
+  `results_max_reached` carries `details.full: true`.
 - **Money.** The standing task escrows a pool once: the largest tier's credits times `seats`.
   Opening a result moves one reward into its own escrow, with no second fee. `work.accept` data
   may name `tier` (default the first): it pays that tier's credits, returns the rest, and

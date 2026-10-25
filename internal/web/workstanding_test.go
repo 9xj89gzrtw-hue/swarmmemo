@@ -46,7 +46,7 @@ func TestWorkSSRStandingTask(t *testing.T) {
 		}
 		return w.Body.String()
 	}
-	line := "Standing · 2000 credits + 0.2 USDC per result (or another tier) · 7 of 10 seats open · 12 paid"
+	line := "Standing · 2000 credits + 0.2 USDC per result (or another tier) · Seats open today: 7 of 10 · 12 paid"
 	// C434: the reward reads per result, then the seats and the pool held.
 	// (the template escapes the helper's "+" as "&#43;")
 	reward := "Reward bug 2,000 credits &#43; 0.2 USDC, bug&#43;fix 2,000 credits &#43; 0.4 USDC per result; 10 seats (14,000 held)"
@@ -57,8 +57,9 @@ func TestWorkSSRStandingTask(t *testing.T) {
 	if strings.Contains(body, "Reward 14000") {
 		t.Error("the standing page shows the pool as the reward")
 	}
-	// C481: the state badge says the standing task stays open with seats taken.
-	for _, want := range []string{line, reward, "(14,000 held) · open: 3 of 10 seats taken</span>", `<h2 id="standing-heading">Standing task</h2>`, "</code>: 2000 credits + 0.4 USDC", `href="/work/` + resultID + `"`, "rejected", `&#34;target&#34;: &#34;REPLY_ID&#34;`} {
+	// C481, C585: the state badge says the standing task stays open, and the
+	// seats open today follow it, next to the reward.
+	for _, want := range []string{line, reward, "(14,000 held) · open</span>", "</p>\n<p class=\"small standing-line\">Standing · 2000", `<h2 id="standing-heading">Standing task</h2>`, "</code>: 2000 credits + 0.4 USDC", `href="/work/` + resultID + `"`, "rejected", `&#34;target&#34;: &#34;REPLY_ID&#34;`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("standing page misses %q", want)
 		}
@@ -94,17 +95,17 @@ func TestWorkSSRStandingTaskResultsMax(t *testing.T) {
 		}
 		return w.Body.String()
 	}
-	if body := get(); !strings.Contains(body, "1 of 3 seats open · 1 paid · up to 3 results") {
+	if body := get(); !strings.Contains(body, "Seats open today: 1 of 3 · 1 paid · up to 3 results") {
 		t.Error("/work misses the results cap")
 	}
 	// C384: no seat open, one opens at the next day boundary.
 	standing.Open, standing.NextOpenAt = 0, 1788652800
-	if body := get(); !strings.Contains(body, "0 of 3 seats open, next seat opens 2026-09-06 00:00 UTC · 1 paid") {
+	if body := get(); !strings.Contains(body, "Seats open today: 0 of 3 · next opening: 2026-09-06 00:00 UTC · 1 paid") {
 		t.Error("/work misses when the next seat opens")
 	}
 	// C444: why no seat is open, before a worker does the work.
 	standing.NextOpenAt, standing.Submitted, standing.BlockedBy, standing.BlockedNote = 0, 3, board.StandingBlockedSeats, "seats full, 3 submitted awaiting verdict"
-	if body := get(); !strings.Contains(body, "0 of 3 seats open (seats full, 3 submitted awaiting verdict) · 1 paid") {
+	if body := get(); !strings.Contains(body, "Seats open today: 0 of 3 (seats full, 3 submitted awaiting verdict) · 1 paid") {
 		t.Error("/work misses why no seat is open")
 	}
 	standing.BlockedBy, standing.BlockedNote = "", ""

@@ -898,8 +898,8 @@
     {
       "mode": "0644",
       "path": "docs/PROTOCOL.md",
-      "sha256": "fb4f6439b20b40521a9043b6f38e43029d17741ce4cf4f242c38611540a30533",
-      "size": 580227
+      "sha256": "50b3c2379912640ff68b38a4dc6ea24fff5cd04e886079c80084c5358430083f",
+      "size": 580522
     },
     {
       "mode": "0644",
@@ -4108,14 +4108,14 @@
     {
       "mode": "0644",
       "path": "internal/board/workstanding.go",
-      "sha256": "790e572b9a21003bcd8e62b3d28ec4badefeb0766792a39becf5cc5cdc995c1f",
-      "size": 58145
+      "sha256": "c702ffe344ddf18c17cc5b22fde03d0358ff375588b60ca6c80be5a2687d8618",
+      "size": 60214
     },
     {
       "mode": "0644",
       "path": "internal/board/workstanding_cap_test.go",
-      "sha256": "855f3f091355565b4c8d382338c21fc286231a4dbe977507f892fc339fd77b24",
-      "size": 11617
+      "sha256": "5f2d4c37b821857ae3d93f6f91bcbfb9b9ebc79c0557045abb67855b988cf033",
+      "size": 11952
     },
     {
       "mode": "0644",
@@ -4132,8 +4132,8 @@
     {
       "mode": "0644",
       "path": "internal/board/workstanding_test.go",
-      "sha256": "a3abe160562eed98c9604c182704ed881a3ad119f4c5106adeb205137dcb685d",
-      "size": 38013
+      "sha256": "33b313a6f01d621f7344150ce67ab760e3e0110c22cdfc9cc2a087a0d1c47430",
+      "size": 40761
     },
     {
       "mode": "0644",
@@ -10240,8 +10240,8 @@
     {
       "mode": "0644",
       "path": "internal/web/templates/work.html",
-      "sha256": "3b4f082b36b2e284be91a6af7e24e70fa0e2850a6c71c58dfb90c17c0ee1547c",
-      "size": 23716
+      "sha256": "b291d8fd5fd3cdd7b0b0e0446e20673645e19702112acec0a70baf26f2c47b27",
+      "size": 23643
     },
     {
       "mode": "0644",
@@ -10414,8 +10414,8 @@
     {
       "mode": "0644",
       "path": "internal/web/workact_test.go",
-      "sha256": "66e20c83441f39d8ed12e54a205aea64c6d2826aa387dcfb61c08c51f3a8a890",
-      "size": 2772
+      "sha256": "c5a3cbeefedb576b9b4580bb04d97e11dc249e894e9f6b1a235f656c3cadccc4",
+      "size": 2833
     },
     {
       "mode": "0644",
@@ -10450,8 +10450,8 @@
     {
       "mode": "0644",
       "path": "internal/web/workstanding_test.go",
-      "sha256": "558462db5a221acd6ef2604ca4e9ab6dc3e081f0521691b20058bc69d3867c39",
-      "size": 8539
+      "sha256": "00a3817fdb203b9969f230d36cff8977b8201a1189123d6ba0951d8fbdaaade4",
+      "size": 8654
     },
     {
       "mode": "0644",

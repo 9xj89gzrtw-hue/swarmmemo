@@ -527,8 +527,8 @@ func (st *workStanding) full(c standingCounts) bool {
 
 // errResultsMaxReached is a claim on a full standing task (C346).
 func errResultsMaxReached(st *workStanding, c standingCounts) error {
-	return problem(409, "results_max_reached", fmt.Sprintf("This standing task is full: it takes %s in all (results_max) and holds %d accepted and %d waiting for a verdict, so it takes no more claims. A place opens only if the requester rejects a waiting result or one lapses undecided.",
-		plural(st.ResultsMax, "result"), c.accepted, c.waiting))
+	return &Error{Status: 409, Code: "results_max_reached", Message: fmt.Sprintf("This standing task is full: it takes %s in all (results_max) and holds %d accepted and %d waiting for a verdict, so it takes no more claims. A place opens only if the requester rejects a waiting result or one lapses undecided.",
+		plural(st.ResultsMax, "result"), c.accepted, c.waiting), Details: map[string]any{"full": true, "blocked_by": StandingBlockedResultsMax}}
 }
 
 // standingHiddenSQL is true for a result whose reply is hidden at any
@@ -633,32 +633,74 @@ func (s *Store) checkStandingSeat(ctx context.Context, tx *sql.Tx, root workRow,
 	if err != nil {
 		return n, err
 	}
-	untilMidnight := int(86400 - now%86400)
+	_, pool, err := standingPool(ctx, tx, root.ID)
+	if err != nil {
+		return n, err
+	}
+	until := root.Deadline - st.VerdictTTL
+	midnight := now - now%86400 + 86400
 	switch {
 	case st.full(n):
 		return n, errResultsMaxReached(st, n)
 	case n.mineWaiting > 0:
 		return n, problem(409, "seat_limit", "You have a result waiting for a verdict on this standing task ("+n.mineWaitingID+"); send your next one once it is decided.")
 	case n.mineToday >= st.PerAgentDay:
-		return n, &Error{Status: 409, Code: "seat_limit", Message: fmt.Sprintf("%s per agent per day on this standing task; you have %s today. Try again after 00:00 UTC.", plural(st.PerAgentDay, "result"), plural(n.mineToday, "result")), RetryAfter: untilMidnight}
-	case n.today >= st.DayMax:
-		return n, &Error{Status: 409, Code: "seat_limit", Message: fmt.Sprintf("This standing task takes %s a day and has them today. Try again after 00:00 UTC.", plural(st.DayMax, "result")), RetryAfter: untilMidnight}
-	}
-	_, pool, err := standingPool(ctx, tx, root.ID)
-	if err != nil {
-		return n, err
-	}
-	if n.waiting >= st.Seats {
-		hint := ""
-		if n.nextVerdict > 0 {
-			hint = " The next verdict is due by " + time.Unix(n.nextVerdict, 0).UTC().Format(time.RFC3339) + "."
+		at := int64(0)
+		if midnight <= until {
+			at = midnight
 		}
-		return n, problem(409, "seats_full", fmt.Sprintf("All %d seats hold a result waiting for a verdict; one opens when the requester accepts or rejects a result, or one lapses undecided.%s", st.Seats, hint))
+		return n, errNoSeat(StandingBlockedPerAgentDay, at, until, now, fmt.Sprintf("you have your %s today (per_agent_day)", plural(st.PerAgentDay, "result")), "your daily limit")
 	}
-	if pool < st.maxCredits() {
-		return n, problem(409, "seats_full", "This standing task's credit pool holds no reward for another result just now; a seat opens when the requester rejects a result, or its next accept refills the pool.")
+	rewards := max(pool, 0) / st.maxCredits()
+	next := standingNextOpen(st, n, rewards, now, until)
+	switch {
+	case n.today >= st.DayMax:
+		return n, errNoSeat(StandingBlockedDayMax, next, until, now, fmt.Sprintf("it takes %s a day and has them today (day_max)", plural(st.DayMax, "result")), dayCause(next, midnight))
+	case n.waiting >= st.Seats:
+		return n, errNoSeat(StandingBlockedSeats, next, until, now, fmt.Sprintf("all %s hold a result waiting for a verdict; an accept or a reject frees one sooner", plural(st.Seats, "seat")), "at the latest, when a waiting result's verdict deadline passes")
+	case pool < st.maxCredits():
+		if next == 0 {
+			return n, &Error{Status: 409, Code: "seats_full", Message: "No seat is open on this task right now: its credit pool holds no reward for another result; a seat opens when the requester rejects a result, or its next accept refills the pool.", Details: map[string]any{"blocked_by": StandingBlockedPool}}
+		}
+		return n, errNoSeat(StandingBlockedPool, next, until, now, "its credit pool holds no reward for another result; a reject or an accept that refills the pool opens one sooner", "at the latest, when a waiting result's verdict deadline passes")
 	}
 	return n, nil
+}
+
+// errNoSeat is a claim refused while no seat is open (C585): it says in
+// plain words when the next one opens by itself (at, 0 when none does
+// before results_until), why (blocked_by, one of WorkStandingBlockedBy) and
+// what lifts it (cause), and carries next_open_at and blocked_by in its
+// details, the names work.get standing uses. A per-agent or daily limit is
+// seat_limit, with retry_after; seats held or a short pool, seats_full.
+func errNoSeat(blockedBy string, at, until, now int64, why, cause string) error {
+	code := "seats_full"
+	if blockedBy == StandingBlockedPerAgentDay || blockedBy == StandingBlockedDayMax {
+		code = "seat_limit"
+	}
+	lead := "No seat is open on this task right now"
+	if blockedBy == StandingBlockedPerAgentDay {
+		lead = "No seat is open for you on this task right now"
+	}
+	details := map[string]any{"blocked_by": blockedBy}
+	e := &Error{Status: 409, Code: code, Details: details}
+	if at > now {
+		details["next_open_at"] = at
+		e.RetryAfter = int(at - now)
+		e.Message = fmt.Sprintf("%s; the next one opens at %s (%s): %s.", lead, time.Unix(at, 0).UTC().Format(time.RFC3339), cause, why)
+	} else {
+		e.Message = fmt.Sprintf("%s, and none opens again before it stops taking results at %s: %s.", lead, time.Unix(until, 0).UTC().Format(time.RFC3339), why)
+	}
+	return e
+}
+
+// dayCause is what holds a day_max refusal's next seat: the day's limit
+// alone, or after it the seats still held by results awaiting a verdict.
+func dayCause(next, midnight int64) string {
+	if next > midnight {
+		return "daily limit, then a waiting result's verdict deadline"
+	}
+	return "daily limit"
 }
 
 func plural(n int64, word string) string {

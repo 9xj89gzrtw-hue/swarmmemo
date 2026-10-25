@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"swarmmemo/internal/allowance"
 )
@@ -206,9 +207,33 @@ func TestWorkStandingSeatsAcceptRejectLapse(t *testing.T) {
 	_, c := standingClaim(t, s, keyFor(176), id, nil)
 	run(t, s, c)
 	_, c = standingClaim(t, s, keyFor(177), id, nil)
-	fails(t, s, c, "seat_limit")
-	if st = standingAt(t, s, id); st.OpenedToday != 4 || st.Open != 0 {
+	// C585: the refusal says when the next seat opens, in words and in
+	// details, and the public reads (work.get, works.list) carry the same.
+	// Both seats also hold a result opened today, so the next one opens
+	// past the day's reset, at the first of their verdict deadlines.
+	now := int64(testTime + WorkStandingVerdictTTL + 60) // atTime above
+	next := now + WorkStandingVerdictTTL
+	_, err := s.Execute(testContext, c, "test-origin")
+	var refused *Error
+	want := "No seat is open on this task right now; the next one opens at " + time.Unix(next, 0).UTC().Format(time.RFC3339) + " (daily limit, then a waiting result's verdict deadline): it takes 4 results a day and has them today (day_max)."
+	if !errors.As(err, &refused) || refused.Code != "seat_limit" || refused.Message != want || refused.RetryAfter != int(next-now) {
+		t.Fatalf("day_max refusal: %v, want %q", err, want)
+	}
+	if d, _ := refused.Details.(map[string]any); d["next_open_at"] != next || d["blocked_by"] != StandingBlockedDayMax {
+		t.Fatalf("day_max refusal details: %#v", refused.Details)
+	}
+	if st = standingAt(t, s, id); st.OpenedToday != 4 || st.Open != 0 || st.NextOpenAt != next || st.BlockedBy != StandingBlockedSeats {
 		t.Fatalf("day max: %+v", st)
+	}
+	openList := run(t, s, Command{Operation: "works.list", Kind: "open"})
+	found := false
+	for _, w := range openList.Data["works"].([]Work) {
+		if w.ID == id {
+			found = w.Standing != nil && w.Standing.Open == 0 && w.Standing.NextOpenAt == next
+		}
+	}
+	if !found {
+		t.Fatalf("works.list misses the standing task's seats open now and next opening: %+v", openList.Data["works"])
 	}
 
 	// Only the one refill's transfer fee left the supply; the store is
@@ -816,5 +841,24 @@ func TestWorkStandingHiddenRootRemovesRoundRequest(t *testing.T) {
 	}
 	if r := listedRequest(); r != nil {
 		t.Fatalf("hidden standing request still in the listing excerpt: %+v", r)
+	}
+}
+
+// C585: a refusal while no seat is open says when the next one opens, or
+// that none does before the task stops taking results.
+func TestStandingNoSeatRefusal(t *testing.T) {
+	const now, until = int64(1792886400 + 3600), int64(1793145600) // 2026-10-25T01:00Z
+	err := errNoSeat(StandingBlockedDayMax, 1792972800, until, now, "it takes 5 results a day and has them today (day_max)", dayCause(1792972800, 1792972800))
+	var e *Error
+	want := "No seat is open on this task right now; the next one opens at 2026-10-26T00:00:00Z (daily limit): it takes 5 results a day and has them today (day_max)."
+	if !errors.As(err, &e) || e.Code != "seat_limit" || e.Message != want || e.RetryAfter != 82800 {
+		t.Fatalf("daily limit: %+v", e)
+	}
+	if d := e.Details.(map[string]any); d["next_open_at"] != int64(1792972800) || d["blocked_by"] != StandingBlockedDayMax {
+		t.Fatalf("details: %#v", e.Details)
+	}
+	err = errNoSeat(StandingBlockedSeats, 0, until, now, "all 2 seats hold a result waiting for a verdict", "")
+	if !errors.As(err, &e) || e.Code != "seats_full" || !strings.Contains(e.Message, "none opens again before it stops taking results at 2026-10-28T00:00:00Z") || e.Details.(map[string]any)["next_open_at"] != nil {
+		t.Fatalf("no next opening: %+v", e)
 	}
 }
