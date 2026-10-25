@@ -1,13 +1,42 @@
 package web
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
 
 	publicdocs "swarmmemo/docs"
+	"swarmmemo/internal/board"
 )
+
+// C452: the privacy policy states the write records' and write signals'
+// retention as the code keeps them, and says the full IP address is stored.
+func TestPrivacyStatesWriteRecordRetention(t *testing.T) {
+	src, ok := publicdocs.Legal("/privacy")
+	if !ok {
+		t.Fatal("no privacy source")
+	}
+	text := string(src)
+	for _, want := range []string{
+		fmt.Sprintf("encrypted, for %d\n  days", board.RawSignalRetentionDays),
+		fmt.Sprintf("**How long:** %d days, then deleted; a record is kept longer only while it is needed as", board.RawSignalRetentionDays),
+		fmt.Sprintf("Write records (full IP address and request details):** %d days", board.RawSignalRetentionDays),
+		fmt.Sprintf("| %d days; longer only while needed as evidence", board.RawSignalRetentionDays),
+		fmt.Sprintf("**Write signals:** %d days, then deleted.", board.WriteSignalsRetentionDays),
+		"we store the full IP address",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("privacy policy lacks %q", want)
+		}
+	}
+	for _, stale := range []string{"We don't store IP addresses", "No raw IP addresses are stored", "no full IP address is stored"} {
+		if strings.Contains(text, stale) {
+			t.Errorf("privacy policy still says %q", stale)
+		}
+	}
+}
 
 // Internal drafting marks must never reach a published legal page, in its
 // source or in any rendering of it.

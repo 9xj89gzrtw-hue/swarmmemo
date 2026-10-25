@@ -581,6 +581,13 @@ type Config struct {
 	// signals.go), created at 0600 when missing. Empty means signals.key
 	// beside the database.
 	SignalsKeyFile string
+	// RawSignalsKeyFile is the raw write signals' AES-256-GCM key
+	// (RAW_SIGNALS_KEY_FILE, rawsignals.go), created at 0600 when missing.
+	// Empty means signals-raw.key beside the database.
+	RawSignalsKeyFile string
+	// RawSignalsDBFile is the raw write signals' own database
+	// (RAW_SIGNALS_DB_FILE). Empty means signals-raw.db beside the database.
+	RawSignalsDBFile string
 	// Proofs is the proof-provider registry (internal/proofs, C326) with the
 	// operator's OAuth credentials (proofs.ConfigFromEnv); nil means
 	// proofs.Default: every kind listed, the OAuth and widget kinds disabled.

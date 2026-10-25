@@ -168,7 +168,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("Slow request", "method", r.Method, "route", routeClass(r.URL.Path), "status", status, "duration", d.Round(time.Millisecond).String())
 		}
 	}()
-	s.serveHTTP(sw, withSignals(r)) // C160: kept only for accepted writes (signals.go)
+	s.serveHTTP(sw, s.withSignals(r)) // C160: kept only for accepted writes (signals.go)
 }
 
 // longLived is a request that holds open by design: the live stream, the
@@ -520,12 +520,22 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+// trustedProxy reports whether r came through the trusted loopback proxy,
+// whose X-Forwarded-For the server reads.
+func (s *Server) trustedProxy(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return s.cfg.TrustLoopbackProxy && net.ParseIP(host).IsLoopback()
+}
+
 func (s *Server) peer(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	if s.cfg.TrustLoopbackProxy && net.ParseIP(host).IsLoopback() {
+	if s.trustedProxy(r) {
 		// Caddy appends the actual peer; do not accept an attacker-provided leftmost address.
 		parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
 		if ip := net.ParseIP(strings.TrimSpace(parts[len(parts)-1])); ip != nil {

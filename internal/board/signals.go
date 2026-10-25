@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/netip"
 	"net/url"
 	"os"
@@ -116,6 +117,16 @@ type RequestSignals struct {
 	// Origin is a non-HTTP wire's own metadata: "email:DOMAIN" (the sending
 	// domain), "relay:URL" (the Nostr relay).
 	Origin string
+	// C452, kept only in the sealed raw record (rawsignals.go): the request's
+	// headers as received (credential-bearing values are redacted there), the
+	// TCP peer, the X-Forwarded-For chain when the proxy is trusted, the HTTP
+	// and TLS versions, and an MCP call's clientInfo.
+	Headers      map[string][]string
+	RemoteAddr   string
+	ForwardedFor string
+	Proto        string
+	TLS          string
+	MCPClient    *MCPClientInfo
 }
 
 type requestSignalsKey struct{}
@@ -327,9 +338,10 @@ func SignalReferer(raw string) string {
 }
 
 // recordWriteSignal stores one accepted write's signals, in the write's own
-// transaction, so a write and its row commit together. An exact retry
-// answered from its receipt never reaches it.
-func (s *Store) recordWriteSignal(ctx context.Context, tx *sql.Tx, cmd Command, a actor, source string, result Result, now int64) error {
+// transaction, so a write and its row commit together, and seals its raw
+// record (rawsignals.go, C452), which the caller stores once the write
+// commits. An exact retry answered from its receipt never reaches it.
+func (s *Store) recordWriteSignal(ctx context.Context, tx *sql.Tx, cmd Command, a actor, source string, result Result, now int64) (*sealedRawSignal, error) {
 	sig := RequestSignalsFrom(ctx)
 	via := signalVia(ctx)
 	account, signer := "", ""
@@ -345,7 +357,10 @@ func (s *Store) recordWriteSignal(ctx context.Context, tx *sql.Tx, cmd Command, 
  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		now, cmd.Operation, signalText(objectID, SignalTextBytes), signalText(cmd.RequestID, SignalTextBytes), account, signer, signalText(via, 32), s.signals.id, full, net,
 		signalText(sig.UserAgent, SignalTextBytes), SignalReferer(sig.Referer), signalText(sig.AcceptLanguage, 128), signalText(sig.ClientHints, SignalTextBytes), signalText(sig.Origin, SignalTextBytes), s.signalClientHash(sig))
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return s.sealRawSignal(ctx, cmd, a, source, result, now)
 }
 
 // signalVia is the channel a write signal names: the adapter's, else a
@@ -397,11 +412,17 @@ func (s *Store) accountWriteClients(ctx context.Context, account string, from, t
 // PruneWriteSignals deletes write signals older than
 // WriteSignalsRetentionDays, in bounded batches. The hourly maintenance loop
 // and `swarmmemo maintenance` call it. It also blanks the network hashes of
-// sanctions over for as long (redactSanctionHashes): the same retention.
+// sanctions over for as long (redactSanctionHashes): the same retention, and
+// deletes raw records older than RawSignalRetentionDays (rawsignals.go).
 func (s *Store) PruneWriteSignals(ctx context.Context) (int64, error) {
 	cutoff := s.now().Unix() - WriteSignalsRetentionDays*86400
 	if _, err := s.redactSanctionHashes(ctx, s.now().Unix()); err != nil {
 		return 0, err
+	}
+	if n, err := s.pruneRawSignals(ctx); err != nil {
+		return 0, err
+	} else if n > 0 {
+		slog.Info("Raw write signals removed", "older_than_days", RawSignalRetentionDays, "count", n)
 	}
 	var total int64
 	for {

@@ -28,7 +28,8 @@ func TestOperatorSignals(t *testing.T) {
 		pub := key.Public().(ed25519.PublicKey)
 		c := board.Command{Operation: "post", Room: "lobby", Text: text, RequestID: text, PublicKey: base64.RawURLEncoding.EncodeToString(pub), Timestamp: time.Now().Unix(), Nonce: text}
 		c.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(key, board.Canonical("swarmmemo.com", c)))
-		wctx := board.WithRequestSignals(board.WithVia(ctx, "command"), board.RequestSignals{UserAgent: ua, AcceptLanguage: "de"})
+		wctx := board.WithRequestSignals(board.WithVia(ctx, "command"), board.RequestSignals{UserAgent: ua, AcceptLanguage: "de",
+			Headers: map[string][]string{"User-Agent": {ua}, "Authorization": {"Bearer cli-secret-c452"}, "Cookie": {"c=cli-cookie"}}, RemoteAddr: "127.0.0.1:9", ForwardedFor: source})
 		res, err := store.Execute(wctx, c, source)
 		if err != nil {
 			t.Fatal(err)
@@ -59,6 +60,27 @@ func TestOperatorSignals(t *testing.T) {
 	message := run("message " + msg + " --days 30")
 	if !strings.Contains(message, "write post "+msg+" via command") || !strings.Contains(message, `user-agent "ring/1"`) || !strings.Contains(message, ring2) {
 		t.Fatalf("message:\n%s", message)
+	}
+	if !strings.Contains(message, "raw record: yes") || strings.Contains(message, "203.0.113.4") {
+		t.Fatalf("message's raw line:\n%s", message)
+	}
+	// C452: the raw record decrypts for the operator, credentials redacted.
+	raw := run("raw message " + msg)
+	if !strings.Contains(raw, "ip 203.0.113.4\n") || !strings.Contains(raw, `header Authorization: "<redacted>"`) || !strings.Contains(raw, `header Cookie: "<redacted>"`) ||
+		!strings.Contains(raw, `header User-Agent: "ring/1"`) || !strings.Contains(raw, "peer 127.0.0.1:9") || strings.Contains(raw, "cli-secret") || strings.Contains(raw, "cli-cookie") {
+		t.Fatalf("raw message:\n%s", raw)
+	}
+	t.Logf("signals raw message:\n%s", raw)
+	if out := run("raw account " + ring2 + " --days 30"); !strings.Contains(out, "ip 203.0.113.77\n") || strings.Contains(out, "203.0.113.4\n") {
+		t.Fatalf("raw account:\n%s", out)
+	}
+	if out := run("raw message nope"); !strings.Contains(out, "no raw record for message nope") {
+		t.Fatalf("raw missing: %s", out)
+	}
+	for _, bad := range []string{"raw", "raw message", "raw account x --days 366", "raw message x --days 3", "raw nope x"} {
+		if err := operatorSignals(ctx, store, strings.Fields(bad), &bytes.Buffer{}); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
 	}
 	if out := run("message nope"); !strings.Contains(out, "no write signal for nope") {
 		t.Fatalf("missing: %s", out)

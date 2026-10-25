@@ -924,6 +924,8 @@ func (s *Server) newMCPServer(p mcpProfile, instructions string) *mcp.Server {
 	server.AddReceivingMiddleware(forgivingWorkArgs())
 	server.AddReceivingMiddleware(dropNullOptionalArgs())
 	server.AddReceivingMiddleware(structuredToolErrors(catalogueToolNames(p.catalog), s.toolMaxCostRequired))
+	// C452: a call's clientInfo, for an accepted write's raw record (signals.go).
+	server.AddReceivingMiddleware(mcpClientSignals())
 	// Sign-in (OAuth): refusals carry the challenge that starts it, and the
 	// tools say which need it.
 	signIn := s.oauthStore() != nil

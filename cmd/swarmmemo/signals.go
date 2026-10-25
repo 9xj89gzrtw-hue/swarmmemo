@@ -12,7 +12,7 @@ import (
 	"swarmmemo/internal/board"
 )
 
-const signalsUsage = "usage: swarmmemo signals account FINGERPRINT [--days N] | signals message ID [--days N] | signals cluster [--days N] [--min N]"
+const signalsUsage = "usage: swarmmemo signals account FINGERPRINT [--days N] | signals message ID [--days N] | signals cluster [--days N] [--min N] | signals raw message ID | signals raw account FINGERPRINT [--days N]"
 
 // operatorSignals is the sybil-ring view over the operator-only write
 // signals (board/signals.go, C160): which accounts write from the same
@@ -23,6 +23,9 @@ func operatorSignals(ctx context.Context, store *board.Store, args []string, out
 		return errors.New(signalsUsage)
 	}
 	mode, rest := args[0], args[1:]
+	if mode == "raw" {
+		return operatorRawSignals(ctx, store, rest, out)
+	}
 	var target string
 	if mode == "account" || mode == "message" {
 		if len(rest) == 0 || strings.HasPrefix(rest[0], "--") {
@@ -72,6 +75,14 @@ func operatorSignals(ctx context.Context, store *board.Store, args []string, out
 		fmt.Fprintf(out, "  account %s  signer %s\n", orDash(w.Account), orDash(w.Signer))
 		fmt.Fprintf(out, "  net %s  address %s  key %s\n", short(w.IPHash24), short(w.IPHashFull), w.HashKey)
 		fmt.Fprintf(out, "  user-agent %q\n  referer %q\n  accept-language %q\n  sec-ch-ua %q\n  origin %q\n", w.UserAgent, w.Referer, w.AcceptLanguage, w.SecCHUA, w.Origin)
+		// C452: whether a sealed raw record exists; never its contents here.
+		if n, err := store.RawSignalCount(ctx, w.ObjectID); err != nil {
+			return err
+		} else if n > 0 {
+			fmt.Fprintf(out, "  raw record: yes (address and headers: swarmmemo signals raw message %s)\n", w.ObjectID)
+		} else {
+			fmt.Fprintf(out, "  raw record: none (before C452, or older than %d days)\n", board.RawSignalRetentionDays)
+		}
 		if w.Account == "" {
 			return nil
 		}

@@ -248,8 +248,7 @@ var servedNumbersAllowed = map[string]string{
 	"internal/web/stats_clients.go|Back after 3 days": allowMetricName,
 	"internal/web/stats_clients.go|Back after 7 days": allowMetricName,
 	// internal/web/templates/docs.html
-	"internal/web/templates/docs.html|after at least 48 hours":  allowDebt,
-	"internal/web/templates/docs.html|is deleted after 90 days": allowDebt,
+	"internal/web/templates/docs.html|after at least 48 hours": allowDebt,
 	// internal/web/templates/graph.html
 	"internal/web/templates/graph.html|23 September, others 10–30 days": allowDataset,
 	"internal/web/templates/graph.html|9 under a 1–7-day":               allowDataset,

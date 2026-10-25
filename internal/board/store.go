@@ -133,6 +133,8 @@ type Store struct {
 	trust    trustState
 	// signals is the write signals' HMAC key (signals.go, C160).
 	signals signalsState
+	// rawSignals is the sealed raw write signals' store (rawsignals.go, C452).
+	rawSignals rawSignalsState
 	// sanctionKeyWarn logs once that network sanctions fail open for want
 	// of the signals key (sanctions.go, C449).
 	sanctionKeyWarn sync.Once
@@ -538,6 +540,10 @@ func Open(path string, config Config) (*Store, error) {
 	if err = s.openSignals(path); err != nil {
 		return fail(err)
 	}
+	// C452: the raw write signals' key and database (rawsignals.go).
+	if err = s.openRawSignals(path); err != nil {
+		return fail(err)
+	}
 	if err = s.openTopup(); err != nil {
 		return fail(err)
 	}
@@ -675,6 +681,9 @@ func (s *Store) Close() error {
 	defer s.funnel.flushMu.Unlock()
 	if e := s.find.engine.Load(); e != nil {
 		e.Close()
+	}
+	if s.rawSignals.db != nil {
+		_ = s.rawSignals.db.Close()
 	}
 	return s.db.Close()
 }
@@ -1027,6 +1036,7 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 		return empty, err
 	}
 	defer tx.Rollback()
+	var rawSignal *sealedRawSignal // C452: stored after commit (rawsignals.go)
 	now := s.now().Unix()
 	s.anonymousActor(ctx, &a, cmd, source, now)
 	// RFC0012 levers (signed-only, block-prefix) refuse here, before any work.
@@ -1223,8 +1233,9 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 				return empty, err
 			}
 		}
-		// C160: the operator-only request signals of this accepted write.
-		if err = s.recordWriteSignal(ctx, tx, cmd, a, source, result, now); err != nil {
+		// C160: the operator-only request signals of this accepted write;
+		// C452: its sealed raw record, stored once the write commits.
+		if rawSignal, err = s.recordWriteSignal(ctx, tx, cmd, a, source, result, now); err != nil {
 			return empty, err
 		}
 	}
@@ -1248,6 +1259,7 @@ func (s *Store) executeCommand(ctx context.Context, cmd Command, source string) 
 	if err = tx.Commit(); err != nil {
 		return empty, err
 	}
+	s.storeRawSignal(ctx, rawSignal) // C452 (rawsignals.go); nil for a read
 	if mutation(cmd.Operation) {
 		s.signalChange() // wakes waiting reads (waiting.go)
 	}

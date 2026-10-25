@@ -342,6 +342,9 @@ var templates = template.Must(template.New("page.html").Funcs(template.FuncMap{
 	"reputationParts": reputationParts,
 	"viaTerm":         viaTerm,
 	"viaDocs":         func() string { return viaDocs },
+	// How long write records are kept (board/rawsignals.go, signals.go).
+	"rawSignalDays":   func() int { return board.RawSignalRetentionDays },
+	"writeSignalDays": func() int { return board.WriteSignalsRetentionDays },
 	"bar":             statsBar,
 	// Rooms: personal rooms live at /@ADDRESS, global rooms at /r/NAME.
 	"roomURL":     roomURL,

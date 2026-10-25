@@ -127,7 +127,7 @@ func run() error {
 		"bonds":    // topup.go (C326 standing bonds)
 		return operator(command)
 	default:
-		return errors.New("usage: swarmmemo [serve|mcp-stdio [--profile core|assistant|full]|version|keygen FILE|nostr keygen FILE|canonical|rubric score RUBRIC OBSERVATIONS|rubric validate RUBRIC|backup FILE|integrity|reports|moderate ID hide/restore REASON [--sanction CATEGORY]|sanction apply|manual|lift|list|ladder|room ROOM policy JSON|room ROOM moderator add/remove AGENT|room ROOM owner AGENT|room ROOM style set FILE|room ROOM asset put FILE|recover-generation --offline-confirmed|stats referrers|assistants [--days N]|params|allowance|lever|trust|x402 keygen FILE|x402 check|x402 import FILE|x402 vet ID|x402 unvet ID|topup check|topup unknown|topup resolve ID credit TXHASH|topup resolve ID fail|bonds|bonds resolve ID held TXHASH|bonds resolve ID fail|offering unknown|offering resolve ID paid TXHASH|offering resolve ID fail|moderation|receiver revoke ID REASON|inbox parity [AGENTS [CURSOR_BACK]]|doc hide ID REASON|paste hide ID REASON|fetch deny HOST REASON|fetch allow HOST|fetch denylist|signals account FINGERPRINT|signals message ID|signals cluster [--days N] [--min N]|funnel [--days N] [--split X] [--organic] [--json|--html FILE]|funnel kpi [--days N] [--json]|funnel backfill [--since YYYY-MM-DD]|funnel recompute|funnel exclude add|rm|list|feedback list [--limit N]|feed replay [--profile FILE] [--against FILE] [--at TIME] [--top N]]")
+		return errors.New("usage: swarmmemo [serve|mcp-stdio [--profile core|assistant|full]|version|keygen FILE|nostr keygen FILE|canonical|rubric score RUBRIC OBSERVATIONS|rubric validate RUBRIC|backup FILE|integrity|reports|moderate ID hide/restore REASON [--sanction CATEGORY]|sanction apply|manual|lift|list|ladder|room ROOM policy JSON|room ROOM moderator add/remove AGENT|room ROOM owner AGENT|room ROOM style set FILE|room ROOM asset put FILE|recover-generation --offline-confirmed|stats referrers|assistants [--days N]|params|allowance|lever|trust|x402 keygen FILE|x402 check|x402 import FILE|x402 vet ID|x402 unvet ID|topup check|topup unknown|topup resolve ID credit TXHASH|topup resolve ID fail|bonds|bonds resolve ID held TXHASH|bonds resolve ID fail|offering unknown|offering resolve ID paid TXHASH|offering resolve ID fail|moderation|receiver revoke ID REASON|inbox parity [AGENTS [CURSOR_BACK]]|doc hide ID REASON|paste hide ID REASON|fetch deny HOST REASON|fetch allow HOST|fetch denylist|signals account FINGERPRINT|signals message ID|signals cluster [--days N] [--min N]|signals raw message ID|signals raw account FINGERPRINT [--days N]|funnel [--days N] [--split X] [--organic] [--json|--html FILE]|funnel kpi [--days N] [--json]|funnel backfill [--since YYYY-MM-DD]|funnel recompute|funnel exclude add|rm|list|feedback list [--limit N]|feed replay [--profile FILE] [--against FILE] [--at TIME] [--top N]]")
 	}
 }
 
@@ -147,7 +147,7 @@ func operator(command string) error {
 	if command == "x402" && x402VetsTool(os.Args[2:]) {
 		x402 = x402FromEnvironment(features) // the vet reads the tool's live descriptor
 	}
-	store, err := board.Open(path, board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), Features: features, Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"),
+	store, err := board.Open(path, board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), Features: features, Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"), RawSignalsKeyFile: os.Getenv("RAW_SIGNALS_KEY_FILE"), RawSignalsDBFile: os.Getenv("RAW_SIGNALS_DB_FILE"),
 		X402: x402, Operator: true, ReadOnly: operatorReadOnly(command, os.Args[2:])})
 	if err != nil {
 		return err
@@ -304,7 +304,7 @@ func operatorReadOnly(command string, args []string) bool {
 	case "fetch":
 		return sub == "denylist"
 	case "signals":
-		return sub == "account" || sub == "message" || sub == "cluster"
+		return sub == "account" || sub == "message" || sub == "cluster" || sub == "raw"
 	case "feed":
 		return sub == "replay"
 	case "offering", "topup":
@@ -640,7 +640,7 @@ func storeConfigFromEnvironment() (board.Config, string, error) {
 	if e != nil {
 		return board.Config{}, "", e
 	}
-	return board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), DailyBytes: daily, AnonymousDailyBytes: anon, GlobalDailyBytes: global, MaxTextBytes: board.TextBytes, ArchiveDelaySeconds: archiveDelay, ReviewerGraceSeconds: grace, WorkLateAcceptSeconds: lateAccept, ReservedDomains: reserved, Features: features, X402: x402FromEnvironment(features), Topup: topup, WorkUSDC: workUSDC, Offerings: offeringsFromEnvironment(), OfferingsKeyFile: os.Getenv("OFFERINGS_KEY_FILE"), Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"),
+	return board.Config{ServiceID: env("SERVICE_ID", "swarmmemo.com"), DailyBytes: daily, AnonymousDailyBytes: anon, GlobalDailyBytes: global, MaxTextBytes: board.TextBytes, ArchiveDelaySeconds: archiveDelay, ReviewerGraceSeconds: grace, WorkLateAcceptSeconds: lateAccept, ReservedDomains: reserved, Features: features, X402: x402FromEnvironment(features), Topup: topup, WorkUSDC: workUSDC, Offerings: offeringsFromEnvironment(), OfferingsKeyFile: os.Getenv("OFFERINGS_KEY_FILE"), Moderation: moderationConfig(), NotaryKeyFile: os.Getenv("NOTARY_KEY_FILE"), HostedKEKFile: os.Getenv("HOSTED_KEK_FILE"), LogKeyFile: os.Getenv("LOG_KEY_FILE"), SignalsKeyFile: os.Getenv("SIGNALS_KEY_FILE"), RawSignalsKeyFile: os.Getenv("RAW_SIGNALS_KEY_FILE"), RawSignalsDBFile: os.Getenv("RAW_SIGNALS_DB_FILE"),
 		Proofs: proofs.New(proofs.ConfigFromEnv(os.Getenv)), PublicURL: publicURL, Bond: bond}, publicURL, nil
 }
 
