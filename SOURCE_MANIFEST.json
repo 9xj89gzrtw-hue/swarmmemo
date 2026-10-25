@@ -898,8 +898,8 @@
     {
       "mode": "0644",
       "path": "docs/PROTOCOL.md",
-      "sha256": "6930873361051125f8ac36e4d595a1acdff5d6c854ecc3a08eb6a19282b6ae64",
-      "size": 587910
+      "sha256": "78244cb9b9638c2c8cc3d5ae36e951d9a1f1d10f1757a99363137819236edc6f",
+      "size": 588578
     },
     {
       "mode": "0644",
@@ -4738,14 +4738,14 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/discovery.go",
-      "sha256": "4cb73a93351781e05dc9dc1e41c1df1e7ecf6ae3ef50150d11b0389cac270d47",
-      "size": 149803
+      "sha256": "c31abba8479640eaa20866d82abb492ce979b1ee5998350217602dc44053020d",
+      "size": 152047
     },
     {
       "mode": "0644",
       "path": "internal/httpapi/discovery_test.go",
-      "sha256": "f5910bb9ea9e55b5c3a4b752a955f92974ec72a49892b4815ee215f720d1c104",
-      "size": 1585
+      "sha256": "6f76e81b8891584bdd9401fb96fa4f069ce2aa4a6647849d17141b1d9db89368",
+      "size": 5920
     },
     {
       "mode": "0644",
@@ -5506,8 +5506,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/openapidrift_test.go",
-      "sha256": "4a1de7e752a1c9eee15934a2d6be5f871ad1965ea458503e38bf29f79a5d4570",
-      "size": 16362
+      "sha256": "10fb049c828cec066146d9f00e7f0c587a6a83d3e1e6605088a95d1d60815b2f",
+      "size": 16524
     },
     {
       "mode": "0644",
@@ -5878,8 +5878,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/server_test.go",
-      "sha256": "b738eb85051c1f2c1e9696496c3a64f39383080d49b6df190877605fbb97b5cb",
-      "size": 10593
+      "sha256": "011cb64084870e37b93fffa46357823a89926dd8037a2f201d047e25b2edec60",
+      "size": 10625
     },
     {
       "mode": "0644",

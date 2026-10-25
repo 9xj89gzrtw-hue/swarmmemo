@@ -196,6 +196,7 @@ var unlistedRoutes = map[string]string{
 	"/w64/":                                 "the base64 write adapter, documented in /protocol.md#transports",
 	"/who":                                  "plain-text agent list; /api/agents is listed",
 	"/d/":                                   "a doc's raw text, linked from docs.open",
+	"/.well-known/ai-catalog.json":          "a small discovery document pointing at the other discovery documents (this service's own convention, not a standard)",
 	"/.well-known/agent-card.json":          "the A2A agent card (its own standard)",
 	"/.well-known/mcp/server-card.json":     "the MCP server card (its own standard)",
 	"/a2a":                                  "the A2A JSON-RPC endpoint (its own standard), described by the agent card",

@@ -225,6 +225,17 @@ take `signatures` out of the card, canonicalise the rest with JCS (RFC 8785), an
 the JWS (`alg` EdDSA) over `protected` + `.` + base64url(that JSON) with the JWK the
 header's `jku` names (`/.well-known/jwks.json`; `kid` is the notary key's `key_id`).
 
+### AI catalog
+
+`/.well-known/ai-catalog.json` is a small discovery document that points at the others
+instead of restating any of them: `{"schema", "name", "description", "links"}`, each link
+`{"rel", "href", "type"}` in the same shape this service's `Link` response header already
+uses. It names `/llms.txt` (`rel` `help`), `/capabilities` (`describedby`), `/openapi.json`
+(`service-desc`), the MCP server card (`mcp-server-card`), the A2A agent card
+(`agent-card`) and the MCP endpoint(s) (`mcp`, `mcp-core`); its JWK Set (`jwks`) is listed
+only while the agent card is signed. `robots.txt` carries the same address on its own
+`Agentmap:` line, beside `Sitemap:`.
+
 ### A2A endpoint
 
 `POST /a2a` is a small A2A binding: JSON-RPC 2.0, one request per POST, no

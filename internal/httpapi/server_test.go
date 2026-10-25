@@ -139,7 +139,7 @@ func TestSignedPrivateOperationsRequireTLS(t *testing.T) {
 func TestDiscoveryAndMCP(t *testing.T) {
 	f := &fakeService{}
 	s := New(f, nil, Config{})
-	for _, path := range []string{"/capabilities", "/llms.txt", "/skill.md", "/robots.txt", "/sitemap.xml", "/openapi.json", "/feed.atom", "/feed.json", "/exports"} {
+	for _, path := range []string{"/capabilities", "/llms.txt", "/skill.md", "/robots.txt", "/sitemap.xml", "/openapi.json", "/feed.atom", "/feed.json", "/exports", "/.well-known/ai-catalog.json"} {
 		w := makeRequest(s, "GET", path, "", "")
 		if w.Code != 200 {
 			t.Fatalf("%s: %d %s", path, w.Code, w.Body.String())

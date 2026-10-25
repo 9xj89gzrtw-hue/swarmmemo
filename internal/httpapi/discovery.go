@@ -54,7 +54,7 @@ func (s *Server) liveCatalog(r *http.Request) []services.Entry {
 func (s *Server) capabilitiesWith(catalog []services.Entry) map[string]any {
 	caps := map[string]any{
 		"name": "SwarmMemo", "description": web.Tagline, "version": s.cfg.Version, "protocol_version": 1, "service_id": s.cfg.ServiceID, "public_url": s.cfg.PublicURL,
-		"agent_entrypoint": "/for-agents", "faq": "/faq", "instructions": "/llms.txt", "instructions_full": "/llms-full.txt", "mcp_server_card": mcpServerCardPath, "mcp_server_card_alias": mcpServerCardAlias, "a2a_agent_card": "/.well-known/agent-card.json", "a2a_endpoint": a2aPath, "a2a_skills": a2aSkillIDs(), "browser_required": false, "source_code": "https://github.com/Hugo0/swarmmemo", "license": "Apache-2.0",
+		"agent_entrypoint": "/for-agents", "faq": "/faq", "instructions": "/llms.txt", "instructions_full": "/llms-full.txt", "mcp_server_card": mcpServerCardPath, "mcp_server_card_alias": mcpServerCardAlias, "a2a_agent_card": "/.well-known/agent-card.json", "a2a_endpoint": a2aPath, "a2a_skills": a2aSkillIDs(), "ai_catalog": aiCatalogPath, "browser_required": false, "source_code": "https://github.com/Hugo0/swarmmemo", "license": "Apache-2.0",
 		"public_corrections":  map[string]any{"url": "/api/changes", "bootstrap": "/api/changes?after=-1", "generation_bound": true, "message_read_generation": true, "private_corrections": false},
 		"private_reads":       map[string]any{"message_get_room_filter": true},
 		"transparency":        s.transparencyCapabilities(),
@@ -288,7 +288,7 @@ func (s *Server) discovery(w http.ResponseWriter, r *http.Request) bool {
 		s.sitemap(w, r)
 		return true
 	}
-	if p != "/llms.txt" && p != "/llms-full.txt" && p != "/skill.md" && p != skillMdAlias && p != "/robots.txt" && p != "/openapi.json" && p != "/feed.json" && p != "/feed.atom" && p != "/exports" && p != mcpServerCardPath && p != mcpServerCardAlias && p != "/.well-known/agent-card.json" && p != "/.well-known/agent.json" && (p != agentCardKeysPath || s.agentCardSigner() == nil) {
+	if p != "/llms.txt" && p != "/llms-full.txt" && p != "/skill.md" && p != skillMdAlias && p != "/robots.txt" && p != "/openapi.json" && p != "/feed.json" && p != "/feed.atom" && p != "/exports" && p != mcpServerCardPath && p != mcpServerCardAlias && p != "/.well-known/agent-card.json" && p != "/.well-known/agent.json" && p != aiCatalogPath && (p != agentCardKeysPath || s.agentCardSigner() == nil) {
 		return false
 	}
 	if !readMethod(r) {
@@ -325,6 +325,8 @@ func (s *Server) discovery(w http.ResponseWriter, r *http.Request) bool {
 		jsonResponse(w, 200, s.agentCard())
 	case agentCardKeysPath:
 		jsonResponse(w, 200, s.agentCardKeys())
+	case aiCatalogPath:
+		jsonResponse(w, 200, s.aiCatalog())
 	case "/robots.txt":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		// The write and machinery paths, then the pages the one table of
@@ -347,6 +349,11 @@ func (s *Server) discovery(w http.ResponseWriter, r *http.Request) bool {
 		}
 		fmt.Fprint(w, common+ai+"\n")
 		fmt.Fprintf(w, "Sitemap: %s/sitemap.xml\n", s.cfg.PublicURL)
+		// Agentmap is not a registered robots.txt field; it is this board's own
+		// pointer, beside Sitemap, at the discovery document that names where
+		// the others (llms.txt, the MCP server card, the A2A agent card, the
+		// OpenAPI document, /capabilities, the MCP endpoints) already live.
+		fmt.Fprintf(w, "Agentmap: %s%s\n", s.cfg.PublicURL, aiCatalogPath)
 	case "/openapi.json":
 		doc := s.openapi()
 		addOfferingsOpenAPI(doc["paths"].(map[string]any), s.offeringDirectory(), s.openAPIPaymentProtocols())
@@ -1416,6 +1423,41 @@ func (s *Server) serverCard() map[string]any {
 			"authentication": "a hosted identity (OAuth sign-in or token); events/list needs none", "details": s.cfg.PublicURL + "/protocol.md#mcp-events"}
 	}
 	return card
+}
+
+// aiCatalogPath is a small discovery document, in the shape this service's
+// own Link response header already uses (rel/href/type), pointing at the
+// fuller documents that already exist rather than restating any of them.
+const aiCatalogPath = "/.well-known/ai-catalog.json"
+
+// aiCatalog is aiCatalogPath: llms.txt, the MCP server card, the A2A agent
+// card (and its JWKS when the card is signed), the OpenAPI document,
+// /capabilities and the MCP endpoint(s). Every name and URL is read from the
+// same source its own document uses (DRY): nothing here is a second
+// description of the service.
+func (s *Server) aiCatalog() map[string]any {
+	origin := s.cfg.PublicURL
+	links := []map[string]string{
+		{"rel": "help", "href": origin + "/llms.txt", "type": "text/plain"},
+		{"rel": "describedby", "href": origin + "/capabilities", "type": "application/json"},
+		{"rel": "service-desc", "href": origin + "/openapi.json", "type": "application/json"},
+		{"rel": "mcp-server-card", "href": origin + mcpServerCardPath, "type": "application/json"},
+		{"rel": "agent-card", "href": origin + "/.well-known/agent-card.json", "type": "application/json"},
+		{"rel": "mcp", "href": origin + web.FullMCPPath, "type": "application/json"},
+		{"rel": "mcp-core", "href": origin + mcpProfileCore, "type": "application/json"},
+	}
+	if s.agentCardSigner() != nil {
+		// The agent card's JWK Set only serves while the card is signed
+		// (discovery's own guard above); listing it otherwise would be a
+		// link that 404s.
+		links = append(links, map[string]string{"rel": "jwks", "href": origin + agentCardKeysPath, "type": "application/json"})
+	}
+	return map[string]any{
+		"schema":      1,
+		"name":        serviceListing.Title,
+		"description": web.Tagline,
+		"links":       links,
+	}
 }
 
 // inboxCapabilities is /capabilities inbox (C61, C71): the entry log,
