@@ -967,6 +967,7 @@ func (s *Server) newMCPServer(p mcpProfile, instructions string) *mcp.Server {
 			registered[name] = true
 		}
 	}
+	server.AddReceivingMiddleware(unknownToolHint(registered, info != nil))
 	server.AddReceivingMiddleware(s.countMCPTools(mcpToolProfile(p), registered))
 	tool := func(name string) *mcp.Tool {
 		for _, t := range tools {

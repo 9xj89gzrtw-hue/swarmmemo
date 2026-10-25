@@ -469,15 +469,15 @@ func TestDispatcherBoundaries(t *testing.T) {
 	refused("/mcp?toolsets=feed", map[string]any{"name": "read_feed"}, "tool_listed")
 
 	// /mcp/core has no meta pair; an unfiltered list does not offer it, in
-	// the SDK's own words for a tool it does not know.
-	unknown := rpcError(t, s, "/mcp", toolCallBody("no_such_tool", nil))
+	// the SDK's own words for a tool it does not know (the unknown-tool hint
+	// then adds a pointer that depends on the name, so match the opening).
 	for _, c := range []struct {
 		h    http.Handler
 		path string
 	}{{s, mcpProfileCore}, {s, "/mcp?toolsets=all"}, {withToolsetsFlag(s, false), "/mcp"}, {withToolsetsFlag(s, false), web.AssistantMCPPath}} {
 		for _, name := range metaTools {
 			got := rpcError(t, c.h, c.path, toolCallBody(name, map[string]any{"name": "read_feed"}))
-			if got != strings.Replace(unknown, "no_such_tool", name, 1) {
+			if !strings.HasPrefix(got, `unknown tool "`+name+`"`) {
 				t.Errorf("%s %s: %q, want the unknown-tool error", c.path, name, got)
 			}
 		}

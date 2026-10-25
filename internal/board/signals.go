@@ -727,7 +727,7 @@ func signalSet(m map[string]bool) []string {
 // network hash under the current key, only writes from the writer's own
 // address, and a network that carried at most SignalLinkGroupMax signed
 // accounts (more is shared infrastructure and links no one).
-func (s *Store) sharedNetwork(ctx context.Context, tx *sql.Tx, a, b string, from int64) (bool, error) {
+func (s *Store) sharedNetwork(ctx context.Context, tx workQuerier, a, b string, from int64) (bool, error) {
 	if s.signals.id == "" {
 		return false, nil
 	}

@@ -1050,6 +1050,9 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			if err = workClaimEligible(ctx, tx, w.Eligibility, a.account, now); err != nil {
 				return Result{}, err
 			}
+			if err = s.refuseClaimCooldown(ctx, tx, w, standing != nil, a.account, now); err != nil {
+				return Result{}, err
+			}
 		case "work.renew", "work.submit":
 			if a.account != w.Worker {
 				return Result{}, problem(403, "work_forbidden", "Only the current worker's continuous account may perform this transition.")
@@ -1601,6 +1604,16 @@ func (s *Store) projectWork(ctx context.Context, tx *sql.Tx, w workRow, root wor
 			}
 			if blocked {
 				ok, reason = false, "Not now on this standing task: "+p.Standing.BlockedNote+"."
+			}
+		}
+		if ok && opt.facts.account != "" && w.StandingID == "" {
+			// The claim cool-down (C580): the same test work.claim makes.
+			until, e := s.workClaimCooldownUntil(ctx, tx, w, p.Standing != nil, opt.facts.account, now)
+			if e != nil {
+				return Work{}, e
+			}
+			if until > 0 {
+				ok, reason = false, workClaimCooldownText(p.Standing != nil, until)
 			}
 		}
 		p.Eligible, p.EligibleReason, p.EligibleAgent, p.EligiblePreview = &ok, reason, opt.agent, opt.preview

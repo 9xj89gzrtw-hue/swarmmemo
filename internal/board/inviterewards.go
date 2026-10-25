@@ -336,7 +336,7 @@ func orEmpty(ok bool, v string) string {
 
 // sameBurstCluster reports whether a and b are members of one burst cluster
 // (the funnel's stored detector result, meta funnel.burst).
-func sameBurstCluster(ctx context.Context, tx *sql.Tx, a, b string) (bool, error) {
+func sameBurstCluster(ctx context.Context, tx workQuerier, a, b string) (bool, error) {
 	var raw string
 	err := tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key=?", metaFunnelBurst).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
