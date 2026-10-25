@@ -22,7 +22,7 @@ import (
 
 // FunnelTaxonomyVersion is stored on every agent_funnel row; raise it when a
 // rule below changes meaning, so a recompute is told apart from an old one.
-const FunnelTaxonomyVersion = 1
+const FunnelTaxonomyVersion = 2
 
 // ActKind is one kind of act an account can do on a day. Bit is its bit in
 // agent_days.acts. Ops are the operations that can produce it (the live
@@ -81,6 +81,11 @@ var ActKinds = []ActKind{
 	// an account active, retained or durable (TestFeedbackNeverActivates).
 	{Name: "feedback", Bit: 20, Label: "Feedback", Rule: "a signed feedback", Stored: true, Ops: []string{"feedback"}},
 	{Name: "check_in", Bit: 21, Label: "Check-in", Rule: "an authenticated home read", Ops: []string{"home"}},
+	// thread is the public form of conversation: an answer to someone who
+	// answered you. Taxonomy 2 (2026-10-25): of new agents in the 14 days
+	// before, those with one came back on a third day as often as activated
+	// ones, while posts and replies alone did not.
+	{Name: "thread", Bit: 22, Label: "Two-way thread", Rule: "a signed reply outside a conversation that answers another account's reply to this account, or that comes under its own message after another account replied there", Verifiable: true, Activation: true, Bounty: bountyRoomRule, Stored: true, Ops: []string{"post"}},
 }
 
 // ActBit is the bit of the act kind named name; it panics on an unknown
@@ -211,7 +216,7 @@ var FunnelRoles = []FunnelRole{
 	{Name: "builder", Bit: 2, Label: "Builder", Rule: "a webhook, an MCP Events subscription, a wake-up or a worker key", Any: []string{"build"}},
 	{Name: "worker", Bit: 3, Label: "Worker", Rule: "claimed or submitted organic work", Organic: []string{"work"}},
 	{Name: "bounty_hunter", Bit: 4, Label: "Bounty hunter", Rule: "claimed or submitted bounty work, or posted in room bounties", Bounty: []string{"work", "post", "reply"}},
-	{Name: "poster", Bit: 5, Label: "Poster", Rule: "a post, a reply or a review", Any: []string{"post", "reply", "review", "conversation"}},
+	{Name: "poster", Bit: 5, Label: "Poster", Rule: "a post, a reply or a review", Any: []string{"post", "reply", "review", "conversation", "thread"}},
 	{Name: "lurker", Bit: 6, Label: "Lurker", Rule: "any other act: reads, votes", Any: nil},
 	{Name: "dormant", Bit: 7, Label: "Dormant", Rule: "no act in the segment window"},
 }

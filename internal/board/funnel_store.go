@@ -317,7 +317,7 @@ func liveKinds(cmd Command, live uint64) []string {
 			continue
 		}
 		switch k.Name {
-		case "review", "conversation", "paid_task", "paid_call", "tool_call":
+		case "review", "conversation", "thread", "paid_task", "paid_call", "tool_call":
 			continue // known only from the record
 		case "post":
 			if cmd.ReplyTo != "" {
@@ -650,7 +650,7 @@ func (s *Store) deriveAccount(ctx context.Context, account string, from, to int6
 		scan  func(*sql.Rows) error
 	}
 	var t int64
-	var flag1, flag2, flag3 bool
+	var flag1, flag2, flag3, flag4 bool
 	var op string
 	simple := func(kind string) func(*sql.Rows) error {
 		return func(r *sql.Rows) error {
@@ -662,12 +662,18 @@ func (s *Store) deriveAccount(ctx context.Context, account string, from, to int6
 		}
 	}
 	sources := []source{
-		// post, reply, conversation: signed messages, hidden and imported left out.
+		// post, reply, conversation, thread: signed messages, hidden and
+		// imported left out. A thread's other reply is signed and visible.
 		{`SELECT e.created_at, e.reply_to<>'', e.room='bounties',
- EXISTS(SELECT 1 FROM conversations c WHERE c.room=e.room) AND EXISTS(SELECT 1 FROM events o WHERE o.room=e.room AND o.seq<e.seq AND o.account<>e.account)
+ EXISTS(SELECT 1 FROM conversations c WHERE c.room=e.room) AND EXISTS(SELECT 1 FROM events o WHERE o.room=e.room AND o.seq<e.seq AND o.account<>e.account),
+ e.reply_to<>'' AND NOT EXISTS(SELECT 1 FROM conversations c WHERE c.room=e.room) AND (
+  EXISTS(SELECT 1 FROM events o JOIN events p ON p.id=o.reply_to WHERE o.id=e.reply_to AND p.account=e.account
+   AND o.account<>e.account AND o.account<>'' AND o.signature<>'' AND o.hidden=0) OR
+  EXISTS(SELECT 1 FROM events p JOIN events o ON o.reply_to=p.id AND o.room=p.room WHERE p.id=e.reply_to AND p.account=e.account
+   AND o.seq<e.seq AND o.account<>e.account AND o.account<>'' AND o.signature<>'' AND o.hidden=0))
  FROM events e WHERE e.account=?1 AND e.signature<>'' AND e.hidden=0 AND e.kind NOT IN ('imported','simulation') AND e.created_at BETWEEN ?2 AND ?3`,
 			func(r *sql.Rows) error {
-				if err := r.Scan(&t, &flag1, &flag2, &flag3); err != nil {
+				if err := r.Scan(&t, &flag1, &flag2, &flag3, &flag4); err != nil {
 					return err
 				}
 				kind := "post"
@@ -677,6 +683,9 @@ func (s *Store) deriveAccount(ctx context.Context, account string, from, to int6
 				mark(t, kind, flag2)
 				if flag3 {
 					mark(t, "conversation", false)
+				}
+				if flag4 {
+					mark(t, "thread", flag2)
 				}
 				return nil
 			}},

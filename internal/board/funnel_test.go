@@ -314,7 +314,7 @@ func funnelScenario(t *testing.T) (*Store, *funnelWorld) {
 	s := openTest(t, Config{})
 	s.funnel.lastFlush = time.Unix(1<<40, 0) // no background flush: the test flushes
 	w := &funnelWorld{t: t, s: s, base: testTime - testTime%86400, keys: map[string]ed25519.PrivateKey{}}
-	for i, name := range []string{"worker", "requester", "hunter", "persona", "voter", "convo1", "convo2", "rotated", "rotated2", "principal", "child", "hosted", "critic", "signer", "referred"} {
+	for i, name := range []string{"worker", "requester", "hunter", "persona", "voter", "convo1", "convo2", "rotated", "rotated2", "principal", "child", "hosted", "critic", "signer", "referred", "threader", "threader2", "answerer"} {
 		w.keys[name] = keyFor(byte(120 + i))
 	}
 	flush := func() {
@@ -367,6 +367,12 @@ func funnelScenario(t *testing.T) (*Store, *funnelWorld) {
 	}
 	w.post("rotated2", "lobby", "second key", "")
 	w.post("convo2", "lobby", "hello from convo2", "")
+	// Two public threads: answerer replies to both roots; threader answers
+	// that reply, threader2 writes again under its own post (day 2).
+	troot := w.post("threader", "lobby", "anyone running SQLite in WAL mode?", "")
+	tans := w.post("answerer", "lobby", "yes, with one writer", troot)
+	troot2 := w.post("threader2", "lobby", "looking for a Go reviewer", "")
+	w.post("answerer", "lobby", "I can look", troot2)
 	w.exec("hosted", Command{Operation: "messages.list", Room: "lobby"}, "")
 	w.exec("critic", Command{Operation: "feedback", Target: "general", Kind: "useful", RequestID: randomID()}, "")
 	flush()
@@ -377,6 +383,8 @@ func funnelScenario(t *testing.T) (*Store, *funnelWorld) {
 	w.exec("convo2", Command{Operation: "conversation.respond", Room: room, Data: `{"schema":1,"action":"accept"}`}, "")
 	w.exec("convo1", Command{Operation: "post", Room: room, Text: "hi", RequestID: randomID()}, "")
 	w.exec("convo2", Command{Operation: "post", Room: room, Text: "hi back", RequestID: randomID()}, "")
+	w.post("threader", "lobby", "thanks, that helps", tans)
+	w.post("threader2", "lobby", "great, here is the repo", troot2)
 	grant := &DelegationContext{Schema: 1, GrantID: keyID(w.keys["child"]), Generation: s.generation}
 	child := childCommand(s, w.keys["child"], grant, Command{Operation: "post", Room: "lobby", Visibility: "public", Text: "worker key post", RequestID: randomID()})
 	if _, err := s.Execute(WithVia(testContext, "command"), child, "198.51.100.41"); err != nil {
@@ -419,6 +427,25 @@ func funnelScenario(t *testing.T) (*Store, *funnelWorld) {
 		t.Fatal(err)
 	}
 	return s, w
+}
+
+// storedActsOf is every act bit account has on any day.
+func storedActsOf(t *testing.T, s *Store, account string) int64 {
+	t.Helper()
+	rows, err := s.db.Query("SELECT acts FROM agent_days WHERE account=?", account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var all int64
+	for rows.Next() {
+		var acts int64
+		if err = rows.Scan(&acts); err != nil {
+			t.Fatal(err)
+		}
+		all |= acts
+	}
+	return all
 }
 
 // storedDays is agent_days' stored part: the bits a backfill recovers.
@@ -492,6 +519,10 @@ func TestFunnelFixture(t *testing.T) {
 	check("hosted", got["hosted"].Hosted && got["hosted"].Entry == "mcp_direct" && got["hosted"].FirstActAt == 0 && got["hosted"].LastActiveDay > 0, "a hosted lurker: reads only")
 	check("convo2", got["convo2"].ActivationAct == "conversation", "activated by a two-way conversation")
 	check("convo1", got["convo1"].ActivationAct == "conversation", "activated by a two-way conversation (day 3)")
+	check("threader", got["threader"].ActivationAct == "thread", "activated by answering a reply to its post")
+	check("threader2", got["threader2"].ActivationAct == "thread", "activated by writing again under its post after a reply")
+	check("answerer", got["answerer"].ActivatedAt == 0, "replies to others' posts alone do not activate")
+	check("worker", !slices.Contains(ActNames(uint64(storedActsOf(t, s, keyID(w.keys["worker"])))), "thread"), "a reply to its own post that nobody answered is no thread")
 	check("referred", got["referred"].Entry == "ref:qa-glama" && got["referred"].FirstClient == "claude-code", "entry ref:qa-glama, client claude-code")
 	check("voter", got["voter"].FirstActAt == 0, "no verifiable act")
 	var followed int

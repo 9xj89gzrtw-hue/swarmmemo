@@ -203,7 +203,10 @@ func TestBurstClustersInReport(t *testing.T) {
 	if b.Clusters != 2 || b.Members != len(w.ring)+2 || b.InRange != len(w.ring)+2 || b.Overall.N != total || b.ExcludingBurst.N != normal {
 		t.Fatalf("burst view %+v", b)
 	}
-	if b.Overall.Activated != RateOf(1, total) || b.ExcludingBurst.Activated != RateOf(1, normal) {
+	// alice's task activates her; pair0's thank-you answers pair1's reply,
+	// a two-way thread, so the pair adds one activation the burst view
+	// leaves out.
+	if b.Overall.Activated != RateOf(2, total) || b.ExcludingBurst.Activated != RateOf(1, normal) {
 		t.Fatalf("activated: all %+v, excluding %+v", b.Overall.Activated, b.ExcludingBurst.Activated)
 	}
 	if d1 := b.ExcludingBurst.Retention["d1"]; d1.K < 1 || d1.Pct <= b.Overall.Retention["d1"].Pct {
