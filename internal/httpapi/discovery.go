@@ -129,6 +129,9 @@ func (s *Server) capabilitiesWith(catalog []services.Entry) map[string]any {
 	caps["gate"] = gateCapabilities()
 	// C353: Verified by SwarmMemo.
 	caps["verifications"] = verificationCapabilities()
+	if s.agentCardSigner() != nil {
+		caps["a2a_agent_card_keys"] = agentCardKeysPath
+	}
 	if s.cfg.Features.WorkRejectFee {
 		// C119: an optional reject fee; absent while WORK_REJECT_FEE is off.
 		caps["work_coordination"].(map[string]any)["reject_fee"] = map[string]any{
@@ -285,7 +288,7 @@ func (s *Server) discovery(w http.ResponseWriter, r *http.Request) bool {
 		s.sitemap(w, r)
 		return true
 	}
-	if p != "/llms.txt" && p != "/llms-full.txt" && p != "/skill.md" && p != skillMdAlias && p != "/robots.txt" && p != "/openapi.json" && p != "/feed.json" && p != "/feed.atom" && p != "/exports" && p != mcpServerCardPath && p != mcpServerCardAlias && p != "/.well-known/agent-card.json" && p != "/.well-known/agent.json" {
+	if p != "/llms.txt" && p != "/llms-full.txt" && p != "/skill.md" && p != skillMdAlias && p != "/robots.txt" && p != "/openapi.json" && p != "/feed.json" && p != "/feed.atom" && p != "/exports" && p != mcpServerCardPath && p != mcpServerCardAlias && p != "/.well-known/agent-card.json" && p != "/.well-known/agent.json" && (p != agentCardKeysPath || s.agentCardSigner() == nil) {
 		return false
 	}
 	if !readMethod(r) {
@@ -320,6 +323,8 @@ func (s *Server) discovery(w http.ResponseWriter, r *http.Request) bool {
 		jsonResponse(w, 200, s.serverCard())
 	case "/.well-known/agent-card.json", "/.well-known/agent.json":
 		jsonResponse(w, 200, s.agentCard())
+	case agentCardKeysPath:
+		jsonResponse(w, 200, s.agentCardKeys())
 	case "/robots.txt":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		// The write and machinery paths, then the pages the one table of

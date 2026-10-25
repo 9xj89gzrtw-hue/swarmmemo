@@ -36,6 +36,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"swarmmemo/internal/jcs"
 )
 
 // MPP bounds and names.
@@ -148,7 +150,7 @@ func ContentDigest(body []byte) string {
 
 // mppRequest is the charge request for a, JCS and base64url.
 func (w mppWire) mppRequest(a Ask) (string, error) {
-	raw, err := jcs(map[string]any{
+	raw, err := jcs.Encode(map[string]any{
 		"amount":    strconv.FormatInt(a.Amount, 10),
 		"currency":  w.rail.Asset.String(),
 		"recipient": a.PayTo.String(),
@@ -180,7 +182,7 @@ func (w mppWire) build(a Ask) (mppParams, error) {
 		p.Digest = ContentDigest(a.Body)
 	}
 	if a.Quote != "" {
-		raw, err := jcs(map[string]string{"q": a.Quote})
+		raw, err := jcs.Encode(map[string]string{"q": a.Quote})
 		if err != nil {
 			return mppParams{}, err
 		}
@@ -467,7 +469,7 @@ func (w mppWire) Receipt(s Settlement, h http.Header) error {
 	if !txHashRE.MatchString(s.Transaction) || !challengeIDRE.MatchString(s.Ref) || s.At <= 0 {
 		return errors.New("pay: receipt needs a transaction, a challenge id and a time")
 	}
-	raw, err := jcs(map[string]any{
+	raw, err := jcs.Encode(map[string]any{
 		"challengeId": s.Ref,
 		"chainId":     w.chainID,
 		"method":      mppMethod,

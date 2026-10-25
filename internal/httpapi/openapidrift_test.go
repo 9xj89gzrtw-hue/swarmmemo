@@ -202,6 +202,7 @@ var unlistedRoutes = map[string]string{
 	"/.well-known/mcp.json":                 "an alias of the MCP server card, the address some directories check",
 	"/SKILL.md":                             "an alias of /skill.md under the SKILL.md name agent skill conventions use",
 	"/.well-known/agent.json":               "the legacy A2A agent card path, the same card as /.well-known/agent-card.json",
+	"/.well-known/jwks.json":                "the JWK Set (RFC 7517) of the key that signs the A2A agent card (its own standard)",
 	"/.well-known/oauth-protected-resource": "OAuth metadata for MCP clients (RFC 9728), its own standard",
 	"/.well-known/oauth-authorization-server": "OAuth metadata for MCP clients (RFC 8414), its own standard",
 	"/oauth/authorize":                        "the OAuth flow MCP clients follow from the metadata",

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"swarmmemo/internal/board"
+	"swarmmemo/internal/jcs"
+	"swarmmemo/internal/services"
 	"swarmmemo/internal/web"
 )
 
@@ -145,10 +147,54 @@ func oneCallExamples() []string {
 // The card's version is its content's, not the binary's (C582): directories
 // count version changes as churn, and a patch deploy rarely changes the
 // card. agentCardVersion hashes everything else in the card.
+//
+// With the notary key loaded the card is signed (C581): signatures holds
+// one JWS over the card's JCS form without signatures, version included,
+// whose header points at the key's JWK Set (agentCardKeysPath).
 func (s *Server) agentCard() map[string]any {
 	card := s.agentCardContent()
 	card["version"] = agentCardVersion(card)
+	if signer := s.agentCardSigner(); signer != nil {
+		if raw, err := json.Marshal(card); err == nil {
+			if canonical, err := jcs.Canonical(raw); err == nil {
+				if sig, ok := signer.SignAgentCard(canonical, s.cfg.PublicURL+agentCardKeysPath); ok {
+					card["signatures"] = []services.AgentCardSignature{sig}
+				}
+			}
+		}
+	}
 	return card
+}
+
+// agentCardKeysPath is the JWK Set of the key that signs the agent card:
+// the notary key, the one key this service signs its own statements with.
+const agentCardKeysPath = "/.well-known/jwks.json"
+
+// cardSigner is a service that can sign the agent card (the board's Store).
+type cardSigner interface {
+	NotaryPublicKey() (publicKey, keyID string)
+	SignAgentCard(card []byte, jku string) (services.AgentCardSignature, bool)
+}
+
+// agentCardSigner is the service, when it holds the notary key; else nil.
+func (s *Server) agentCardSigner() cardSigner {
+	if signer, ok := s.service.(cardSigner); ok {
+		if pub, _ := signer.NotaryPublicKey(); pub != "" {
+			return signer
+		}
+	}
+	return nil
+}
+
+// agentCardKeys is agentCardKeysPath's JWK Set (RFC 7517): the notary key
+// as an OKP Ed25519 JWK, kid its notary key ID; nil without the key.
+func (s *Server) agentCardKeys() map[string]any {
+	signer := s.agentCardSigner()
+	if signer == nil {
+		return nil
+	}
+	pub, id := signer.NotaryPublicKey()
+	return map[string]any{"keys": []agentJWK{{Kid: id, Kty: "OKP", Crv: "Ed25519", X: pub, Alg: "EdDSA", Use: "sig"}}}
 }
 
 // agentCardVersion is 1.0.0 with a build tag of the card's content hash

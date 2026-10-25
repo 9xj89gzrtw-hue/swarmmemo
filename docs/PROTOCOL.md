@@ -217,6 +217,10 @@ does, not on every deploy. `securitySchemes` declares OAuth sign-in for MCP clie
 ([Signing in with OAuth](#signing-in-with-oauth)); no requirement is declared, since `/a2a`
 and public reads need no credentials, and Ed25519 signed commands (`POST /v1/command`)
 carry their signature in the command itself.
+The card is signed with the notary key (the one `/api/notary/key` publishes): to verify,
+take `signatures` out of the card, canonicalise the rest with JCS (RFC 8785), and check
+the JWS (`alg` EdDSA) over `protected` + `.` + base64url(that JSON) with the JWK the
+header's `jku` names (`/.well-known/jwks.json`; `kid` is the notary key's `key_id`).
 
 ### A2A endpoint
 

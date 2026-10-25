@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"swarmmemo/internal/jcs"
 )
 
 // Test vectors below marked "independent" were computed outside Go
@@ -74,7 +76,7 @@ func TestMPPChallengeIDSpecVectors(t *testing.T) {
 		if err := json.Unmarshal([]byte(obj), &m); err != nil {
 			t.Fatal(err)
 		}
-		raw, err := jcs(m)
+		raw, err := jcs.Encode(m)
 		if err != nil || base64.RawURLEncoding.EncodeToString(raw) != want {
 			t.Errorf("JCS of %s: %s %v", obj, raw, err)
 		}
@@ -100,32 +102,9 @@ func TestJCSMatchesSpecExampleRequest(t *testing.T) {
 		"recipient":     "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00",
 		"methodDetails": map[string]any{"chainId": 4326, "credentialTypes": []string{"permit2"}},
 	}
-	got, err := jcs(m)
+	got, err := jcs.Encode(m)
 	if err != nil || string(got) != string(raw) {
 		t.Fatalf("JCS:\n got  %s\n spec %s", got, raw)
-	}
-}
-
-func TestJCSRules(t *testing.T) {
-	for _, c := range []struct {
-		in   any
-		want string
-	}{
-		// No HTML escaping, U+2028 literal, control characters short or \u00xx lowercase.
-		{map[string]any{"s": "<a&b> \u2028 é \"q\" \\ \n\t\b\f\r \x01\x1f \x7f"}, "{\"s\":\"<a&b> \u2028 é \\\"q\\\" \\\\ \\n\\t\\b\\f\\r \\u0001\\u001f \x7f\"}"},
-		// Keys in UTF-16 code-unit order: U+1F600 (D83D DE00) sorts before U+FFFF, unlike UTF-8 byte order.
-		{map[string]any{"\uffff": 1, "\U0001F600": 2, "b": 3, "a": []any{nil, true, false, int64(-5)}}, "{\"a\":[null,true,false,-5],\"b\":3,\"\U0001F600\":2,\"\uffff\":1}"},
-		{map[string]string{"q": "x"}, `{"q":"x"}`},
-	} {
-		got, err := jcs(c.in)
-		if err != nil || string(got) != c.want {
-			t.Errorf("jcs(%v) = %s %v, want %s", c.in, got, err, c.want)
-		}
-	}
-	for _, bad := range []any{int64(1 << 53), "\xff", 1.5, map[string]any{"x": struct{}{}}} {
-		if _, err := jcs(bad); err == nil {
-			t.Errorf("jcs(%v) accepted", bad)
-		}
 	}
 }
 

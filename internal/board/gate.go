@@ -56,6 +56,12 @@ func (s *Store) NotaryPublicKey() (publicKey, keyID string) {
 	return base64.RawURLEncoding.EncodeToString(s.services.notaryKey.Public().(ed25519.PublicKey)), services.NotaryKeyID(s.services.notaryKey)
 }
 
+// SignAgentCard signs the A2A agent card's JCS form with the notary key
+// (C581); the HTTP layer never holds the key. ok is false without it.
+func (s *Store) SignAgentCard(card []byte, jku string) (services.AgentCardSignature, bool) {
+	return services.SignAgentCard(s.services.notaryKey, card, jku)
+}
+
 // GateStanding is what /v1/gate/status says about raising standing from a
 // site's gate (C348): when standing counts (the nightly trust run, as of the
 // next 00:00 UTC, so work and links made now count in the run after it),

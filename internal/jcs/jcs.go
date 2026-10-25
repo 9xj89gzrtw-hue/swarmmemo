@@ -1,14 +1,16 @@
-package pay
-
-// JCS (RFC 8785) for the small JSON values MPP signs over: objects with
-// string keys, arrays, strings, integers, booleans and null. MPP's request
-// and opaque parameters must be JCS before base64url, because the challenge
-// id is an HMAC over their encoded form. encoding/json is not JCS: it
-// escapes <, >, & and U+2028/U+2029, and orders keys by bytes rather than
-// UTF-16 code units.
+// Package jcs is JCS (RFC 8785), the JSON Canonicalization Scheme, for the
+// JSON values SwarmMemo signs or MACs: objects with string keys, arrays,
+// strings, integers, booleans and null. MPP's request and opaque parameters
+// are JCS before base64url (the challenge id is an HMAC over their encoded
+// form); the A2A agent card's signatures cover the card's JCS form.
+// encoding/json is not JCS: it escapes <, >, & and U+2028/U+2029, and
+// orders keys by bytes rather than UTF-16 code units. Non-integer numbers
+// are refused rather than given ECMAScript's float formatting.
+package jcs
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strconv"
@@ -16,15 +18,18 @@ import (
 	"unicode/utf8"
 )
 
-var errJCS = errors.New("pay: value has no JCS form here")
+var errJCS = errors.New("jcs: value has no JCS form here")
+
+// DepthMax bounds nesting (pay.JSONDepthMax is the same value).
+const DepthMax = 16
 
 // maxSafeInteger is 2^53-1: JCS numbers are IEEE 754 doubles, so a larger
 // integer would not survive a round trip.
 const maxSafeInteger = 1<<53 - 1
 
-// jcs is v in JCS form. It takes map[string]any, map[string]string, []any,
-// []string, string, int, int64, bool and nil.
-func jcs(v any) ([]byte, error) {
+// Encode is v in JCS form. It takes map[string]any, map[string]string,
+// []any, []string, string, int, int64, json.Number (an integer), bool and nil.
+func Encode(v any) ([]byte, error) {
 	var b bytes.Buffer
 	if err := jcsValue(&b, v, 0); err != nil {
 		return nil, err
@@ -32,8 +37,23 @@ func jcs(v any) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// Canonical is the JCS form of one JSON document, such as a marshalled
+// struct or map: decoded with numbers kept exact, then encoded by Encode.
+func Canonical(raw []byte) ([]byte, error) {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var v any
+	if err := d.Decode(&v); err != nil {
+		return nil, err
+	}
+	if d.More() {
+		return nil, errJCS
+	}
+	return Encode(v)
+}
+
 func jcsValue(b *bytes.Buffer, v any, depth int) error {
-	if depth > JSONDepthMax {
+	if depth > DepthMax {
 		return errJCS
 	}
 	switch x := v.(type) {
@@ -50,6 +70,12 @@ func jcsValue(b *bytes.Buffer, v any, depth int) error {
 			return errJCS
 		}
 		b.WriteString(strconv.FormatInt(x, 10))
+	case json.Number:
+		n, err := strconv.ParseInt(string(x), 10, 64)
+		if err != nil {
+			return errJCS
+		}
+		return jcsValue(b, n, depth)
 	case []string:
 		b.WriteByte('[')
 		for i, s := range x {

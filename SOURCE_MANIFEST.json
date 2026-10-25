@@ -1,5 +1,5 @@
 {
-  "allowlist_sha256": "e3775636b2d8eb984acf243688a4d7bdd83ae7ac5cdea55c783577e9ab1ee6b4",
+  "allowlist_sha256": "b59c0d33ac98add98cf4f35b0d314c3386a8fe24ebd40aada33e3a1289678f89",
   "files": [
     {
       "mode": "0644",
@@ -898,8 +898,8 @@
     {
       "mode": "0644",
       "path": "docs/PROTOCOL.md",
-      "sha256": "95d3e42c7f2cad08ded05c8bfb139275c227b519c0f8d775c3f6de8b5256a37c",
-      "size": 579880
+      "sha256": "fb4f6439b20b40521a9043b6f38e43029d17741ce4cf4f242c38611540a30533",
+      "size": 580227
     },
     {
       "mode": "0644",
@@ -2002,8 +2002,8 @@
     {
       "mode": "0644",
       "path": "internal/board/gate.go",
-      "sha256": "51c3800b79d50ba22d5d5fc862aeddde19abf6a1c6aae2414ea5ec595bc03eda",
-      "size": 15692
+      "sha256": "4a6063ebd674a35c0e8f89c3cafc7f74ca765e1923e6e9686900ce53b65e5270",
+      "size": 15996
     },
     {
       "mode": "0644",
@@ -4611,6 +4611,12 @@
     },
     {
       "mode": "0644",
+      "path": "internal/httpapi/cardsig_test.go",
+      "sha256": "a39f7fabf9d6648487b1f03705197b99d78537764f4e50c87ca7838e3f460ec6",
+      "size": 3956
+    },
+    {
+      "mode": "0644",
       "path": "internal/httpapi/catalog_parity_test.go",
       "sha256": "b035c8c974f3da9fe32089ba073c264009e3e24a87fe57da6c1a249741deb404",
       "size": 17231
@@ -4684,8 +4690,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/discovery.go",
-      "sha256": "9467239b24569ec9a4cd3deff0f971d534b924de8b17ef9ec56d5bc1c75a316e",
-      "size": 148145
+      "sha256": "3a9aed9c6e44e57189e87c7523c6de62b59f69e157b03619b33e1e584d63c9ec",
+      "size": 148356
     },
     {
       "mode": "0644",
@@ -5050,8 +5056,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/listing.go",
-      "sha256": "27f4cd8980ab3f121998d27a4558de99d0730ba9f778e8de322b4d19011b160e",
-      "size": 16304
+      "sha256": "fbda5270a86a6dbb0d0d418c5f04bdea92acb17c7dfbf12b4238bf2c477949a1",
+      "size": 18015
     },
     {
       "mode": "0644",
@@ -5452,8 +5458,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/openapidrift_test.go",
-      "sha256": "aaccc78849edd2d379a9ee40c5d6fd09651515063307f4b6ee9bfca9a8efdbae",
-      "size": 16234
+      "sha256": "4a1de7e752a1c9eee15934a2d6be5f871ad1965ea458503e38bf29f79a5d4570",
+      "size": 16362
     },
     {
       "mode": "0644",
@@ -6111,6 +6117,18 @@
     },
     {
       "mode": "0644",
+      "path": "internal/jcs/jcs.go",
+      "sha256": "00e35e4d61a5138be071a04b467a1b748887e5e39ffbc55456c6c0b08740ae6c",
+      "size": 4392
+    },
+    {
+      "mode": "0644",
+      "path": "internal/jcs/jcs_test.go",
+      "sha256": "2acab79e3f31c310c987e91016b262a83eac0061de2e6e6e21a93ed0981d8775",
+      "size": 1715
+    },
+    {
+      "mode": "0644",
       "path": "internal/jsonstrict/jsonstrict.go",
       "sha256": "7ed704ccfd5c14dbaf561989fdfd5c085eefce2efe51e8e71815258ae0f9ed60",
       "size": 4045
@@ -6621,12 +6639,6 @@
     },
     {
       "mode": "0644",
-      "path": "internal/pay/jcs.go",
-      "sha256": "e4a36eee1584963c01c798fe63a14eb28be17b4a433ea23421c8ea3eb2a580a3",
-      "size": 3556
-    },
-    {
-      "mode": "0644",
       "path": "internal/pay/json.go",
       "sha256": "196174155de3f737273dc76657b9a8685b1116da0ba5b7b2adb5628848c670e3",
       "size": 2553
@@ -6634,14 +6646,14 @@
     {
       "mode": "0644",
       "path": "internal/pay/mpp.go",
-      "sha256": "804a795d2e7154e06f6c5e04001fe3656b532b9fcf796a36dbdbf05f627ea701",
-      "size": 23577
+      "sha256": "e8a27a8fba7cd7ddf3a41bd982addea69619727e359f87c9b4ede998388988e0",
+      "size": 23625
     },
     {
       "mode": "0644",
       "path": "internal/pay/mpp_test.go",
-      "sha256": "284b2e73678291ccfa0b0be1d70946499bae835fa470bc42e736f4488cb3f5a4",
-      "size": 26378
+      "sha256": "771864b7aa1fe4094163f4dbaf82d59f01ae79693aef3b6971e3f9d841aa96ea",
+      "size": 25444
     },
     {
       "mode": "0644",
@@ -7122,6 +7134,12 @@
       "path": "internal/services/bundler.go",
       "sha256": "57999d9da6437e2d4b9fbd4f7bc1ace36b555f22f41f54acd9df779ac03b176d",
       "size": 4790
+    },
+    {
+      "mode": "0644",
+      "path": "internal/services/cardsig.go",
+      "sha256": "11103128d45557b8243fbd9bf63791f1feca330594e67d83d1b695fecebab390",
+      "size": 1558
     },
     {
       "mode": "0644",
