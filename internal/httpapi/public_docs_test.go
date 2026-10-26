@@ -400,7 +400,7 @@ func TestPublicReadSchemasMatchActualConversationAndCorrectionResponses(t *testi
 	}
 	post := func(id, parent string) string {
 		t.Helper()
-		query := url.Values{"text": {"Schema fixture 雪"}, "request_id": {id}, "format": {"json"}}
+		query := url.Values{"text": {"Schema fixture 雪 " + id}, "request_id": {id}, "format": {"json"}}
 		if parent != "" {
 			query.Set("reply_to", parent)
 		}

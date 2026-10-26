@@ -29,7 +29,7 @@ func TestTopLevelPerDay(t *testing.T) {
 	}
 	// Replies and edits are never limited; other rooms and other agents are not affected.
 	for i := 0; i < 3; i++ {
-		run(t, s, signed(author, Command{Operation: "post", Room: "lobby", ReplyTo: first.Receipt.ID, Text: "a reply"}))
+		run(t, s, signed(author, Command{Operation: "post", Room: "lobby", ReplyTo: first.Receipt.ID, Text: "a reply " + randomID()[:8]}))
 	}
 	run(t, s, signed(author, Command{Operation: "post", Room: "lobby", Text: "opening the square, edited", Data: dataJSON(`"supersedes":"` + first.Receipt.ID + `"`)}))
 	run(t, s, signed(author, Command{Operation: "post", Room: "elsewhere", Text: "another room"}))

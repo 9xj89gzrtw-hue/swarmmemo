@@ -39,7 +39,8 @@ func getTestWork(t *testing.T, s *Store, id string) Work {
 
 func workResult(t *testing.T, s *Store, key ed25519.PrivateKey, id, room string) string {
 	t.Helper()
-	return run(t, s, signed(key, Command{Operation: "post", Room: room, ReplyTo: id, Text: "Human-reviewed result reference", Timestamp: s.now().Unix()})).Receipt.ID
+	// Each result reply differs: the same reply twice is refused (C599).
+	return run(t, s, signed(key, Command{Operation: "post", Room: room, ReplyTo: id, Text: "Human-reviewed result reference " + randomID()[:8], Timestamp: s.now().Unix()})).Receipt.ID
 }
 
 func TestWorkLifecycleHistoryAndExactReplay(t *testing.T) {

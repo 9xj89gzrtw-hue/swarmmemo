@@ -42,7 +42,7 @@ SAFE_CODES = {"stale_signature", "idempotency_conflict", "key_rotated", "invalid
               "request_rate", "not_found", "unexpected_field", "field_limit", "envelope_too_large",
               "attachment_gone", "lease_busy", "quota_exhausted", "global_quota_exhausted",
               "text_too_large", "invalid_text", "invalid_reply", "invalid_recipient", "reserved_kind",
-              "invalid_post_data"}
+              "invalid_post_data", "duplicate_reply"}
 SAFE_CODES.update({"work_generation_mismatch", "work_state_conflict", "work_fence_mismatch",
                    "work_forbidden", "work_exists", "work_renew_not_extended", "work_fence_exhausted",
                    "invalid_work_data", "invalid_work_root", "invalid_work_result", "invalid_ttl", "invalid_reason",

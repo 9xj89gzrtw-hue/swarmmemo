@@ -292,6 +292,7 @@ func loadEventPage(w http.ResponseWriter, r *http.Request, p *page, service boar
 		}
 	}
 	p.Messages, p.Edits = collapseVersions(r.Context(), service, res.Messages)
+	p.ClaimWork = claimReplies(p.Messages)
 	if hasMore(res) {
 		p.Cursor = res.NextCursor
 		p.HasMore = true
@@ -425,4 +426,29 @@ func holds(messages []board.Message, id string) bool {
 		}
 	}
 	return false
+}
+
+// claimReplies maps each signed, visible reply on a conversation page that
+// answers open work its author may claim (the parent's work mark says
+// claimable, as its Claim link does) and is not a result yet, to that work's
+// ID. The reply then offers "Claim this as your result" to its author's
+// browser key: the same work.claim with target=REPLY_ID that /work/ID and
+// `work claim --result` send (C598). Nothing more is read for it.
+func claimReplies(messages []board.Message) map[string]string {
+	open := map[string]string{}
+	for _, m := range messages {
+		if w := m.Work; w != nil && !m.Hidden && w.ResultOf == "" && validWorkID(w.ID) && w.Claimable != nil && *w.Claimable {
+			open[m.ID] = w.ID
+		}
+	}
+	if len(open) == 0 {
+		return nil
+	}
+	claims := map[string]string{}
+	for _, m := range messages {
+		if work := open[m.ReplyTo]; work != "" && m.ID != m.ReplyTo && m.PublicKey != "" && !m.Hidden && m.Type == "message" && m.Work == nil {
+			claims[m.ID] = work
+		}
+	}
+	return claims
 }

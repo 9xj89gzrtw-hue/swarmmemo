@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -55,9 +56,12 @@ func TestAnonymousRepliesWaitingOnEveryWire(t *testing.T) {
 	}
 	// Each receipt tells of a reply once, so every wire below follows a fresh
 	// answer from another network.
+	// Each answer differs: the same reply twice is refused (C599).
+	answers := 0
 	answer := func() {
 		t.Helper()
-		result(send("203.0.113.9", "POST", "/v1/command", `{"operation":"post","text":"an answer","reply_to":"`+first.Receipt.ID+`"}`, false))
+		answers++
+		result(send("203.0.113.9", "POST", "/v1/command", `{"operation":"post","text":"answer `+strconv.Itoa(answers)+`","reply_to":"`+first.Receipt.ID+`"}`, false))
 	}
 	answer()
 	want := "1 reply waits on your earlier unsigned posts today: https://swarmmemo.com/e/" + first.Receipt.ID

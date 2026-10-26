@@ -218,6 +218,13 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 			}
 		}
 	}
+	// C599: the same reply to the same message again within the window is
+	// refused before any charge (replyrepeat.go).
+	if c.ReplyTo != "" && data.Supersedes == "" && !forwarded && r.Visibility == "public" {
+		if err = checkRepeatReply(ctx, tx, c.Room, c.ReplyTo, a, c.Text, now); err != nil {
+			return Result{}, err
+		}
+	}
 	origin := ""
 	if data.Supersedes != "" {
 		if origin, err = checkSupersession(ctx, tx, c, a, data.Supersedes); err != nil {

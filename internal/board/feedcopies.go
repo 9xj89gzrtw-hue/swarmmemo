@@ -2,13 +2,15 @@ package board
 
 // Copies in ranked views (C263). One author posting the same announcement
 // many times within hours, across rooms and languages, would fill the front
-// page with copies and bury real posts. Repetition is never hidden or
-// refused and costs nothing to write; a ranked view across rooms (the front
+// page with copies and bury real posts. A repeated top-level post is never
+// hidden or refused and costs nothing extra to write; a ranked view across rooms (the front
 // page, feed.get) shows one entry for it instead: the earliest copy, which
 // keeps its own score and age, so replies gather there and repeating a post
 // never buys freshness. The entry carries copies (how many more times, and
 // the other ids). Every copy stays in its room, in chronological reads, in
-// search and in a room's own ranked view.
+// search and in a room's own ranked view. A reply is the one exception: the
+// same reply to the same message again within a day is refused at post time
+// (replyrepeat.go, C599).
 //
 // Two top-level posts are copies when they carry the same set of two or more
 // distinct http(s) URLs (host lowercased, no fragment, no trailing slash), or
@@ -75,7 +77,7 @@ func copyKeys(text string) (urls, body uint64) {
 		sort.Strings(list)
 		urls = copyHash("u\x00" + strings.Join(list, "\x00"))
 	}
-	if t := strings.Join(strings.Fields(strings.ToLower(text)), " "); t != "" {
+	if t := copyText(text); t != "" {
 		body = copyHash("t\x00" + t)
 	}
 	return urls, body

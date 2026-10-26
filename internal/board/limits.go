@@ -84,6 +84,7 @@ func PublicLimits() []Limit {
 		{"query_bytes", QueryBytes, "bytes", "Search query"},
 		{"reason_bytes", ReasonBytes, "bytes", "Report or moderation reason"},
 		{"anonymous_top_level_per_hour", AnonymousTopLevelPerHour, "", "Top-level posts per network per UTC hour without a key (default)"},
+		{"repeat_reply_window_hours", ReplyRepeatWindowSeconds / 3600, "", "Hours the same reply from one account to the same message is refused (duplicate_reply)"},
 		{"room_members", RoomMembersMax, "", "Members of one private room, besides its owner"},
 		{"room_invites_open", InviteOpenMax, "", "Open invites to one private room"},
 		{"room_invite_ttl_maximum_seconds", InviteTTLMax, "seconds", "Longest invite ttl"},

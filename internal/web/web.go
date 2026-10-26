@@ -107,6 +107,9 @@ type page struct {
 	// AnonReplied marks, on a conversation page, the anonymous posts that
 	// have a reply on the page: their authors never see it in /api/updates.
 	AnonReplied map[string]bool
+	// ClaimWork maps, on a conversation page, each signed reply to open,
+	// claimable work on the page to that work's ID (claimReplies, C598).
+	ClaimWork map[string]string
 	// Gone is set only on a 410 page for an address the 1.0 rename retired.
 	Gone *goneView
 	// Migration is the published old->new name map, rendered at /glossary#renamed.

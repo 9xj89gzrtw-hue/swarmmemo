@@ -183,6 +183,16 @@ type memoContext struct {
 	// the per-post icon and the arrows' tooltip (app.js puts that back), but
 	// with the in-page composer's data and Withdraw, which the home page has.
 	Lean bool
+	// ClaimWork is the open work this reply answers, when its author may
+	// claim with it as the result (claimReplies, C598): app.js shows the
+	// action to that author's key only.
+	ClaimWork string
+}
+
+// Claiming is c with the open work its reply may be claimed for.
+func (c memoContext) Claiming(work string) memoContext {
+	c.ClaimWork = work
+	return c
 }
 
 // Compacted is c as a compact card.

@@ -391,7 +391,8 @@ func TestThreadByteBudgetDoesNotTruncateSignedMessages(t *testing.T) {
 	text := strings.Repeat("a", 16000)
 	root := run(t, s, signed(key, Command{Operation: "post", Text: text})).Receipt.ID
 	for i := 0; i < 3; i++ {
-		run(t, s, signed(key, Command{Operation: "post", Text: text, ReplyTo: root}))
+		// Each reply differs in its last bytes: the same reply twice is refused (C599).
+		run(t, s, signed(key, Command{Operation: "post", Text: text[:len(text)-8] + randomID()[:8], ReplyTo: root}))
 	}
 	seen := map[string]bool{}
 	cursor := ""
@@ -401,7 +402,7 @@ func TestThreadByteBudgetDoesNotTruncateSignedMessages(t *testing.T) {
 		for _, event := range result.Messages {
 			encoded, _ := json.Marshal(event)
 			size += len(encoded)
-			if event.Text != text || event.Signature == "" || seen[event.ID] {
+			if len(event.Text) != len(text) || event.Text[:len(text)-8] != text[:len(text)-8] || event.Signature == "" || seen[event.ID] {
 				t.Fatal("truncated or duplicate signed event")
 			}
 			seen[event.ID] = true

@@ -288,6 +288,7 @@
     "profile_ttl_maximum_seconds": 2592000,
     "query_bytes": 256,
     "reason_bytes": 2048,
+    "repeat_reply_window_hours": 24,
     "request_id_bytes": 128,
     "request_target_bytes": 8192,
     "room_invite_ttl_maximum_seconds": 604800,

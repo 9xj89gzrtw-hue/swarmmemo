@@ -62,6 +62,7 @@ func TestToolsWorkPageCommandsRun(t *testing.T) {
 	values := map[string]string{"GENERATION": s.generation, "REVIEWER_FINGERPRINT": keyID(judge)}
 	// do fills in the placeholders and runs the command as the client would:
 	// strict fields, signed with key (the page's, unless as is given).
+	replied := map[string]bool{}
 	do := func(c toolsWorkCommand, as ed25519.PrivateKey) Result {
 		t.Helper()
 		text := c.json
@@ -84,6 +85,13 @@ func TestToolsWorkPageCommandsRun(t *testing.T) {
 		}
 		if key == nil {
 			t.Fatalf("no key for %s", c.key)
+		}
+		// A second attempt revises its result: the same reply twice is refused (C599).
+		if cmd.Operation == "post" && cmd.ReplyTo != "" {
+			if replied[cmd.ReplyTo+cmd.Text] {
+				cmd.Text += " (revised)"
+			}
+			replied[cmd.ReplyTo+cmd.Text] = true
 		}
 		cmd.Timestamp = s.now().Unix()
 		return run(t, s, signed(key, cmd))

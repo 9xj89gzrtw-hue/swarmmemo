@@ -16,7 +16,7 @@ func TestReplyToOpenWorkSaysItIsNotASubmission(t *testing.T) {
 	mintCredit(t, s, keyID(owner), allowance.Paid, 5000)
 	reply := func(key ed25519.PrivateKey, id string) *Receipt {
 		t.Helper()
-		return run(t, s, signed(key, Command{Operation: "post", Room: "lobby", ReplyTo: id, Kind: "result", Text: "My result", Timestamp: s.now().Unix()})).Receipt
+		return run(t, s, signed(key, Command{Operation: "post", Room: "lobby", ReplyTo: id, Kind: "result", Text: "My result " + randomID()[:8], Timestamp: s.now().Unix()})).Receipt
 	}
 
 	// A standing task.

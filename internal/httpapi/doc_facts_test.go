@@ -75,6 +75,8 @@ func docFacts() []docFact {
 		{"docs/TOOLS_RECEIVE.md", "header's value within {N} hours", countFact(services.ReceiverDedupeWindow / 3600)},
 		{"docs/TOOLS_RECEIVE.md", "or with a value over {N}, is", sizeFactExact(services.ReceiverHeaderBytes)},
 		{"docs/PROTOCOL.md", "matches an item stored in the last {N} hours", countFact(services.ReceiverDedupeWindow / 3600)},
+		// Repeated replies (board/replyrepeat.go, C599).
+		{"docs/PROTOCOL.md", "already replied to that message within the last {N} hours", countFact(board.ReplyRepeatWindowSeconds / 3600)},
 		// A promise's note (board/workpromise.go, C589).
 		{"docs/PROTOCOL.md", "`note` is optional, one line of at most {N} characters", countFact(board.WorkRewardNoteMax)},
 		// A sealed known answer (board/workanswer.go, C587).

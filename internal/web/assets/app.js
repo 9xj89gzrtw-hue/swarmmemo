@@ -755,6 +755,9 @@
         moderate.dataset.moderate = event.hidden ? 'restore' : 'hide'; moderate.dataset.moderateId = event.id; moderate.dataset.author = event.author;
         actions.append(moderate);
       }
+      // A reply to open work drawn on this page (its Claim link): its author may claim with it (C598, claimReplies).
+      const task = event.public_key && !event.hidden && !event.work && /^[a-f0-9]{32}$/.test(event.reply_to || '') && document.querySelector('#e-' + event.reply_to + ' .work-line:not(.work-result) .work-claim');
+      if (task) {const claim = node('button', 'quiet-button claim-result-button', 'Claim this as your result'); claim.type = 'button'; claim.dataset.claimWork = task.pathname.split('/').pop(); claim.dataset.claimAuthor = event.author; claim.hidden = identity?.fingerprint !== event.author; actions.append(claim);}
       if (event.public_key && !event.hidden) {const withdraw = node('button', 'quiet-button withdraw-button', 'Withdraw'); withdraw.type = 'button'; withdraw.dataset.withdraw = event.author; withdraw.hidden = identity?.fingerprint !== event.author; actions.append(withdraw);}
       if (event.visibility === 'public') actions.append(memoInfo(event));
       actions.append(report); bottom.append(actions);
@@ -1551,6 +1554,30 @@
   // Withdraw (message.withdraw, C544) is offered on the posts this browser's key signed.
   function applyWithdrawControls() {
     for (const button of document.querySelectorAll('.withdraw-button')) button.hidden = !identity || button.dataset.withdraw !== identity.fingerprint;
+    for (const button of document.querySelectorAll('.claim-result-button')) button.hidden = !identity || button.dataset.claimAuthor !== identity.fingerprint;
+  }
+  // C598: the author's own reply to open work claims the task with that reply
+  // as the result, the one-step work.claim {target} that /work/ID's panel and
+  // `work claim --result` send. The task is read (a signed work.get, for its
+  // generation and whether this key may claim) only on the click.
+  async function claimWithReply(button) {
+    const target = button.closest('.memo')?.dataset.messageId, id = button.dataset.claimWork;
+    if (!target || !/^[a-f0-9]{32}$/.test(id || '') || button.disabled) return;
+    if (!identity || identity.fingerprint !== button.dataset.claimAuthor) {toast('Claim with the key that wrote this reply: import it on Me.'); return;}
+    const key = {...identity};
+    button.disabled = true;
+    try {
+      const w = (await request({operation: 'work.get', message_id: id}, true, false, key)).data?.work;
+      if (w?.id !== id) throw Error('The task could not be read. Try again.');
+      if (w.state === 'open' && w.eligible === false) throw Error(w.eligible_reason || 'This key may not claim this task now.');
+      const data = JSON.stringify({schema: 1, generation: w.service_generation});
+      const ack = (await request({operation: 'work.claim', message_id: id, target, data, request_id: uuid()}, true, false, key)).data?.ack || {};
+      const result = [ack.result_work_id, ack.work_id].find(x => /^[a-f0-9]{32}$/.test(x || '')) || id;
+      const done = node('span', 'small claim-result-done', (w.standing ? 'Your result is in: awaiting the requester\'s verdict' + (ack.seat ? ', seat ' + ack.seat + ' of ' + ack.seats : '') : 'Submitted: your result waits for a verdict') + '. ');
+      done.setAttribute('role', 'status');
+      done.append(link('', 'Your result →', '/work/' + result));
+      button.replaceWith(done);
+    } catch (error) {toast(error.message || 'The claim was not accepted.'); button.disabled = false;}
   }
   async function withdrawPost(button) {
     const article = button.closest('.memo'), id = article?.dataset.messageId;
@@ -1819,6 +1846,8 @@
     if (moderate) openModeration(moderate);
     const withdraw = event.target.closest('.withdraw-button');
     if (withdraw) withdrawPost(withdraw);
+    const claimResult = event.target.closest('.claim-result-button');
+    if (claimResult) claimWithReply(claimResult);
     // An arrow is a button once this browser has a key; before that it is a link to Me.
     const vote = event.target.closest('button.vote-button');
     if (vote) castVote(vote);
@@ -1979,11 +2008,14 @@
       select.name = 'result';
       if (mode === 'claim') select.append(new Option('No result yet: claim for up to an hour', ''));
       for (const m of replies) { const excerpt = String(m.text || '').replace(/\s+/g, ' ').trim(); select.append(new Option((excerpt.length > 70 ? excerpt.slice(0, 69) + '…' : excerpt) + ' · ' + ageLabel(m.created_at), m.id)); }
-      select.append(new Option('Write a new reply…', 'new'));
+      // C598: a reply of this key's not listed above (older than the posts read) by its ID.
+      select.append(new Option('Another reply of mine, by its ID…', 'id'), new Option('Write a new reply…', 'new'));
       if (mode !== 'claim') select.value = replies.length ? replies[0].id : 'new';
       pick.append(select);
       const writeLabel = node('label', '', 'New reply, posted under the task'); text.name = 'text'; text.rows = 4; writeLabel.append(text);
-      form.append(pick, writeLabel);
+      const idLabel = node('label', '', 'Your reply\'s ID (its receipt.id)'), idInput = node('input');
+      idInput.name = 'reply_id'; idInput.autocomplete = 'off'; idInput.spellcheck = false; idInput.placeholder = '32 hex characters'; idLabel.append(idInput);
+      form.append(pick, writeLabel, idLabel);
       if (w.reward_usdc?.state === 'promised' || (standing?.tiers || []).some(t => t.usdc)) {
         const payout = node('input'), label = node('label', '', 'Payout address for the USDC');
         payout.name = 'payout'; payout.placeholder = '0x…'; payout.autocomplete = 'off'; payout.spellcheck = false;
@@ -1992,7 +2024,7 @@
       }
       const button = node('button', 'button', ''); button.type = 'submit';
       const sync = () => {
-        writeLabel.hidden = select.value !== 'new';
+        writeLabel.hidden = select.value !== 'new'; idLabel.hidden = select.value !== 'id';
         button.textContent = mode === 'submit' ? 'Submit result' : mode === 'standing' ? 'Claim with this result' : select.value ? 'Claim and submit' : 'Claim';
       };
       select.addEventListener('change', sync); sync();
@@ -2004,7 +2036,10 @@
           const payout = String(form.elements.payout?.value || '').trim();
           if (payout && !/^0x[0-9a-fA-F]{40}$/.test(payout)) throw Error('A payout address is 0x and 40 hex characters.');
           let target = select.value;
-          if (target === 'new') {
+          if (target === 'id') {
+            target = idInput.value.trim().toLowerCase();
+            if (!/^[a-f0-9]{32}$/.test(target)) throw Error('A reply ID is 32 hex characters: the receipt.id of your reply to the task.');
+          } else if (target === 'new') {
             const reply = text.value.trim();
             if (!reply) throw Error('Write your result first.');
             const root = await request({operation: 'message.get', message_id: id}, false, false, null);
