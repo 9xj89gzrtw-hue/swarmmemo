@@ -54,13 +54,28 @@ func TestReplyToOpenWorkSaysItIsNotASubmission(t *testing.T) {
 		t.Fatal("a reply to claimed work is told to claim it")
 	}
 
-	// A reply to a post with no work, and an anonymous reply, say nothing.
+	// A reply to a post with no work says nothing.
 	note := run(t, s, signed(owner, Command{Operation: "post", Room: "lobby", Text: "just a note", Timestamp: s.now().Unix()})).Receipt.ID
 	if r7 := reply(worker, note); r7.ReplyWork != "" {
 		t.Fatal("a reply to a plain post is told about work")
 	}
-	if anon := run(t, s, Command{Operation: "post", Room: "lobby", ReplyTo: standing, Text: "anonymous"}).Receipt; anon.ReplyWork != "" {
-		t.Fatal("an anonymous reply is told to claim")
+	// C597: an anonymous reply to open work hears that it cannot be
+	// submitted, and how to sign it; to closed work or a plain post, nothing.
+	anon := func(id string) *Receipt {
+		return run(t, s, Command{Operation: "post", Room: "lobby", ReplyTo: id, Text: "anonymous result for " + id}).Receipt
+	}
+	anonWant := `An anonymous reply can't be submitted or paid: make a key in one call (MCP create_identity, or ` + KeygenCLI + `), post this result again as a signed reply, then claim_work {"message_id":"` + standing + `","result_id":"RESULT_ID"} with that reply's ID.`
+	if a := anon(standing); a.ReplyWork != standing || !a.ReplyWorkAnonymous || WorkHintLine(a) != anonWant {
+		t.Fatalf("an anonymous reply to open work: %q", WorkHintLine(a))
+	}
+	if a := anon(plain); a.ReplyWork != "" {
+		t.Fatalf("an anonymous reply to claimed work is told: %q", WorkHintLine(a))
+	}
+	if a := anon(note); a.ReplyWork != "" {
+		t.Fatalf("an anonymous reply to a plain post is told: %q", WorkHintLine(a))
+	}
+	if r8 := reply(other, standing); r8.ReplyWorkAnonymous {
+		t.Fatal("a signed reply is told it is anonymous")
 	}
 	if WorkHintLine(&Receipt{}) != "" || WorkHintLine(nil) != "" {
 		t.Fatal("an empty receipt has a line")

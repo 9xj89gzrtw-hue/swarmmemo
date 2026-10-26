@@ -40,7 +40,7 @@ type workPage struct {
 // reply and the key that come before the claim.
 const (
 	ReplyCLI      = `python3 swarmmemo.py --key key.json post ROOM main "YOUR RESULT" --reply-to TASK_ID`
-	workKeygenCLI = "python3 swarmmemo.py keygen key.json"
+	workKeygenCLI = board.KeygenCLI
 )
 
 // workSteps is how to take a task, as code text (never a link): the

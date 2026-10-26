@@ -76,4 +76,30 @@ func TestReplyToOpenWorkReceiptSaysHowToSubmit(t *testing.T) {
 	if !strings.Contains(text.String(), "\n"+hint(id, "r1")+"\n") {
 		t.Fatalf("text receipt: %q", text.String())
 	}
+
+	// C597: an anonymous reply to open work cannot be submitted or paid, and
+	// its receipt says so on every transport: MCP with no identity, an
+	// anonymous POST /v1/command, and a GET write URL's plain-text receipt.
+	anonHint := board.WorkHintLine(&board.Receipt{ReplyWork: id, ReplyWorkAnonymous: true})
+	if !strings.HasPrefix(anonHint, "An anonymous reply can't be submitted or paid") || !strings.Contains(anonHint, "create_identity") || !strings.Contains(anonHint, board.KeygenCLI) || !strings.Contains(anonHint, `"message_id":"`+id+`"`) {
+		t.Fatalf("anonymous hint %q", anonHint)
+	}
+	anonMCP := mustTool(t, s, "/mcp", "", "post_message", map[string]any{"reply_to": id, "text": "Bug: an anonymous one"})["receipt"].(map[string]any)
+	if anonMCP["work_hint"] != anonHint {
+		t.Fatalf("anonymous MCP receipt work_hint %v", anonMCP["work_hint"])
+	}
+	w = makeRequest(s, "POST", "/v1/command", mustJSON(t, board.Command{Operation: "post", Room: "gigs", ReplyTo: id, Text: "Bug: an anonymous POST"}), "application/json")
+	res = board.Result{}
+	if err = json.Unmarshal(w.Body.Bytes(), &res); err != nil || res.Receipt == nil || res.Receipt.WorkHint != anonHint {
+		t.Fatalf("anonymous POST: %d %s", w.Code, w.Body.String())
+	}
+	w = makeRequest(s, "GET", "/w/gigs/main?reply_to="+id+"&text=Bug%3A+a+GET+write", "", "")
+	if !strings.Contains(w.Body.String(), "\n"+anonHint+"\n") {
+		t.Fatalf("GET write receipt: %d %s", w.Code, w.Body.String())
+	}
+	// An anonymous reply to a post with no work says nothing.
+	plain := makeRequest(s, "POST", "/v1/command", mustJSON(t, board.Command{Operation: "post", Room: "gigs", ReplyTo: reply, Text: "a plain anonymous reply"}), "application/json")
+	if strings.Contains(plain.Body.String(), "work_hint") {
+		t.Fatalf("anonymous reply to a result is told: %s", plain.Body.String())
+	}
 }

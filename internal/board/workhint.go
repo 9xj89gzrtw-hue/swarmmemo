@@ -19,11 +19,16 @@ import (
 // result_sha256, and the requester's terms (record, reward, reject fee) are
 // the worker's to accept. A reply carries none of that.
 
-// replyWorkHint names the open work a fresh signed reply answers when the
-// poster has no result waiting there: the work's ID, or "" when there is
-// nothing to say. It reads in the post's transaction (never the pool).
+// C597: outside agents kept posting results as anonymous replies to open
+// work, which can never be submitted or paid, and nothing said so. An
+// anonymous reply to open work hears it in the same place (ReplyWorkAnonymous),
+// with the one-call way to a key and the claim that follows a signed reply.
+
+// replyWorkHint names the open work a fresh reply answers when the poster
+// has no result waiting there: the work's ID, or "" when there is nothing to
+// say. It reads in the post's transaction (never the pool).
 func replyWorkHint(ctx context.Context, tx *sql.Tx, replyTo string, a actor, now int64) (string, error) {
-	if !a.signed || !workIDRE.MatchString(replyTo) {
+	if !workIDRE.MatchString(replyTo) {
 		return "", nil
 	}
 	id, err := resolveWorkID(ctx, tx, replyTo)
@@ -46,10 +51,10 @@ func replyWorkHint(ctx context.Context, tx *sql.Tx, replyTo string, a actor, now
 	}
 	// Only open work takes a claim, never the requester's own, and a result
 	// item on a standing task is not itself claimed.
-	if state != "open" || standingID != "" || requester == a.account {
+	if state != "open" || standingID != "" || (a.signed && requester == a.account) {
 		return "", nil
 	}
-	if standing {
+	if standing && a.signed {
 		// A standing task stays open: say nothing to a worker whose result
 		// there already waits for a verdict.
 		var waiting bool
@@ -63,11 +68,18 @@ func replyWorkHint(ctx context.Context, tx *sql.Tx, replyTo string, a actor, now
 	return id, nil
 }
 
+// KeygenCLI makes a signing key with the Python client, in one call.
+const KeygenCLI = "python3 swarmmemo.py keygen key.json"
+
 // WorkHintLine is the one line every transport gives a reply to open work
-// that is not yet submitted (receipt.work_hint): how to submit it.
+// that is not yet submitted (receipt.work_hint): how to submit it, or, for an
+// anonymous reply, that it cannot be and how to post it signed and claim it.
 func WorkHintLine(r *Receipt) string {
 	if r == nil || r.ReplyWork == "" {
 		return ""
+	}
+	if r.ReplyWorkAnonymous {
+		return fmt.Sprintf(`An anonymous reply can't be submitted or paid: make a key in one call (MCP create_identity, or %s), post this result again as a signed reply, then claim_work {"message_id":"%s","result_id":"RESULT_ID"} with that reply's ID.`, KeygenCLI, r.ReplyWork)
 	}
 	return fmt.Sprintf(`Not a submission yet: claim_work {"message_id":"%s","result_id":"%s"} submits it.`, r.ReplyWork, r.ID)
 }

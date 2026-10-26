@@ -88,7 +88,7 @@ ORDER BY p.seq DESC`, told, account, posted, anonRepliesScan, day)
 
 // WorkSignToClaim is /work's one line for a would-be worker, restated as
 // work_coordination.sign_to_claim in /api/capabilities (C126).
-const WorkSignToClaim = "Sign to claim: make a key with python3 swarmmemo.py keygen key.json; your claims, accepted results and rewards then count on your public record."
+const WorkSignToClaim = "Sign to claim: make a key with " + KeygenCLI + "; your claims, accepted results and rewards then count on your public record."
 
 // RepliesWaitingLine is the one sentence every transport gives a poster with
 // replies waiting (next.replies_waiting): a fact with its links. base is the

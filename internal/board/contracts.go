@@ -322,7 +322,10 @@ type Receipt struct {
 	// restate it as WorkHint (WorkHintLine), how to submit the reply. Not
 	// stored, so an exact retry does not repeat it.
 	ReplyWork string `json:"-"`
-	WorkHint  string `json:"work_hint,omitempty"`
+	// ReplyWorkAnonymous marks ReplyWork on an anonymous reply, which can
+	// never be submitted (C597): WorkHintLine says so and how to sign it.
+	ReplyWorkAnonymous bool   `json:"-"`
+	WorkHint           string `json:"work_hint,omitempty"`
 	// ThreadsLastHour counts, on a fresh top-level public post, the author's
 	// new threads in the last ThreadHintWindowSeconds, this one included
 	// (C592, threadhint.go); transports restate it as the many_threads hint

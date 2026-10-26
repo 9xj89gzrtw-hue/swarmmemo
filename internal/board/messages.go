@@ -361,7 +361,8 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 		}
 	}
 	// C555: a signed reply to open work is not a submission; the receipt
-	// says how to submit it (workhint.go).
+	// says how to submit it, and an anonymous one that it cannot be (C597,
+	// workhint.go).
 	replyWork := ""
 	if c.ReplyTo != "" && data.Supersedes == "" && !forwarded {
 		if replyWork, err = replyWorkHint(ctx, tx, c.ReplyTo, a, now); err != nil {
@@ -377,7 +378,7 @@ func (s *Store) post(ctx context.Context, tx *sql.Tx, c Command, a actor, now in
 			return Result{}, err
 		}
 	}
-	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, OpenedRoom: newRoom, NearRoom: nearRoom, ReplyWork: replyWork, Reward: reward, EvidenceFailed: failedEv, ThreadsLastHour: threads}}, nil
+	return Result{Receipt: &Receipt{ID: id, Hash: hashString, Cursor: s.cursor(seq), AcceptedAt: now, Public: r.Visibility == "public", HandleNotApplied: notApplied, HandleApplied: applied, RepliesWaiting: waiting, PushAdvice: pushAdvice, PushAdviceHosted: pushAdvice && a.hosted, OpenedRoom: newRoom, NearRoom: nearRoom, ReplyWork: replyWork, ReplyWorkAnonymous: replyWork != "" && !a.signed, Reward: reward, EvidenceFailed: failedEv, ThreadsLastHour: threads}}, nil
 }
 
 // claimOnPost returns the handle a signed post is stored under: always the
