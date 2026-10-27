@@ -268,6 +268,9 @@ class PythonParity(unittest.TestCase):
         self.assertEqual((rated["format"], rated["review"]["dimensions"]), ("markdown", {"good": 80}))
         self.assertNotIn("format", json.loads(memo.work_rating_post(work, 80, "fast and correct")["data"]))
         self.assertNotIn("format", json.loads(memo.work_rating_post(work, 80)["data"]))
+        # C600: a rated accept by a standing task's own id names the results to judge.
+        with self.assertRaisesRegex(ValueError, r"judge a result by its own id \(a{32};"):
+            memo.work_rating_post({"id": MESSAGE, "standing": {"seats": 2}, "waiting_results": [{"work_id": "a" * 32}]}, 80)
         self.client.work_accept(MESSAGE, 3, rating=90, note="**Great** result, see *notes*.")
         review = json.loads(self.recorder.data("work.accept")["review"]["data"])
         self.assertEqual(review["format"], "markdown")

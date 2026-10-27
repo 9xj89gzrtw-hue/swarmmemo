@@ -4029,6 +4029,8 @@
         "tier",
         "verdict_checks",
         "verdict_from",
+        "waiting_results",
+        "waiting_results_truncated",
         "worker",
         "worker_subject",
         "your_results"
@@ -4145,6 +4147,16 @@
         "result_sha256_signed",
         "reviewer"
       ]
+    },
+    "work_waiting_result": {
+      "required": [
+        "deadline",
+        "result_id",
+        "submitted_at",
+        "work_id",
+        "worker"
+      ],
+      "optional": []
     },
     "work_your_result": {
       "required": [

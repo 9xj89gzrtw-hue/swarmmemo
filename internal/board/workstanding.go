@@ -1021,6 +1021,91 @@ func workYourResults(ctx context.Context, tx *sql.Tx, id, account, generation st
 	return out, rows.Err()
 }
 
+// WorkWaitingResult is one result on a standing task waiting for the
+// requester's verdict (Work.WaitingResults, C600): its own work item, which
+// work.accept and work.reject name (never the standing task's id), the
+// reply it submitted, the worker, when it was submitted and the verdict's
+// deadline. Every field is public: the result is a public reply.
+type WorkWaitingResult struct {
+	WorkID      string   `json:"work_id"`
+	ResultID    string   `json:"result_id"`
+	Worker      AgentRef `json:"worker"`
+	SubmittedAt int64    `json:"submitted_at"`
+	Deadline    int64    `json:"deadline"`
+}
+
+// WorkWaitingResultsMax bounds Work.WaitingResults, oldest first;
+// waiting_results_truncated says when more wait (standing.submitted counts
+// them all). WorkWaitingIDsInRefusal is how many the refusal of a verdict
+// sent with the standing task's id names.
+const (
+	WorkWaitingResultsMax   = 50
+	WorkWaitingIDsInRefusal = 5
+)
+
+// workWaitingResults lists the results on standing task id waiting for a
+// verdict now (standing.submitted's rule: stored submitted, before its
+// deadline, not hidden), oldest first, at most limit, and whether more wait.
+func workWaitingResults(ctx context.Context, tx *sql.Tx, id string, limit int, now int64) ([]WorkWaitingResult, bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.result_id,w.worker,w.created_at,w.deadline FROM works w
+ WHERE w.standing_id=? AND w.standing_id<>'' AND w.state='submitted' AND w.deadline>? AND NOT `+standingHiddenSQL+`
+ ORDER BY w.created_at, w.id LIMIT ?`, id, now, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	type row struct {
+		r      WorkWaitingResult
+		worker string
+	}
+	var found []row
+	for rows.Next() {
+		var r row
+		if err = rows.Scan(&r.r.WorkID, &r.r.ResultID, &r.worker, &r.r.SubmittedAt, &r.r.Deadline); err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		found = append(found, r)
+	}
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, false, err
+	}
+	more := len(found) > limit
+	if more {
+		found = found[:limit]
+	}
+	var out []WorkWaitingResult
+	for _, r := range found {
+		if r.r.Worker, err = currentWorkIdentity(ctx, tx, r.worker); err != nil {
+			return nil, false, err
+		}
+		out = append(out, r.r)
+	}
+	return out, more, nil
+}
+
+// standingVerdictRefusal is the refusal of a work.accept or work.reject
+// sent with a standing task's own id: each result is its own work item, so
+// it names the results waiting for a verdict to judge instead.
+func standingVerdictRefusal(ctx context.Context, tx *sql.Tx, id, operation string, now int64) error {
+	waiting, more, err := workWaitingResults(ctx, tx, id, WorkWaitingIDsInRefusal, now)
+	if err != nil {
+		return err
+	}
+	msg := "This is a standing task: each result is its own work item, and " + operation + " names the result, not the task."
+	if len(waiting) == 0 {
+		return problem(409, "work_state_conflict", msg+" No result waits for a verdict now; work.get on this task lists them under waiting_results as they arrive.")
+	}
+	ids := make([]string, len(waiting))
+	for i, w := range waiting {
+		ids[i] = w.WorkID
+	}
+	list := strings.Join(ids, ", ")
+	if more {
+		list += ", and more"
+	}
+	return problem(409, "work_state_conflict", msg+" Judge a result by its own id: "+list+" (work.get on this task lists them under waiting_results).")
+}
+
 // rowQuerier is what the standing projection reads through: a transaction,
 // or attachWork's querier.
 type rowQuerier interface {
@@ -1251,7 +1336,7 @@ func WorkStandingCapabilities() map[string]any {
 		"verdict_ttl": WorkStandingVerdictTTL, "verdict": "each result has its own deadline, verdict_ttl after it opens; undecided by then it counts as unpaid_lapsed and its seat returns",
 		"results_until": "the standing task's deadline minus verdict_ttl", "reject": "terminal for that task (stored cancelled); the seat reopens", "cancel": "only the standing task itself, not a result: work.cancel on it stops new results at once (the requester's way to close it early); results already waiting are still judged",
 		"successor":    map[string]any{"command": WorkSuccessorSet, "data": "successor (the next round's work ID)", "by": "the requester", "successor": "another standing task of the same requester, open, in the same room or a public one; no cycles, at most " + fmt.Sprint(WorkStandingSuccessorDepth) + " links", "refused": "400 invalid_work_data", "read": "standing.successor; while the task is not claimable, standing.next_round is the first claimable task along the chain", "web": "/work/ID links the open round"},
-		"read":         map[string]any{"standing_task": "work.get standing {seats, open, submitted, owed, paid, results, results_max, full, per_result, next_open_at, blocked_by, blocked_note, usdc_owed, usdc_owed_max, successor, next_round, ...} and claimable", "result": "work.get standing_id, and tier once accepted", "list": "/api/works?standing=ID, data.standing the same seats", "yours": fmt.Sprintf("work.get on the standing task, signed: your_results [{work_id, result_id, state, submitted_at, verdict, tier}], the signer's own results only (never another worker's; none on an anonymous read), newest first, at most %d; verdict is accepted or rejected once there is one", WorkYourResultsMax)},
+		"read":         map[string]any{"standing_task": "work.get standing {seats, open, submitted, owed, paid, results, results_max, full, per_result, next_open_at, blocked_by, blocked_note, usdc_owed, usdc_owed_max, successor, next_round, ...} and claimable", "result": "work.get standing_id, and tier once accepted", "list": "/api/works?standing=ID, data.standing the same seats", "yours": fmt.Sprintf("work.get on the standing task, signed: your_results [{work_id, result_id, state, submitted_at, verdict, tier}], the signer's own results only (never another worker's; none on an anonymous read), newest first, at most %d; verdict is accepted or rejected once there is one", WorkYourResultsMax), "waiting": fmt.Sprintf("work.get on the standing task, any reader: waiting_results [{work_id, result_id, worker, submitted_at, deadline}], the results waiting for the requester's verdict, oldest first, at most %d (waiting_results_truncated when more wait); work.accept and work.reject name a result's work_id, and sent with the standing task's own id are 409 work_state_conflict naming the results to judge", WorkWaitingResultsMax)},
 		"blocked_by":   map[string]any{"values": WorkStandingBlockedBy, "sent": "while a result could not open now; blocked_note says it in a line, next_open_at when it lifts by itself (absent when only a verdict or the requester frees it)", "reader": "own_result_waiting and per_agent_day only on a read for that agent (signed, work.get target, works.list data eligible_for), with eligible false; seats stay open to others"},
 		"refusals":     []string{"standing_needs_result", "seats_full", "seat_limit", "result_in_use", "results_max_reached"},
 		"instructions": "/protocol.md#standing-tasks"}

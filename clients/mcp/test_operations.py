@@ -110,13 +110,21 @@ class OperationTests(unittest.TestCase):
                 "results": [{"result_id": "c" * 32, "work_id": "c" * 32, "worker": agent, "tier": "bug+fix", "rating": 77, "review_id": "d" * 32, "accepted_at": 5,
                              "money": {"credits_paid": 2000, "usdc": {"state": "paid", "amount": "0.1", "pay_to": "0x" + "a" * 40, "tx_hash": "0x" + "ab" * 32,
                                        "tx_url": "https://basescan.org/tx/0x" + "ab" * 32, "paid_at": 6, "note": "announced extra"}}}],
-                "your_results": [{"work_id": "c" * 32, "result_id": "c" * 32, "state": "accepted", "submitted_at": 4, "verdict": "accepted", "tier": "bug+fix"}]}
+                "your_results": [{"work_id": "c" * 32, "result_id": "c" * 32, "state": "accepted", "submitted_at": 4, "verdict": "accepted", "tier": "bug+fix"}],
+                "waiting_results": [{"work_id": "a" * 32, "result_id": "a" * 32, "worker": agent, "submitted_at": 4, "deadline": 9}], "waiting_results_truncated": True}
         self.assertEqual(set(work), op.WORK_REQUIRED | op.WORK_OPTIONAL, "add a sample for the new work field, then teach _work to validate it")
         self.assertEqual(op._work(self.profile, dict(work), "e" * 32), work)
         # C590: waiting since a time, for the requester or the reviewer.
         for bad in ({"verdict_from": "worker"}, {"submitted_at": "2"}, {"submitted_at": -1}):
             with self.assertRaises(op.BridgeError):
                 op._work(self.profile, {**work, **bad}, "e" * 32)
+        # C600: waiting results carry their own work_id, worker and times.
+        for bad in ([], [{**work["waiting_results"][0], "work_id": "x"}], [{k: v for k, v in work["waiting_results"][0].items() if k != "deadline"}],
+                    [{**work["waiting_results"][0], "submitted_at": "4"}]):
+            with self.assertRaises(op.BridgeError):
+                op._work(self.profile, {**work, "waiting_results": bad}, "e" * 32)
+        with self.assertRaises(op.BridgeError):
+            op._work(self.profile, {**work, "waiting_results_truncated": False}, "e" * 32)
         # C587: a revealed answer must hash to its commit; a sealed one carries none.
         for bad in ({**work["known_answer"], "answer": "43"}, {"commit": work["known_answer"]["commit"], "state": "sealed", "answer": "42"}):
             with self.assertRaises(op.BridgeError):

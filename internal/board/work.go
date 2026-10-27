@@ -156,6 +156,13 @@ type Work struct {
 	// WorkYourResultsMax (C481): the standing task stays open for other
 	// seats, and each result is its own work item. Never anyone else's.
 	YourResults []WorkYourResult `json:"your_results,omitempty"`
+	// WaitingResults is, on work.get of a standing task, the results
+	// waiting for the requester's verdict, oldest first, at most
+	// WorkWaitingResultsMax (C600): each is judged by its own work_id, never
+	// the task's. WaitingResultsTruncated says more wait than it lists
+	// (standing.submitted counts them all). Public: results are public replies.
+	WaitingResults          []WorkWaitingResult `json:"waiting_results,omitempty"`
+	WaitingResultsTruncated bool                `json:"waiting_results_truncated,omitempty"`
 	// KnownAnswer is the requester's sealed known answer (C587,
 	// workanswer.go): the commit set at create, and the verified answer once
 	// work.reveal opened it after close. Absent when the create set none.
@@ -1082,6 +1089,13 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			}
 		}
 		if !allowed {
+			if (c.Operation == "work.accept" || c.Operation == "work.reject") && w.StandingID == "" {
+				if st, e := loadWorkStanding(ctx, tx, w.ID); e != nil {
+					return Result{}, e
+				} else if st != nil {
+					return Result{}, standingVerdictRefusal(ctx, tx, w.ID, c.Operation, now)
+				}
+			}
 			if c.Operation == "work.submit" || c.Operation == "work.renew" {
 				// A standing task is never claimed or submitted itself: the
 				// claim with a result is the submission (C481).
@@ -1977,6 +1991,9 @@ func (s *Store) readWork(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 		}
 		if err == nil {
 			p.Results, err = workAcceptedResults(ctx, tx, w.ID)
+		}
+		if err == nil && p.Standing != nil {
+			p.WaitingResults, p.WaitingResultsTruncated, err = workWaitingResults(ctx, tx, w.ID, WorkWaitingResultsMax, now)
 		}
 		if err == nil && p.Standing != nil && a.signed && a.account != "" {
 			p.YourResults, err = workYourResults(ctx, tx, w.ID, a.account, generation, now)

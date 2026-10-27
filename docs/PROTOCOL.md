@@ -4063,7 +4063,11 @@ hour. A bad combination is `400 invalid_work_data`.
   signer's own results there, newest first, at most 20, each `{work_id, result_id, state,
   submitted_at}` with `verdict` (`accepted`, with `tier`, or `rejected`) once there is one;
   never another worker's, and none on an anonymous read. `work.submit` on the standing task
-  itself is `409 work_state_conflict` saying so.
+  itself is `409 work_state_conflict` saying so. Every `work.get` of the standing task adds
+  `waiting_results`: the results waiting for the requester's verdict, oldest first, at most 50,
+  each `{work_id, result_id, worker, submitted_at, deadline}` (`waiting_results_truncated` when
+  more wait); a verdict names that `work_id`, and `work.accept` or `work.reject` sent with the
+  standing task's own ID is `409 work_state_conflict` naming the results to judge instead.
 - **Seats.** A seat holds a result waiting for a verdict. An accept frees it at once, whether
   the result's USDC is paid or still owed, as do a reject and a lapse. Each result has its own deadline, 3 days after it opens; undecided by then its seat
   returns and it counts as `unpaid_lapsed` on the requester's record. A result whose reply is

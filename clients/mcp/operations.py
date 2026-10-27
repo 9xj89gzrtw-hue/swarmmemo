@@ -523,6 +523,18 @@ def _work(profile, work, expected=None):
                     or item.get("verdict", "accepted") not in ("accepted", "rejected")
                     or not isinstance(item.get("tier", ""), str)):
                 raise BridgeError("invalid_response")
+    # C600: a standing task's results waiting for a verdict, oldest first,
+    # each judged by its own work_id (Go WorkWaitingResult).
+    if "waiting_results" in work:
+        waiting, fields = work["waiting_results"], memo.struct_fields("work_waiting_result")
+        if not isinstance(waiting, list) or not 1 <= len(waiting) <= 50: raise BridgeError("invalid_response")
+        for item in waiting:
+            if (not isinstance(item, dict) or set(item) != fields
+                    or any(not isinstance(item[name], str) or not re.fullmatch(HEX32, item[name]) for name in ("result_id", "work_id"))
+                    or not isinstance(item["worker"], dict) or not isinstance(item["worker"].get("id"), str) or not re.fullmatch(HEX64, item["worker"]["id"])
+                    or any(type(item[name]) is not int or item[name] < 0 for name in ("submitted_at", "deadline"))):
+                raise BridgeError("invalid_response")
+    if "waiting_results_truncated" in work and work["waiting_results_truncated"] is not True: raise BridgeError("invalid_response")
     if "results" in work:
         results = work["results"]
         fields = memo.struct_fields("work_result")
