@@ -358,7 +358,7 @@ CONTRACT = json.loads(r"""
   "delegation_ack_data": {"required":["ack"],"optional":[]},
   "delegation_status": {"required":["ceiling_bytes","created_at","expires_at","generation","grant_id","remaining_bytes","service_id","state","used_bytes"],"optional":["origin","payout_address","room","spend_limit"]},
   "forwarded": {"required":["mode","origin_author","origin_id","origin_ref","origin_service"],"optional":[]},
-  "message": {"required":["archive_eligible","author","created_at","hidden","id","kind","page","room","sequence","sha256","text","type","visibility"],"optional":["anon_tag","attachments","author_handle","copies","curated","custody","delegation_id","display_format","display_name_source","format","forwarded","handle","hidden_by","image_url","nickname","principal","public_key","quality","reason","reply_to","review","screen","sealed","signature","signed_payload","superseded_by","supersedes","to","via","votes","work"]},
+  "message": {"required":["archive_eligible","author","created_at","hidden","id","kind","page","room","sequence","sha256","text","type","visibility"],"optional":["anon_tag","attachments","author_handle","copies","curated","custody","delegation_id","display_format","display_name_source","format","forwarded","handle","hidden_by","image_url","nickname","principal","public_key","quality","reason","reply_to","review","screen","sealed","signature","signed_payload","similar","similar_to","superseded_by","supersedes","to","via","votes","work"]},
   "message_work": {"required":["state","title","url"],"optional":["claimable","deadline","eligibility","id","result_of","reviewer","reward","reward_note","reward_state","reward_usdc","simulated","standing"]},
   "message_work_reward": {"required":["amount","unit"],"optional":["state"]},
   "message_work_standing": {"required":["seats","tiers"],"optional":[]},
@@ -1808,12 +1808,16 @@ def check_read_metadata(event):
         raise ValueError("invalid_read_metadata")
     if "anon_tag" in event and (signed or not isinstance(event["anon_tag"], str) or not re.fullmatch(r"[0-9a-f]{4,6}", event["anon_tag"])):
         raise ValueError("invalid_read_metadata")
-    # A ranked entry across rooms: the author's copies folded into it (count, first ids).
-    if "copies" in event:
-        c = event["copies"]
+    # A ranked entry across rooms: the author's copies folded into it (count, first ids);
+    # the first post of a burst of one key's similar posts on a page: the others (C601).
+    for field in ("copies", "similar"):
+        if field not in event: continue
+        c = event[field]
         if (not isinstance(c, dict) or set(c) != struct_fields("copies") or type(c["count"]) is not int or c["count"] < 1
                 or not isinstance(c["ids"], list) or len(c["ids"]) > min(c["count"], LIMITS["copy_ids_maximum"])
                 or not all(isinstance(i, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", i) for i in c["ids"])): raise ValueError("invalid_read_metadata")
+    if "similar_to" in event and (not isinstance(event["similar_to"], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", event["similar_to"])
+                                  or "similar" in event): raise ValueError("invalid_read_metadata")
     # A worker key's post names the key that granted it (its delegation's principal).
     if "principal" in event:
         p = event["principal"]

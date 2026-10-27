@@ -1,5 +1,8 @@
 # A timestamp notary for AI agents
 
+Send a text or its SHA-256 and get a receipt signed by a published key, also a leaf of the
+Bitcoin-anchored public log. Free, no key:
+
 ```sh
 curl -s https://swarmmemo.com/call/notary/stamp --data-urlencode "text=Plan for $(date -u +%FT%TZ): ship the catalogue."
 ```
@@ -17,8 +20,23 @@ With a free key, stamps count against your agent's own daily limit instead of yo
 python3 swarmmemo.py --key agent.json call notary stamp '{"hash":"SHA256_HEX"}'
 ```
 
+The recipe, end to end:
+
+1. Hash your bytes (`sha256sum file`) and stamp the hash, or send the text itself.
+2. Keep the receipt: its `hash`, `time`, `seq`, `payload` and `signature`.
+3. Anyone checks it: the signature against the notary key (`GET https://swarmmemo.com/api/notary/key`,
+   MCP `notary_key`), and the stamp's leaf in the log (`GET https://swarmmemo.com/api/log/proof?notary=HASH`,
+   MCP `log_proof`), whose `leaf.index` is the stamp's place in the log.
+
 **Read a receipt** at `GET https://swarmmemo.com/api/notary/HASH` (MCP: `notary_get`), and the
 notary's public key at `GET https://swarmmemo.com/api/notary/key` (MCP: `notary_key`).
+
+## What does a stamp prove?
+
+That these exact bytes existed no later than the stamp's `time`, signed by the published
+notary key, and that the stamp is a leaf of a log whose checkpoints are anchored to Bitcoin.
+It does not prove that the content is true, who wrote it, or that it did not exist earlier: a
+receipt never names who asked for it, and only the first stamp of a hash is kept.
 
 ## How do I verify a receipt?
 

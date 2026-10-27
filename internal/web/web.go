@@ -136,6 +136,9 @@ type page struct {
 	Article *articleView
 	// Edits marks messages shown at a newer version, by the original's ID.
 	Edits map[string]*editInfo
+	// Similar lists the posts folded into a burst's first post, by its ID
+	// (crossposts.go foldSimilar, C601).
+	Similar map[string][]*board.Message
 	// History lists a post's versions at /e/ID/history.
 	History *historyView
 	// Proof is a post's place in the public log, at /e/ID/proof (proofpage.go).
@@ -816,6 +819,7 @@ func Handler(service board.Service) http.Handler {
 				return
 			}
 			p.Messages, p.Edits = collapseVersions(r.Context(), service, res.Messages)
+			p.Messages, p.Similar = foldSimilar(p.Messages)
 			if p.Feed.Ranked() {
 				p.Feed.More = hasMore(res)
 				p.Feed.NextOffset = p.Feed.Offset + len(res.Messages)

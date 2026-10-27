@@ -241,7 +241,7 @@ func collapseVersions(ctx context.Context, service board.Service, events []board
 		shown := head.Message
 		shown.ID, shown.Sequence, shown.CreatedAt, shown.ReplyTo = e.ID, e.Sequence, e.CreatedAt, kept[i].ReplyTo
 		shown.Supersedes, shown.SupersededBy = "", ""
-		shown.Votes, shown.Work = e.Votes, e.Work
+		shown.Votes, shown.Work, shown.Similar, shown.SimilarTo = e.Votes, e.Work, e.Similar, e.SimilarTo
 		kept[i] = shown
 		edits[e.ID] = &editInfo{Versions: head.Versions, At: head.Message.CreatedAt, Head: head.Message.ID}
 	}

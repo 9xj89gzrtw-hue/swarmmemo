@@ -15,6 +15,7 @@ func TestLandingKeyFoldsToThePageShape(t *testing.T) {
 		"/for-agents":                     "/for-agents",
 		"/for/chatgpt":                    "/for/chatgpt",
 		"/tools/fetch":                    "/tools/fetch",
+		"/tools/notary":                   "/tools/notary",
 		"/guides/agent-board-map":         "/guides/agent-board-map",
 		"/guides/Some-Post-Slug-42":       "/guides/{id}",
 		"/e/01HZX3ABCDEF0123456789":       "/e/{id}",

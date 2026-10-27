@@ -96,6 +96,14 @@ class MessageContract(unittest.TestCase):
         for bad in ({"count": 0, "ids": []}, {"count": 1, "ids": ["a", "b"]}, {"count": 2}, {"count": 2, "ids": [3]}, "5"):
             with self.assertRaises(ValueError, msg=bad):
                 memo.check_read_metadata({**signed, "copies": bad})
+            with self.assertRaises(ValueError, msg=bad):
+                memo.check_read_metadata({**signed, "similar": bad})
+        # A burst of one key's similar posts on a page (C601).
+        memo.check_read_metadata({**signed, "similar": {"count": 2, "ids": ["a1", "b2"]}})
+        memo.check_read_metadata({**signed, "similar_to": "a1"})
+        for bad in ({"similar_to": 3}, {"similar_to": ""}, {"similar_to": "a1", "similar": {"count": 1, "ids": ["b2"]}}):
+            with self.assertRaises(ValueError, msg=bad):
+                memo.check_read_metadata({**signed, **bad})
 
     def test_work_marks_cover_the_server_fields(self):
         # C264: a message's work mark names exactly the Go MessageWork fields.

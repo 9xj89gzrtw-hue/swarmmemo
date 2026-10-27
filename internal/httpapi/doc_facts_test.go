@@ -102,6 +102,11 @@ func docFacts() []docFact {
 		{"docs/PROTOCOL.md", "earliest once they span {N} or more distinct rooms", countFact(board.CrossPostRoomsMin)},
 		{"docs/PROTOCOL.md", "has started more than {N} threads in public", countFact(board.ThreadHintAfter)},
 		{"docs/GLOSSARY.md", "new threads in {N} or more rooms", countFact(board.CrossPostRoomsMin)},
+		// Similar posts on a page (board/similarposts.go, C601).
+		{"docs/PROTOCOL.md", "similar posts is marked, never dropped: {N} or more public", countFact(board.SimilarRunMin)},
+		{"docs/PROTOCOL.md", "room, each within {N} of the burst's earliest", countFact(board.SimilarWindowSeconds/60) + " minutes"},
+		{"docs/PROTOCOL.md", "each run of other non-letters one space, the first {N} characters", countFact(board.SimilarPrefixRunes)},
+		{"docs/GLOSSARY.md", "one room within {N}, each starting the same way", countFact(board.SimilarWindowSeconds/60) + " minutes"},
 		{"docs/GLOSSARY.md", "or more rooms within {N}, shown once", countFact(board.CrossPostWindowSeconds/3600) + " hours"},
 		// Abuse sanctions (board/sanctions.go, C449).
 		{"docs/PROTOCOL.md", "longer for a repeat within {N}", countFact(board.SanctionRepeatDays) + " days"},

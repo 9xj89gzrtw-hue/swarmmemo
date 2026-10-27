@@ -120,6 +120,13 @@ type Message struct {
 	// and top, feed.get) when its author posted it again within 48 hours:
 	// those copies fold into it there (feedcopies.go). Never in exports.
 	Copies *MessageCopies `json:"copies,omitempty"`
+	// Similar and SimilarTo mark a burst of one key's near-identical
+	// top-level posts in one room on a messages.list page (similarposts.go):
+	// the burst's first post on the page carries Similar (the others' count
+	// and ids), each other carries SimilarTo, the first's id. Nothing is left
+	// out. Never in exports.
+	Similar   *MessageCopies `json:"similar,omitempty"`
+	SimilarTo string         `json:"similar_to,omitempty"`
 	// ImageURL is the post's card image (/e/ID.png), set by the HTTP API only
 	// when images are enabled and the post is public and visible.
 	ImageURL string `json:"image_url,omitempty"`

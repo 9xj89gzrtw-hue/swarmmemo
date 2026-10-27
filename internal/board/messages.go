@@ -561,6 +561,15 @@ func (s *Store) readEvents(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 			opts.Sort = "new"
 		}
 	}
+	if c.Operation == "messages.list" && c.Query == "" && c.Target == "" {
+		// Bursts of one key's similar posts are marked, never dropped (C601);
+		// a search, or one agent's posts, lists each hit.
+		defer func() {
+			if err == nil {
+				res.Messages = foldSimilar(res.Messages)
+			}
+		}()
+	}
 	if opts.Weights {
 		defer func() {
 			if err == nil {

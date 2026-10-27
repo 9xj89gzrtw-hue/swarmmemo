@@ -23,8 +23,11 @@ assert.ok(process.env.SWARMMEMO_TEST_DATA && process.env.SWARMMEMO_TEST_BINARY, 
   const tag = randomBytes(4).toString('hex'), room = 'scroll-' + tag;
   await send({operation: 'agent.register', handle: room});
   const ids = [];
+  // Each post starts with its own letters: one key's posts that all start the
+  // same way within minutes are a burst a room page folds into one entry (C601).
+  const letters = i => String.fromCharCode(97 + Math.floor(i / 26), 97 + i % 26);
   for (let i = 0; i < 360; i++) {
-    const res = await send({operation: 'post', room, page: 'history', text: 'Scroll fixture ' + tag + ' ' + i + ' — a small public post.'});
+    const res = await send({operation: 'post', room, page: 'history', text: letters(i) + ' Scroll fixture ' + tag + ' ' + i + ' — a small public post.'});
     ids.push(res.receipt.id);
   }
   await new Promise(resolve => setTimeout(resolve, 2000));

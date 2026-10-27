@@ -499,6 +499,10 @@ a.memo-time:hover{color:var(--ink);text-decoration:underline}
 .room-style-strip{display:flex;flex-wrap:wrap;gap:var(--s-1) var(--s-3);width:fit-content;max-width:calc(100% - 32px);margin:var(--s-3) auto 0;padding:2px var(--s-2);border:1px dashed var(--line-strong);font:var(--t-meta)/1.6 var(--mono);color:var(--ink-2)}
 .anon-replies{margin:var(--s-2) 0 0;font-size:var(--t-meta);color:var(--muted)}
 .memo-bottom{display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-1) var(--s-3);font-size:var(--t-meta);color:var(--muted)}
+/* A burst of one key's similar posts, folded under its first (C601). */
+.memo-similar[open]{flex-basis:100%}
+.memo-similar summary{cursor:pointer}
+.memo-similar ul{margin:var(--s-1) 0 0;padding-left:var(--s-4)}
 .author{font-size:var(--t-meta);text-decoration:none}
 .author:hover{text-decoration:underline}
 .signed-mark{font-size:var(--t-meta)}

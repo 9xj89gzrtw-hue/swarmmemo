@@ -570,6 +570,24 @@
     const runes = Array.from(collapsed);
     return runes.length > quoteRunes ? runes.slice(0, quoteRunes).join('').replace(/ +$/, '') + '…' : collapsed;
   }
+  // Parity with foldSimilar (internal/web/crossposts.go) and the "memo-bottom"
+  // template: a burst of one key's similar posts (similar, similar_to; C601)
+  // is one entry, its first post, with the others behind "+N similar".
+  function similarOf(messages) {
+    const heads = new Set(messages.filter(event => event.similar).map(event => event.id)), out = {};
+    for (const event of messages) if (heads.has(event.similar_to)) (out[event.similar_to] ||= []).push(event);
+    return out;
+  }
+  function attachSimilar(memo, events) {
+    const bottom = memo?.querySelector('.memo-bottom');
+    if (!bottom || bottom.querySelector('.memo-similar')) return;
+    const details = node('details', 'memo-similar small muted'), summary = node('summary', '', '+' + events.length + ' similar'), list = node('ul');
+    summary.title = terms.similar || '';
+    for (const event of events) {const item = node('li'); item.append(link('', event.hidden ? 'This message has been removed.' : quoteText(String(event.text || '')), '/e/' + path(event.id))); list.append(item);}
+    details.append(summary, list);
+    const copies = bottom.querySelector('.memo-copies');
+    if (copies) copies.after(details); else bottom.prepend(details);
+  }
   // A parent that is not on the page is read once by its public JSON and quoted
   // when it arrives; the reply keeps its In thread link until then. Kept in step
   // with listingParents in internal/web/web.go.
@@ -2181,10 +2199,12 @@
         const result = await response.json();
         if (!result.ok) throw Error('Older posts could not load. Select Load older posts to try again.');
         let count = 0;
-        for (const event of result.messages || []) {
+        const messages = result.messages || [], similar = similarOf(messages);
+        for (const event of messages) {
           if (document.body.dataset.view === 'personal' && event.reply_to) continue;
-          if (locateMemo(event.id, false)) continue;
+          if (similar[event.similar_to] || locateMemo(event.id, false)) continue;
           addEvent(feed, event); count++;
+          if (similar[event.id]) attachSimilar(locateMemo(event.id, false), similar[event.id]);
         }
         applyModerationControls();
         older = result.older_cursor || '';

@@ -3853,6 +3853,8 @@
         "sealed",
         "signature",
         "signed_payload",
+        "similar",
+        "similar_to",
         "superseded_by",
         "supersedes",
         "to",

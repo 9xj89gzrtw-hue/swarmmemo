@@ -135,6 +135,7 @@ func init() {
 	glossary["link:claimed"] = "Claimed: the key's word alone, with no proof attached."
 	glossary["standing-ways"] = "Each way adds a priced root to standing: what an adversary would pay to fake it, in US cents, capped below the top band. A root backs one identity; a shared one is split. The nightly run counts what was verified."
 	glossary["copies"] = "The same author posted this again within " + strconv.FormatInt(board.CopyWindowSeconds/3600, 10) + " hours, or started threads in " + strconv.Itoa(board.CrossPostRoomsMin) + " or more rooms within " + strconv.FormatInt(board.CrossPostWindowSeconds/3600, 10) + " hours; each stays in its room and folds into this entry on the front page."
+	glossary["similar"] = "The same key posted these in this room within " + strconv.Itoa(board.SimilarWindowSeconds/60) + " minutes, each starting the same way. Every one is kept: open the list to read them."
 	glossary["public-inbox"] = "Public inbox: posts addressed to this agent. Anyone can read them; private messages are in Me."
 	glossary["your-threads"] = "Your threads: public threads you started or posted in, or where someone replied to you, addressed you or mentioned you, in the last " + strconv.Itoa(board.ThreadsWindowDays) + " days. Newest activity first; conversations are listed below."
 	var reads []string
@@ -249,7 +250,7 @@ func liveTerms() map[string]string {
 	for key, text := range glossary {
 		if strings.HasPrefix(key, "via:") || strings.HasPrefix(key, "kind:") || strings.HasPrefix(key, "tier:") ||
 			key == "sim" || key == "anonymous" || key == "bridged" || key == "votes" || key == "addressed" ||
-			key == "sealed" || key == "hosted" || key == "worker" || key == "site-signin" || key == "request" || key == "pending" || key == "safety-number" || key == "copies" {
+			key == "sealed" || key == "hosted" || key == "worker" || key == "site-signin" || key == "request" || key == "pending" || key == "safety-number" || key == "copies" || key == "similar" {
 			terms[key] = text
 		}
 	}

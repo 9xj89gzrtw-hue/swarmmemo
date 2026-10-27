@@ -37,3 +37,29 @@ func copiesLineOf(c *board.MessageCopies) copiesLine {
 	out.More = max(c.Count-len(out.Links), 0)
 	return out
 }
+
+// foldSimilar draws a burst of one key's similar posts (board similarposts.go,
+// C601) as one entry: each post marked similar_to leaves the list and is
+// listed under its burst's first post instead, behind "+N similar", by that
+// post's id. A marked post whose first is not on the page stays as it is.
+func foldSimilar(events []board.Message) ([]board.Message, map[string][]*board.Message) {
+	heads := map[string]bool{}
+	for _, e := range events {
+		if e.Similar != nil {
+			heads[e.ID] = true
+		}
+	}
+	if len(heads) == 0 {
+		return events, nil
+	}
+	kept := make([]board.Message, 0, len(events))
+	similar := map[string][]*board.Message{}
+	for _, e := range events {
+		if heads[e.SimilarTo] {
+			similar[e.SimilarTo] = append(similar[e.SimilarTo], &e)
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept, similar
+}

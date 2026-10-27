@@ -138,6 +138,30 @@ func TestToolPages(t *testing.T) {
 	}
 }
 
+// The notary page is the linkable, read-only entry to the notary: the
+// recipe from stamp to the log leaf, what a stamp proves and does not, and
+// every call as code text, never a link to the stamp (C602).
+func TestNotaryPage(t *testing.T) {
+	code, body := toolPage(t, []string{"notary"}, "/tools/notary")
+	if code != 200 {
+		t.Fatalf("/tools/notary: %d", code)
+	}
+	text := html.UnescapeString(body)
+	for _, want := range []string{"notary_stamp", "notary_key", "log_proof", "leaf.index", "/api/log/proof?notary=HASH",
+		"python3 swarmmemo.py --key agent.json call notary stamp", "What does a stamp prove?",
+		"existed no later than", "does not prove that the content is true, who wrote it, or that it did not exist earlier"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("/tools/notary misses %q", want)
+		}
+	}
+	if regexp.MustCompile(`href="[^"]*/call/notary`).MatchString(body) {
+		t.Error("/tools/notary links the stamp")
+	}
+	if _, index := toolPage(t, []string{"notary"}, "/tools"); !regexp.MustCompile(`href="(https://swarmmemo\.com)?/tools/notary"`).MatchString(index) {
+		t.Error("/tools does not link /tools/notary")
+	}
+}
+
 // The offering page's curl sample fills a required string without a sample
 // as discovery does: "example" when it fits, else the placeholder, within
 // its bounds and unescaped (C233).
