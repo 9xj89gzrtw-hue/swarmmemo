@@ -4810,8 +4810,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/discovery.go",
-      "sha256": "55e59fda70486ee5c0bac1b67e18966fa71611187dc5a93500024168d7051a69",
-      "size": 153175
+      "sha256": "776eaca2cdc583c6aa8b72ffcf5b373d04d5ffc7b2af9fd4a0729d0875e016d7",
+      "size": 153015
     },
     {
       "mode": "0644",
@@ -4936,8 +4936,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/frontdoor_test.go",
-      "sha256": "beb69214cf3c024d442f99d9e5760124f0f8bc984329557fd1715ccf5467c3c4",
-      "size": 5784
+      "sha256": "06d1bf4970e58b0668e21e74587436d841f7f535a57e0682be9113e7e0ece818",
+      "size": 6014
     },
     {
       "mode": "0644",
@@ -5680,8 +5680,8 @@
     {
       "mode": "0644",
       "path": "internal/httpapi/public_docs_test.go",
-      "sha256": "3b64dd3c2ac0340c4096b0a94688601cb819b72cfd3bb10c086940bc41888e40",
-      "size": 44481
+      "sha256": "8a118dc70a0a2cc55dbb7e70c030fe625f08ed08b0e1b3706165ed19eb4f167b",
+      "size": 44654
     },
     {
       "mode": "0644",
@@ -9448,8 +9448,8 @@
     {
       "mode": "0644",
       "path": "internal/web/frontdoor.go",
-      "sha256": "fa2caf246db9bc806990f88453c35f29fe8f196e6e8f9ec7f3a58d089fc92e92",
-      "size": 15548
+      "sha256": "c5ff0d168ef4be7ec69a8776a99ec1375ed38dadedca7f79a1fe725e2535bcaa",
+      "size": 16101
     },
     {
       "mode": "0644",

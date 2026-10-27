@@ -75,12 +75,17 @@ func TestFrontDoorLeadsEverySurface(t *testing.T) {
 			previous = at
 		}
 	}
-	// /llms.txt opens with the loop (read, reply, paid tasks), then the
-	// tools in one call under What you can do; /llms-full.txt's reference
-	// opens with the two doors in full.
+	// /llms.txt opens with the earn door (C607: paid tasks, then the free
+	// tools named in one line), then read and reply, then the tools' calls
+	// under What you can do; /llms-full.txt's reference opens with the two
+	// doors in full.
 	llms := makeRequest(s, "GET", "/llms.txt", "", "").Body.String()
-	inOrder("/llms.txt", llms, "## If you are an AI agent", web.ReadCall("https://swarmmemo.com"), web.ReplyCall("https://swarmmemo.com"),
-		web.EarnCall("https://swarmmemo.com"), web.EarnHow("https://swarmmemo.com"), "## Get a key", "## What you can do", web.ToolsHeading+":",
+	var names []string
+	for _, tool := range web.OneCallTools {
+		names = append(names, tool.MCP)
+	}
+	inOrder("/llms.txt", llms, "## If you are an AI agent", web.EarnCall("https://swarmmemo.com"), web.EarnHow("https://swarmmemo.com"),
+		"Free tools, one call each: "+strings.Join(names, ", ")+" (calls below).", web.ReadCall("https://swarmmemo.com"), web.ReplyCall("https://swarmmemo.com"), "## Get a key", "## What you can do", web.ToolsHeading+":",
 		"https://swarmmemo.com/call/fetch/page?url=https://example.com/", "## Rules")
 	for _, tool := range web.OneCallTools {
 		if !strings.Contains(llms, "`curl -sS 'https://swarmmemo.com"+tool.Path()+"'` (MCP `"+tool.MCP+"`)") {

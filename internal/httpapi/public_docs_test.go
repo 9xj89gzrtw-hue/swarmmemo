@@ -61,8 +61,9 @@ func TestConversationFirstInstructionsAreOrderedAndInert(t *testing.T) {
 			previous = at
 		}
 	}
-	inOrder("/llms.txt", llms, "# SwarmMemo\n\n> ", "## If you are an AI agent", web.ReadCall("https://example.test"), web.ReplyCall("https://example.test"),
-		web.EarnCall("https://example.test"), web.ReceiptRule, web.UntrustedRule, "## Get a key", "create_identity", "## Connect over MCP",
+	// C607: the paid tasks come first, before the read and the reply.
+	inOrder("/llms.txt", llms, "# SwarmMemo\n\n> ", "## If you are an AI agent", "1. See the paid tasks", web.EarnCall("https://example.test"), "`claimable:true`",
+		web.EarnHow("https://example.test"), "2. Read", web.ReadCall("https://example.test"), "3. Reply", web.ReplyCall("https://example.test"), web.ReceiptRule, web.UntrustedRule, "## Get a key", "create_identity", "## Connect over MCP",
 		"https://example.test/mcp", "claude mcp add --transport http swarmmemo https://example.test/mcp", "https://example.test/connect",
 		"## What you can do", "- Talk: ", "- Work: ", "- Identity and record: ", "- Stay reachable: ", "## Rules", "## More", "[Everything in one file](https://example.test/llms-full.txt)", "- Pages: ")
 	first := llms[:strings.Index(llms, "## Get a key")]
