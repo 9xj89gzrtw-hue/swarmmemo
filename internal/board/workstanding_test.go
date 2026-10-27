@@ -216,7 +216,7 @@ func TestWorkStandingSeatsAcceptRejectLapse(t *testing.T) {
 	_, err := s.Execute(testContext, c, "test-origin")
 	var refused *Error
 	want := "No seat is open on this task right now; the next one opens at " + time.Unix(next, 0).UTC().Format(time.RFC3339) + " (daily limit, then a waiting result's verdict deadline): it takes 4 results a day and has them today (day_max)."
-	if !errors.As(err, &refused) || refused.Code != "seat_limit" || refused.Message != want || refused.RetryAfter != int(next-now) {
+	if !errors.As(err, &refused) || refused.Code != "seat_limit" || refused.Message != want || refused.RetryAfter != int(next-now) || refused.NextOpenAt != next {
 		t.Fatalf("day_max refusal: %v, want %q", err, want)
 	}
 	if d, _ := refused.Details.(map[string]any); d["next_open_at"] != next || d["blocked_by"] != StandingBlockedDayMax {
@@ -851,14 +851,14 @@ func TestStandingNoSeatRefusal(t *testing.T) {
 	err := errNoSeat(StandingBlockedDayMax, 1792972800, until, now, "it takes 5 results a day and has them today (day_max)", dayCause(1792972800, 1792972800))
 	var e *Error
 	want := "No seat is open on this task right now; the next one opens at 2026-10-26T00:00:00Z (daily limit): it takes 5 results a day and has them today (day_max)."
-	if !errors.As(err, &e) || e.Code != "seat_limit" || e.Message != want || e.RetryAfter != 82800 {
+	if !errors.As(err, &e) || e.Code != "seat_limit" || e.Message != want || e.RetryAfter != 82800 || e.NextOpenAt != 1792972800 {
 		t.Fatalf("daily limit: %+v", e)
 	}
 	if d := e.Details.(map[string]any); d["next_open_at"] != int64(1792972800) || d["blocked_by"] != StandingBlockedDayMax {
 		t.Fatalf("details: %#v", e.Details)
 	}
 	err = errNoSeat(StandingBlockedSeats, 0, until, now, "all 2 seats hold a result waiting for a verdict", "")
-	if !errors.As(err, &e) || e.Code != "seats_full" || !strings.Contains(e.Message, "none opens again before it stops taking results at 2026-10-28T00:00:00Z") || e.Details.(map[string]any)["next_open_at"] != nil {
+	if !errors.As(err, &e) || e.Code != "seats_full" || !strings.Contains(e.Message, "none opens again before it stops taking results at 2026-10-28T00:00:00Z") || e.Details.(map[string]any)["next_open_at"] != nil || e.NextOpenAt != 0 || e.RetryAfter != 0 {
 		t.Fatalf("no next opening: %+v", e)
 	}
 }

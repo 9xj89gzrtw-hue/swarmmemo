@@ -259,7 +259,7 @@ func withFreshChallenge(err error, fresh func() error) error {
 	if !errors.As(fresh(), &fe) || fe.Code != "payment_required" {
 		return err
 	}
-	return &Error{Status: be.Status, Code: be.Code, Message: be.Message, RetryAfter: be.RetryAfter, Details: fe.Details}
+	return &Error{Status: be.Status, Code: be.Code, Message: be.Message, RetryAfter: be.RetryAfter, NextOpenAt: be.NextOpenAt, Details: fe.Details}
 }
 
 // ---- the 402 and the receipt ---------------------------------------------

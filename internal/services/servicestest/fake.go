@@ -60,7 +60,7 @@ func (m *Meter) Spend(ctx context.Context, q allowance.Querier, s allowance.Subj
 		return ledger.Receipt{}, err
 	}
 	if used+units > m.Budget[r] {
-		return ledger.Receipt{}, &allowance.Err{Code: "quota_exhausted", RetryAfter: int(86400 - now%86400)}
+		return ledger.Receipt{}, allowance.Until("quota_exhausted", allowance.NextDay(now), now)
 	}
 	_, err = q.ExecContext(ctx, "INSERT INTO fake_ledger(kind,account,resource,units,service,method) VALUES('spend',?,?,?,?,?)", s.ID, string(r), units, ref.Service, ref.Method)
 	return ledger.Receipt{Resource: r, Used: units, ByBucket: free(units)}, err

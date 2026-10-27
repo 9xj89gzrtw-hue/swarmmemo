@@ -623,7 +623,7 @@ func (s *Store) publishVerification(ctx context.Context, tx *sql.Tx, c Command, 
 		return Result{}, err
 	}
 	if today >= VerificationsPerDay {
-		return Result{}, verificationError("verification_limit")
+		return Result{}, verificationError("verification_limit").(*Error).until(nextDay(now), now)
 	}
 	if d.Supersedes != "" {
 		if err = checkSupersedes(ctx, tx, d.Supersedes, a.id); err != nil {

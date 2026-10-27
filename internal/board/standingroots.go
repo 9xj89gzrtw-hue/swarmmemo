@@ -311,9 +311,12 @@ func (s *Store) issueStandingChallenge(ctx context.Context, tx *sql.Tx, c Comman
 	}
 	if pow && (today >= StandingPowPerDay || open >= StandingPowOpen) || !pow && today >= StandingChallengesPerDay {
 		e := standingError("challenge_rate").(*Error)
-		e.RetryAfter = int(day + 86400 - now)
 		if pow && today < StandingPowPerDay {
+			// Open proof-of-work challenges lift as they are used or
+			// expire: a hint, not a computed time.
 			e.RetryAfter = 60
+		} else {
+			e.until(day+86400, now)
 		}
 		return Result{}, e
 	}

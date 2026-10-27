@@ -48,7 +48,7 @@ func (s *Store) feedback(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 		return Result{}, err
 	}
 	if today >= limit {
-		return Result{}, problem(429, "feedback_rate", "That is today's feedback from you ("+itoa(limit)+" a day); thank you. More tomorrow (UTC).")
+		return Result{}, (&Error{Status: 429, Code: "feedback_rate", Message: "That is today's feedback from you (" + itoa(limit) + " a day); thank you. More tomorrow (UTC)."}).until(nextDay(now), now)
 	}
 	if err = s.charge(ctx, tx, a, int64(len(c.Text)+512), now); err != nil {
 		return Result{}, err

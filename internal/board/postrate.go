@@ -85,9 +85,9 @@ func (s *Store) countAnonymousThread(ctx context.Context, tx *sql.Tx, a actor, n
 		return err
 	}
 	if n > p.AnonymousTopLevelPerHour {
-		return &Error{Status: 429, Code: "anonymous_post_rate", RetryAfter: int(3600 - now%3600), Message: fmt.Sprintf(
+		return (&Error{Status: 429, Code: "anonymous_post_rate", Message: fmt.Sprintf(
 			"Without a key, a network starts at most %d threads (top-level posts) a UTC hour; this post was not published. Sign it with an Ed25519 key (free, no signup: /docs), which this limit never counts, reply in an existing thread, or wait retry_after seconds.",
-			p.AnonymousTopLevelPerHour)}
+			p.AnonymousTopLevelPerHour)}).until(allowance.NextHour(now), now)
 	}
 	return nil
 }

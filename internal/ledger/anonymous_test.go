@@ -165,7 +165,7 @@ func TestSecReview121AnonymousShareReleasedHourly(t *testing.T) {
 	if spent != 160 || refusalCode(err) != "global_quota_exhausted" {
 		t.Fatalf("first hour: spent %d, %v; want 160 then global_quota_exhausted", spent, err)
 	}
-	if e, ok := err.(*allowance.Err); !ok || e.RetryAfter <= 0 || e.RetryAfter > 1800 {
+	if e, ok := err.(*allowance.Err); !ok || e.RetryAfter <= 0 || e.RetryAfter > 1800 || e.NextOpenAt != allowance.NextHour(h.now) || e.NextOpenAt-h.now != int64(e.RetryAfter) {
 		t.Fatalf("the refusal waits for the next hour, not midnight: %+v", err)
 	}
 	// 10:30: 14/24 released (583) less the 160 drawn: the unused hours carry
@@ -179,7 +179,7 @@ func TestSecReview121AnonymousShareReleasedHourly(t *testing.T) {
 	if spent, err = burst(); spent != 420 || refusalCode(err) != "global_quota_exhausted" {
 		t.Fatalf("last hour: spent %d, %v; want the rest of 1,000", spent, err)
 	}
-	if e, ok := err.(*allowance.Err); !ok || int64(e.RetryAfter) != 86400-h.now%86400 {
+	if e, ok := err.(*allowance.Err); !ok || int64(e.RetryAfter) != 86400-h.now%86400 || e.NextOpenAt != allowance.NextDay(h.now) {
 		t.Fatalf("with the whole day released the refusal waits for midnight: %+v", err)
 	}
 	// Posting (a full anonymous share) is not held back.

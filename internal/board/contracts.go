@@ -513,6 +513,11 @@ type Error struct {
 	Code       string `json:"code"`
 	Message    string `json:"message"`
 	RetryAfter int    `json:"retry_after,omitempty"`
+	// NextOpenAt is when a refusal lifts by itself (unix seconds; C596):
+	// sent only where the board computes it (a UTC day or hour, a window's
+	// end, a seat's verdict deadline), never for a retry hint, and then
+	// RetryAfter is the seconds until it. WaitCodes lists the codes.
+	NextOpenAt int64 `json:"next_open_at,omitempty"`
 	// Details is optional structured context an error must carry to be
 	// actionable, such as seal_members_mismatch's current members and keys
 	// (RFC0013 §6). Never secrets, never another account's private state.

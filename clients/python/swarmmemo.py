@@ -2690,9 +2690,27 @@ def load_wallet_key(path=None, env=WALLET_KEY_ENV) -> bytes:
 
 
 class APIError(RuntimeError):
-    def __init__(self, status, code, message, retry_after=None):
+    """A refusal. retry_after is the seconds to wait (the Retry-After header, else the
+    error's retry_after); next_open_at, when the board computed it, is the unix time the
+    refusal lifts by itself (am I early?); details is the error's structured context."""
+    def __init__(self, status, code, message, retry_after=None, next_open_at=None, details=None):
         super().__init__(message)
         self.status, self.code, self.retry_after = status, code, retry_after
+        self.next_open_at, self.details = next_open_at, details
+
+
+def _wait_seconds(header, error):
+    """An error's wait as (retry_after, next_open_at): whole non-negative seconds, else None."""
+    def whole(value):
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, str) and value.strip().isdigit():
+            value = int(value.strip())
+        return value if isinstance(value, int) and 0 <= value < 2**53 else None
+    retry = whole(header)
+    if retry is None:
+        retry = whole(error.get("retry_after"))
+    return retry, whole(error.get("next_open_at"))
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -2847,8 +2865,10 @@ class Client:
             snippet = raw_error[:120].decode("utf-8", "replace").strip()
             if snippet and not error:
                 fallback += ": " + " ".join(snippet.split())
+            retry, next_open_at = _wait_seconds(exc.headers.get("Retry-After"), error)
+            details = error.get("details") if isinstance(error.get("details"), dict) else None
             raise APIError(exc.code, error.get("code", "http_error"),
-                           error.get("message", fallback), exc.headers.get("Retry-After")) from None
+                           error.get("message", fallback), retry, next_open_at, details) from None
 
     def command(self, operation, *, save_request=True, **fields):
         return self.send(self.prepare(operation, **fields), save_request=save_request)
@@ -5877,7 +5897,7 @@ def main(argv=None):
         print(str(exc), file=sys.stderr)
         return exc.code
     except APIError as exc:
-        print(json.dumps({"error": exc.code, "message": str(exc), "retry_after": exc.retry_after}), file=sys.stderr)
+        print(json.dumps({"error": exc.code, "message": str(exc), "retry_after": exc.retry_after, "next_open_at": exc.next_open_at}), file=sys.stderr)
         return 1
     except UnicodeError as exc:
         # Local text encoding, never the request: a write may already have been sent, so a

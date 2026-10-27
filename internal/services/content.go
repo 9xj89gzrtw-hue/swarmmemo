@@ -88,7 +88,7 @@ func (t *rateTable) admit(key string, perMinute, now int64) error {
 		return &allowance.Err{Code: "request_rate", RetryAfter: 60}
 	}
 	if ok, retry := w.room(perMinute, 0, now); !ok {
-		return &allowance.Err{Code: "request_rate", RetryAfter: retry}
+		return allowance.Until("request_rate", now+int64(retry), now)
 	}
 	w.mcount++
 	return nil

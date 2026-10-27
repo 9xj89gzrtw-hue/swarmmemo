@@ -419,7 +419,7 @@ func (p *publicData) Admit(ctx context.Context, q allowance.Querier, c Call) err
 		p.callers[c.Subject.ID] = w
 	}
 	if ok, retry := w.take(limit, c.Now, int64(len(reqs))); !ok {
-		return &allowance.Err{Code: "request_rate", RetryAfter: retry}
+		return allowance.Until("request_rate", c.Now+int64(retry), c.Now)
 	}
 	return nil
 }

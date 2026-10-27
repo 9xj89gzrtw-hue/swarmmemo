@@ -225,7 +225,7 @@ func (s *Store) changeSpendLimit(ctx context.Context, tx *sql.Tx, c Command, a a
 
 // spendLimitError is 429 spend_limit, naming the limit that was hit.
 func spendLimitError(e *allowance.Err) error {
-	out := &Error{Status: 429, Code: "spend_limit", RetryAfter: e.RetryAfter}
+	out := (&Error{Status: 429, Code: "spend_limit"}).waitOf(e)
 	switch e.SpendLimit {
 	case "per_day":
 		out.Message = fmt.Sprintf("This credential's daily spend limit (credit_per_day %d) is used up; nothing was charged. It resets at 00:00 UTC (retry_after), or the account's owner can raise it with spend_limit.set.", e.SpendLimitValue)

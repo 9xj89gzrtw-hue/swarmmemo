@@ -109,7 +109,7 @@ func fromAllowance(err error) error {
 	}
 	var out *Error
 	if errors.As(mapped, &out) && e.RetryAfter > 0 {
-		out.RetryAfter = e.RetryAfter
+		out.waitOf(e)
 	}
 	return mapped
 }

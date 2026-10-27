@@ -27,8 +27,11 @@ func quotaRow(ctx context.Context, tx *sql.Tx, actor string, day int64) (used, i
 // retry_after.
 func untilMidnight(now int64) int { return int(86400 - now%86400) }
 
+// nextDay is the next 00:00 UTC after now: a daily cap's next_open_at.
+func nextDay(now int64) int64 { return allowance.NextDay(now) }
+
 func rateError(now int64, code, message string) error {
-	return &Error{Status: 429, Code: code, Message: message, RetryAfter: untilMidnight(now)}
+	return (&Error{Status: 429, Code: code, Message: message}).until(allowance.NextDay(now), now)
 }
 
 // bumpCounter adds one to the counter at scope in tx and returns its new

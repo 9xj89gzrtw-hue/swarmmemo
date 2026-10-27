@@ -1069,7 +1069,7 @@ func TestPublicDataRateLimitsFollowBand(t *testing.T) {
 	before, _ := v.meter.Entries(context.Background(), v.db)
 	_, _, err := v.call(t, "fetch", `{"dataset":"sea_ice_extent"}`, now+5)
 	var ae *allowance.Err
-	if code(err) != "request_rate" || !errorsAs(err, &ae) || ae.RetryAfter != 55 {
+	if code(err) != "request_rate" || !errorsAs(err, &ae) || ae.RetryAfter != 55 || ae.NextOpenAt != now+60 {
 		t.Fatalf("a signed caller gets 30 requests a minute: %v", err)
 	}
 	after, _ := v.meter.Entries(context.Background(), v.db)

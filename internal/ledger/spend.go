@@ -265,7 +265,7 @@ func (o *op) refusal(short string, c claimRow) error {
 		return &allowance.Err{Code: code, Resource: o.r, Band: b}
 	}
 	if code == "global_quota_exhausted" && o.hourBound {
-		return &allowance.Err{Code: code, RetryAfter: int(3600 - mod(o.now, 3600))}
+		return allowance.Until(code, allowance.NextHour(o.now), o.now)
 	}
 	return refuseDay(code, o.now)
 }

@@ -41,6 +41,10 @@ func TestRepeatReplyRefused(t *testing.T) {
 	if !strings.Contains(e.Message, first) || !strings.Contains(e.Message, "24 hours") || e.Details.(map[string]any)["earlier_id"] != first {
 		t.Fatalf("problem does not name the earlier copy: %+v", e)
 	}
+	// C596: allowed again once the first is out of the window.
+	if want := base.Unix() + ReplyRepeatWindowSeconds; e.NextOpenAt != want || e.RetryAfter != int(want-s.now().Unix()) {
+		t.Fatalf("duplicate_reply wait: next_open_at %d retry_after %d, want %d", e.NextOpenAt, e.RetryAfter, want)
+	}
 	// An exact retry of the first still returns its receipt.
 	retry := run(t, s, firstCmd)
 	if retry.Receipt.ID != first || !retry.Receipt.Duplicate {
@@ -56,6 +60,10 @@ func TestRepeatReplyRefused(t *testing.T) {
 	e = refused(post(112, Command{Room: "bounties", ReplyTo: taskA, Text: template, RequestID: "r7"}), "test-origin")
 	if e.Details.(map[string]any)["earlier_id"] != first {
 		t.Fatalf("after an edit the problem names %v, want %s", e.Details, first)
+	}
+	// The edit is the newest copy: the window runs from it.
+	if want := s.now().Unix() + ReplyRepeatWindowSeconds; e.NextOpenAt != want {
+		t.Fatalf("after an edit next_open_at %d, want %d", e.NextOpenAt, want)
 	}
 	// After the window (from the edit, the latest copy): accepted again.
 	s.now = func() time.Time { return base.Add(time.Duration(ReplyRepeatWindowSeconds)*time.Second + time.Hour) }

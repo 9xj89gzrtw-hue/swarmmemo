@@ -39,7 +39,7 @@ func TestAnonymousThreadRate(t *testing.T) {
 	}
 	_, err = post(Command{Text: "one thread too many"}, "net-a")
 	var e *Error
-	if !errors.As(err, &e) || e.Status != 429 || e.Code != "anonymous_post_rate" || e.RetryAfter != int(3600-now%3600) || !strings.Contains(e.Message, "key") {
+	if !errors.As(err, &e) || e.Status != 429 || e.Code != "anonymous_post_rate" || e.RetryAfter != int(3600-now%3600) || e.NextOpenAt != now-now%3600+3600 || !strings.Contains(e.Message, "key") {
 		t.Fatalf("the fifth thread in an hour: %v", err)
 	}
 	if n := sqlCount(t, s, "SELECT count(*) FROM events WHERE text='one thread too many'"); n != 0 {

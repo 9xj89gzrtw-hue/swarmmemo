@@ -135,6 +135,10 @@ type ParamsSource interface {
 type Err struct {
 	Code       string
 	RetryAfter int
+	// NextOpenAt is when the refusal lifts by itself (unix seconds), set
+	// only where that time is computed (a UTC day or hour, a window's end),
+	// never for a retry hint; RetryAfter is then the seconds until it.
+	NextOpenAt int64
 	// Sent and Limit are a size refusal's value sent and its limit, in
 	// bytes (Limit 0: not a size refusal); the board's message states them.
 	Sent, Limit int
@@ -156,6 +160,17 @@ type Err struct {
 }
 
 func (e *Err) Error() string { return "allowance: " + e.Code }
+
+// Until is a refusal that lifts by itself at next (unix seconds), seen at
+// now: NextOpenAt next and RetryAfter the seconds until it, at least 1.
+func Until(code string, next, now int64) *Err {
+	return &Err{Code: code, RetryAfter: int(max(next-now, 1)), NextOpenAt: next}
+}
+
+// NextDay is the next 00:00 UTC after now, and NextHour the next whole
+// UTC hour: when a daily or hourly cap lifts.
+func NextDay(now int64) int64  { return now - now%86400 + 86400 }
+func NextHour(now int64) int64 { return now - now%3600 + 3600 }
 
 // Unavailable is the stub refusal every RFC0012 package returns until its
 // builder replaces it.

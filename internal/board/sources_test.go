@@ -466,6 +466,7 @@ func generatedSections(t *testing.T) map[string]string {
 		}
 	}
 	sections := map[string]string{"operations": ops.String(), "limits": limits.String(), "errors": errs.String(), "hooks": wrapList("", hooks, ""), "vias": via.String(),
+		"waits":           waitsProtocolSection(),          // wait_test.go
 		"funnel":          funnelProtocolSection(),         // funnel_test.go
 		"nudges":          nudgeProtocolSection(),          // nudges_test.go
 		"work-record":     workRecordProtocolSection(),     // workreputation_test.go

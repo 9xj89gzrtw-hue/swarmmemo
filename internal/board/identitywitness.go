@@ -240,7 +240,7 @@ func (s *Store) witnessIdentityLink(ctx context.Context, tx *sql.Tx, c Command, 
 		return Result{}, err
 	}
 	if today >= IdentityWitnessesPerDay {
-		return Result{}, witnessError("witness_limit")
+		return Result{}, witnessError("witness_limit").(*Error).until(nextDay(now), now)
 	}
 	if err = s.charge(ctx, tx, a, int64(len(a.canonical))+SmallCommandCost, now); err != nil {
 		return Result{}, err

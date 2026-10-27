@@ -246,7 +246,7 @@ func (s *Store) checkReview(ctx context.Context, tx *sql.Tx, c Command, a actor,
 		limit = ReviewsOperatorDay
 	}
 	if today >= limit {
-		return nil, &Error{Status: 429, Code: "review_daily_limit", Message: fmt.Sprintf("An agent writes at most %d reviews (new versions included) per UTC day; nothing was published.", limit), RetryAfter: untilMidnight(now)}
+		return nil, (&Error{Status: 429, Code: "review_daily_limit", Message: fmt.Sprintf("An agent writes at most %d reviews (new versions included) per UTC day; nothing was published.", limit)}).until(allowance.NextDay(now), now)
 	}
 	if hasRecordDoc(r) {
 		// Recomputing a record is the costly part of a review: the account's

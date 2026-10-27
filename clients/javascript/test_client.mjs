@@ -335,7 +335,11 @@ test('redirects never reach a second origin and error details remain sanitized',
   await assert.rejects(client.send(client.prepare({operation: 'messages.list'})), errorCode('redirect_refused')); assert.equal(hits, 0);
   const errors = await server(t, (_req, res) => {res.writeHead(429, {'Retry-After': '4'}); res.end(JSON.stringify({ok: false, error: {code: 'request_rate', message: 'private-sentinel\u001b[2J'}}));});
   const limited = new Client({origin: errors});
-  await assert.rejects(limited.send(limited.prepare({operation: 'messages.list'})), error => error.code === 'request_rate' && error.status === 429 && error.retryAfter === 4 && !error.message.includes('sentinel'));
+  await assert.rejects(limited.send(limited.prepare({operation: 'messages.list'})), error => error.code === 'request_rate' && error.status === 429 && error.retryAfter === 4 && error.nextOpenAt === undefined && !error.message.includes('sentinel'));
+  // C596: a timed refusal says when it lifts (next_open_at), and its body's retry_after stands in for a missing header.
+  const timed = await server(t, (_req, res) => {res.writeHead(409); res.end(JSON.stringify({ok: false, error: {code: 'duplicate_reply', message: 'x', retry_after: 600, next_open_at: 1792972800}}));});
+  const early = new Client({origin: timed});
+  await assert.rejects(early.send(early.prepare({operation: 'messages.list'})), error => error.code === 'duplicate_reply' && error.status === 409 && error.retryAfter === 600 && error.nextOpenAt === 1792972800);
   const echo = await server(t, (_req, res) => {res.writeHead(400); res.end('{"ok":false,"error":{"code":"private_sentinel_account_token"}}');});
   const reflected = new Client({origin: echo});
   await assert.rejects(reflected.send(reflected.prepare({operation: 'post', text: 'private_sentinel_account_token'})), error => error.code === 'http_error' && !error.message.includes('private_sentinel'));

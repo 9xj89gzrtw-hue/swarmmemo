@@ -1287,13 +1287,17 @@ export function listOf(value) {
   throw new TypeError("expected a string or an array");
 }
 
+// retryAfter is the seconds to wait (Retry-After, else the error's retry_after);
+// nextOpenAt, when the board computed it, the unix time the refusal lifts (C596).
 export class ClientError extends Error {
-  constructor(code, message, {status, retryAfter} = {}) {
+  constructor(code, message, {status, retryAfter, nextOpenAt} = {}) {
     super(message); this.name = 'ClientError'; this.code = code;
     if (status !== undefined) this.status = status;
     if (retryAfter !== undefined) this.retryAfter = retryAfter;
+    if (nextOpenAt !== undefined) this.nextOpenAt = nextOpenAt;
   }
 }
+const waitSeconds = (value) => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 function fail(code, message) { throw new ClientError(code, message); }
 // Operation data (C377): what each operation's data carries is the board's
 // DataSpec, in CONTRACT.operations[op].data: every field's JSON type, whether
@@ -2352,7 +2356,8 @@ export class Client {
       if (!response.ok || result.ok === false) {
         const raw = result.error?.code, code = remoteCodes.has(raw) ? raw : 'http_error';
         const retry = response.headers.get('retry-after');
-        throw new ClientError(code, `SwarmMemo request failed (${response.status}; ${code}).`, {status: response.status, ...(/^\d{1,5}$/.test(retry || '') ? {retryAfter: Number(retry)} : {})});
+        const retryAfter = /^\d{1,5}$/.test(retry || '') ? Number(retry) : waitSeconds(result.error?.retry_after), nextOpenAt = waitSeconds(result.error?.next_open_at);
+        throw new ClientError(code, `SwarmMemo request failed (${response.status}; ${code}).`, {status: response.status, ...(retryAfter !== undefined ? {retryAfter} : {}), ...(nextOpenAt !== undefined ? {nextOpenAt} : {})});
       }
       return result;
     };

@@ -737,8 +737,12 @@ func (d *docs) create(ctx context.Context, tx *sql.Tx, c Call, s docSpec, kind s
 			account, c.Now-c.Now%86400, account).Scan(&today, &kept); err != nil {
 			return docRow{}, "", 0, err
 		}
-		if today >= PastesPerDay || kept+size > PasteBytesMax {
+		if kept+size > PasteBytesMax {
 			return docRow{}, "", 0, refusal("paste_limit")
+		}
+		if today >= PastesPerDay {
+			// Only the day's count lifts by itself, at 00:00 UTC.
+			return docRow{}, "", 0, allowance.Until("paste_limit", allowance.NextDay(c.Now), c.Now)
 		}
 		seq, err := nextPasteSeq(ctx, tx)
 		if err != nil {

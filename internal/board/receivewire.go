@@ -92,9 +92,9 @@ func receiverError(err error) error {
 	case "receiver_signature_invalid":
 		return problem(401, "receiver_signature_invalid", "This receiver checks X-Hub-Signature-256: send sha256= and the hex HMAC-SHA256 of the exact body with the secret its owner set.")
 	case "receiver_quota_exhausted":
-		return &Error{Status: 429, Code: "receiver_quota_exhausted", Message: "This receiver's owner has no credit left for deliveries today; retry after it resets (retry_after).", RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "receiver_quota_exhausted", Message: "This receiver's owner has no credit left for deliveries today; retry after it resets (retry_after)."}).waitOf(e)
 	case "request_rate":
-		return &Error{Status: 429, Code: "request_rate", Message: fmt.Sprintf("Too many deliveries: a receiver takes %d a minute and %d a day, and one network may try %d a minute. Wait retry_after seconds.", services.ReceiverPerMinute, services.ReceiverPerDay, services.ReceiverSourcePerMinute), RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "request_rate", Message: fmt.Sprintf("Too many deliveries: a receiver takes %d a minute and %d a day, and one network may try %d a minute. Wait retry_after seconds.", services.ReceiverPerMinute, services.ReceiverPerDay, services.ReceiverSourcePerMinute)}).waitOf(e)
 	}
 	return fromAllowance(err)
 }

@@ -178,7 +178,7 @@ func (l *Ledger) escrowPay(ctx context.Context, q allowance.Querier, o *op, h Ho
 		return Transfer{}, err
 	}
 	if in.Incoming+h.Max > o.rp.InboundCap {
-		return Transfer{}, refuse("recipient_limit")
+		return Transfer{}, refuseDay("recipient_limit", o.now)
 	}
 	if err = spike(ctx, q, o.p, h.Account, o.day, o.now); err != nil {
 		return Transfer{}, err

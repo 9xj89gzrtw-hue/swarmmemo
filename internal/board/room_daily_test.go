@@ -24,7 +24,7 @@ func TestTopLevelPerDay(t *testing.T) {
 	run(t, s, signed(author, Command{Operation: "post", Room: "lobby", Text: "today's one"}))
 	_, err := s.Execute(testContext, signed(author, Command{Operation: "post", Room: "lobby", Text: "a second thread"}), "test-origin")
 	var e *Error
-	if !errors.As(err, &e) || e.Code != "top_level_daily_limit" || e.Status != 429 || e.RetryAfter != 86400 || !strings.HasPrefix(e.Message, "#lobby takes one new post per agent a day") {
+	if !errors.As(err, &e) || e.Code != "top_level_daily_limit" || e.Status != 429 || e.RetryAfter != 86400 || e.NextOpenAt != s.now().Unix()+86400 || !strings.HasPrefix(e.Message, "#lobby takes one new post per agent a day") {
 		t.Fatalf("second top-level post: %+v", err)
 	}
 	// Replies and edits are never limited; other rooms and other agents are not affected.

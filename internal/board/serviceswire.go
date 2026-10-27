@@ -452,15 +452,15 @@ func (s *Store) callError(ctx context.Context, tx *sql.Tx, now int64, err error,
 	case e.Code == "anonymous_not_allowed":
 		return s.anonymousNotAllowed(ctx, tx, now)
 	case !a.signed && e.Code == "quota_exhausted":
-		return &Error{Status: 429, Code: "quota_exhausted", Message: "This network's free credit for calls without a key is spent for today; it resets at 00:00 UTC. A signed key has its own, larger share.", RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "quota_exhausted", Message: "This network's free credit for calls without a key is spent for today; it resets at 00:00 UTC. A signed key has its own, larger share."}).waitOf(e)
 	case !a.signed && e.Code == "global_quota_exhausted" && e.RetryAfter > 0 && e.RetryAfter < untilMidnight(now):
 		// The anonymous tier's day is released hour by hour (ledger
 		// tier4Room): this hour's part is spent, not the day.
-		return &Error{Status: 429, Code: "global_quota_exhausted", Message: "Free credit for calls without a key is used up for this hour across every network; the day's share is released hour by hour, so more is available at the top of the hour (retry_after). A signed key draws from its own tier.", RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "global_quota_exhausted", Message: "Free credit for calls without a key is used up for this hour across every network; the day's share is released hour by hour, so more is available at the top of the hour (retry_after). A signed key draws from its own tier."}).waitOf(e)
 	case !a.signed && e.Code == "global_quota_exhausted":
-		return &Error{Status: 429, Code: "global_quota_exhausted", Message: "Free credit for calls without a key is used up for today across every network; it resets at 00:00 UTC. A signed key draws from its own tier.", RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "global_quota_exhausted", Message: "Free credit for calls without a key is used up for today across every network; it resets at 00:00 UTC. A signed key draws from its own tier."}).waitOf(e)
 	case !a.signed && e.Code == "notary_limit":
-		return &Error{Status: 429, Code: "notary_limit", Message: fmt.Sprintf("This network made %d notary receipts without a key today, the most allowed; the count resets at 00:00 UTC.", services.NotaryPerAnonymousDay)}
+		return (&Error{Status: 429, Code: "notary_limit", Message: fmt.Sprintf("This network made %d notary receipts without a key today, the most allowed; the count resets at 00:00 UTC.", services.NotaryPerAnonymousDay)}).waitOf(e)
 	}
 	return serviceError(err)
 }
@@ -602,8 +602,20 @@ func (s *Store) serviceRetry(ctx context.Context, tx *sql.Tx, a actor, stored Re
 func ServiceRefusal(err error) error { return serviceError(err) }
 
 // serviceError maps the engine's refusals; the RFC0012 codes go through
-// fromAllowance, the others keep codes the service already returns.
+// fromAllowance, the others keep codes the service already returns. A
+// refusal that computed when it lifts (next_open_at) carries it and its
+// retry_after in whatever words it maps to.
 func serviceError(err error) error {
+	out := serviceErrorWords(err)
+	var e *allowance.Err
+	var be *Error
+	if errors.As(err, &e) && e.NextOpenAt > 0 && errors.As(out, &be) && be.NextOpenAt == 0 {
+		be.waitOf(e)
+	}
+	return out
+}
+
+func serviceErrorWords(err error) error {
 	var e *allowance.Err
 	if !errors.As(err, &e) {
 		return err
@@ -635,11 +647,11 @@ func serviceError(err error) error {
 	case "call_not_found":
 		return problem(404, "not_found", "No service call with that ID belongs to your agent; the call's receipt names its ID.")
 	case "request_rate":
-		return &Error{Status: 429, Code: "request_rate", Message: "Too many service requests (reads, or public_data dataset requests, whose limit follows your band); wait retry_after seconds.", RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "request_rate", Message: "Too many service requests (reads, or public_data dataset requests, whose limit follows your band); wait retry_after seconds."}).waitOf(e)
 	case services.RefusalAnonymousRate:
-		return &Error{Status: 429, Code: "request_rate", Message: "This network has made as many calls of this method without a key as it may for now (the method's anonymous_rate, per network); wait retry_after seconds, or sign the command.", RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "request_rate", Message: "This network has made as many calls of this method without a key as it may for now (the method's anonymous_rate, per network); wait retry_after seconds, or sign the command."}).waitOf(e)
 	case services.RefusalAnonymousRateAll:
-		return &Error{Status: 429, Code: "request_rate", Message: "Calls of this method without a key are at their limit for every network together right now (the method's anonymous_rate); wait retry_after seconds, or sign the command: a signed call is not counted against it.", RetryAfter: e.RetryAfter}
+		return (&Error{Status: 429, Code: "request_rate", Message: "Calls of this method without a key are at their limit for every network together right now (the method's anonymous_rate); wait retry_after seconds, or sign the command: a signed call is not counted against it."}).waitOf(e)
 	case "upstream_failed":
 		return problem(503, "service_unavailable", "The service call failed and nothing was charged; retry with a new request ID.")
 	case "upstream_busy":
@@ -677,7 +689,7 @@ func serviceError(err error) error {
 	case "x402_not_payable":
 		return problem(502, "x402_not_payable", "The resource offered no payment SwarmMemo makes (exact USDC on the configured network to the allowlisted recipient); nothing was paid or charged.")
 	case "x402_cap_reached":
-		return &Error{Status: 429, Code: "x402_cap_reached", Message: `Today's x402 budget (yours or SwarmMemo's) is spent; nothing was paid or charged. Retry after 00:00 UTC; service.read x402 {"method":"resources"} shows what is left.`, RetryAfter: untilMidnight(time.Now().Unix())}
+		return &Error{Status: 429, Code: "x402_cap_reached", Message: `Today's x402 budget (yours or SwarmMemo's) is spent; nothing was paid or charged. Retry after 00:00 UTC; service.read x402 {"method":"resources"} shows what is left.`}
 	case "x402_payment_rejected":
 		return problem(502, "x402_payment_rejected", "The resource's facilitator rejected the payment and you were not charged. Retry later with a new request ID.")
 	case "x402_response_too_large":

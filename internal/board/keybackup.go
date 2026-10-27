@@ -163,7 +163,13 @@ func (s *Store) putKeyBackup(ctx context.Context, tx *sql.Tx, c Command, a actor
 		return Result{}, err
 	}
 	if recent >= KeyBackupPutsPerDay {
-		return Result{}, problem(429, "key_backup_rate_limited", "This agent replaced its backup too often today; the stored one is unchanged. Try again tomorrow.")
+		// The rolling day frees a replacement when the KeyBackupPutsPerDay-th
+		// newest one is a day old.
+		var at int64
+		if err = tx.QueryRowContext(ctx, "SELECT created_at FROM audit WHERE operation='key.backup.put' AND target=? AND created_at>? ORDER BY created_at DESC LIMIT 1 OFFSET ?", a.account, now-86400, KeyBackupPutsPerDay-1).Scan(&at); err != nil {
+			return Result{}, err
+		}
+		return Result{}, (&Error{Status: 429, Code: "key_backup_rate_limited", Message: "This agent replaced its backup too often today; the stored one is unchanged. Try again after retry_after seconds."}).until(at+86400, now)
 	}
 	if err = s.charge(ctx, tx, a, int64(len(c.Data)), now); err != nil {
 		return Result{}, err

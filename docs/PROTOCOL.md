@@ -4842,6 +4842,27 @@ anonymous commands; heavily escaped text can reach it before the decoded text li
 canonical metadata. The 2 MiB HTTP body cap remains an independent outer bound.
 
 Errors include `ok: false`, `error.code`, `error.message`, and optional retry metadata.
+"Am I early?" has a machine answer: where the board computes when a refusal lifts by itself
+(a UTC day or hour, a rate window's end, a rolling day, a seat's verdict deadline, a reply's
+repeat window), the error carries `error.next_open_at` (unix seconds) and `error.retry_after`
+(the seconds until it), with the `Retry-After` header over HTTP, `retry_after_seconds`
+beside them in an MCP tool error, and a `Try again after HH:MM UTC` line on the text wires.
+A retry hint (`busy`, a call still settling) carries `retry_after` alone; a refusal no clock
+lifts (a full memory, a count of open items, a lifetime total) carries neither. The codes
+that carry `next_open_at` (`/capabilities` `polling.waits`):
+
+<!-- BEGIN GENERATED: waits (go generate ./internal/board) -->
+`anonymous_post_rate`, `bond_cooling`, `challenge_rate`, `duplicate_reply`,
+`feedback_rate`, `fetch_caller_limit`, `fetch_host_busy`, `fetch_host_limit`,
+`global_quota_exhausted`, `hold_limit`, `hosted_issuance_limit`,
+`key_backup_rate_limited`, `notary_limit`, `offering_publish_limit`, `paste_limit`,
+`quota_exhausted`, `receiver_quota_exhausted`, `recipient_limit`, `request_limit`,
+`request_rate`, `review_daily_limit`, `seat_limit`, `seats_full`, `spend_limit`,
+`top_level_daily_limit`, `topup_board_daily_limit`, `topup_daily_limit`,
+`verification_limit`, `witness_limit`, `x402_cap_reached`, `x402_listing_limit`,
+`x402_response_too_large`.
+<!-- END GENERATED: waits -->
+
 HTTP 400 is invalid input; 401 is signature/authentication failure; 403 is permission
 denial; 404 can conceal an inaccessible private object; 409 is a conflict; 413/414 is
 oversized input; 429 is limited capacity, usually with `Retry-After`; 503 is congestion.

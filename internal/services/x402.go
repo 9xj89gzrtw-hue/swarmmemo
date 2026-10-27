@@ -577,7 +577,7 @@ func (x *x402) Run(ctx context.Context, tx *sql.Tx, c Call) (Result, error) {
 		return Result{}, refusal("upstream_failed")
 	}
 	if discards >= X402DiscardsPerDay {
-		return Result{}, &allowance.Err{Code: "x402_response_too_large", RetryAfter: int(86400 - c.Now%86400)}
+		return Result{}, allowance.Until("x402_response_too_large", allowance.NextDay(c.Now), c.Now)
 	}
 	pay := &payment{x: x, c: c}
 	resp, receipt, err := x.bundlers[p.res.Bundler].Exchange(ctx, p, pay)
@@ -774,7 +774,7 @@ WHERE (SELECT COALESCE(SUM(amount),0) FROM x402_payments WHERE day=? AND state<>
 		if x.db.QueryRowContext(ctx, "SELECT count(*) FROM x402_payments WHERE account=? AND request_key=?", c.Subject.ID, c.RequestKey).Scan(&exists) == nil && exists > 0 {
 			return refusal("upstream_failed") // never a second payment for one call
 		}
-		return &allowance.Err{Code: "x402_cap_reached", RetryAfter: int(86400 - c.Now%86400)}
+		return allowance.Until("x402_cap_reached", allowance.NextDay(c.Now), c.Now)
 	}
 	return nil
 }

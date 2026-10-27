@@ -180,7 +180,7 @@ func (l *Ledger) transfer(ctx context.Context, q allowance.Querier, o *op, from 
 		return Transfer{}, err
 	}
 	if in.Incoming+amount > o.rp.InboundCap {
-		return Transfer{}, refuse("recipient_limit")
+		return Transfer{}, refuseDay("recipient_limit", o.now)
 	}
 	if err = spike(ctx, q, o.p, from.ID, o.day, o.now); err != nil {
 		return Transfer{}, err
@@ -251,7 +251,7 @@ func pendingLimit(ctx context.Context, q allowance.Querier, o *op, from string) 
 		return nil
 	}
 	wait := max(next-o.now, 60)
-	return &allowance.Err{Code: "hold_limit", RetryAfter: int(wait), Message: fmt.Sprintf(
+	return &allowance.Err{Code: "hold_limit", RetryAfter: int(wait), NextOpenAt: o.now + wait, Message: fmt.Sprintf(
 		"You have %d transfers pending, the most at once (transfers_pending); while your account-change breaker is on, each waits %s. The next executes in about %s (retry_after); retry then, or cancel one with allowance.transfer.cancel.",
 		n, approxDuration(o.p.TransferDelay), approxDuration(wait))}
 }

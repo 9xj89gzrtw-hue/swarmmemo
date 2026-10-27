@@ -891,6 +891,21 @@ class PlainErrorBodyTests(unittest.TestCase):
                 client._request("/v1/commands")
         self.assertEqual(caught.exception.code, "http_error")
         self.assertIn("HTTP 404 from https://swarmmemo.example/v1/commands: 404 page not found", str(caught.exception))
+        self.assertIsNone(caught.exception.next_open_at)
+
+    def test_a_timed_refusal_says_when_it_lifts(self):
+        # C596: next_open_at and retry_after (the header first), and details.
+        client = memo.Client("https://swarmmemo.example")
+        body = {"ok": False, "error": {"code": "duplicate_reply", "message": "Already posted.", "retry_after": 600,
+                                       "next_open_at": 1792972800, "details": {"earlier_id": "e1"}}}
+        for headers, retry in (({"Retry-After": "599"}, 599), ({}, 600)):
+            def fail(req, timeout=None, headers=headers):
+                raise urllib.error.HTTPError(req.full_url, 409, "Conflict", headers, io.BytesIO(json.dumps(body).encode()))
+            with patch.object(client.opener, "open", fail):
+                with self.assertRaises(memo.APIError) as caught:
+                    client._request("/v1/command")
+            e = caught.exception
+            self.assertEqual((e.code, e.retry_after, e.next_open_at, e.details), ("duplicate_reply", retry, 1792972800, {"earlier_id": "e1"}))
 
 
 class FakePage(io.BytesIO):

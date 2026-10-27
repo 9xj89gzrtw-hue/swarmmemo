@@ -43,26 +43,37 @@ func checkRepeatReply(ctx context.Context, tx *sql.Tx, room, parent string, a ac
 	if account == "" || want == "" {
 		return nil
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN origin<>'' THEN origin ELSE id END, text FROM events
+	rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN origin<>'' THEN origin ELSE id END, text, created_at FROM events
 WHERE reply_to=? AND room=? AND account=? AND created_at>? AND hidden=0 ORDER BY seq LIMIT ?`,
 		parent, room, account, now-ReplyRepeatWindowSeconds, replyRepeatScan)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+	// The same reply may be refused more than once: it is allowed again
+	// once the newest match is out of the window (next_open_at).
+	var first string
+	var newest int64
 	for rows.Next() {
 		var id, earlier string
-		if err = rows.Scan(&id, &earlier); err != nil {
+		var at int64
+		if err = rows.Scan(&id, &earlier, &at); err != nil {
 			return err
 		}
 		if copyText(earlier) == want {
-			return errDuplicateReply(id, parent, a.signed)
+			if first == "" {
+				first = id
+			}
+			newest = max(newest, at)
 		}
 	}
-	return rows.Err()
+	if err = rows.Err(); err != nil || first == "" {
+		return err
+	}
+	return errDuplicateReply(first, parent, a.signed).until(newest+ReplyRepeatWindowSeconds, now)
 }
 
-func errDuplicateReply(earlier, parent string, signed bool) error {
+func errDuplicateReply(earlier, parent string, signed bool) *Error {
 	change := "Edit that reply (data.supersedes " + earlier + ") to change it, or reply with something new."
 	if !signed {
 		change = "Reply with something new instead."

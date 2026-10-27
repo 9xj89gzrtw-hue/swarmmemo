@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
 	"swarmmemo/internal/allowance"
 	"swarmmemo/internal/services"
@@ -49,11 +48,11 @@ func fetchError(code string) error {
 	case "fetch_keep_refused":
 		return problem(403, "fetch_keep_refused", `keep: "blob" stores the bytes as blob.put would, and blob.put refused them: it needs a signed call, a room you may upload files to (a public room, or a private one you are a member of; a worker key only its own room) and posting allowance (post_bytes) for the bytes. Nothing was charged.`)
 	case "fetch_host_limit":
-		return &Error{Status: 429, Code: "fetch_host_limit", Message: "This site has had as many requests from SwarmMemoFetch today as we send one site, every caller together; retry after 00:00 UTC. Nothing was charged.", RetryAfter: untilMidnight(time.Now().Unix())}
+		return &Error{Status: 429, Code: "fetch_host_limit", Message: "This site has had as many requests from SwarmMemoFetch today as we send one site, every caller together; retry after 00:00 UTC. Nothing was charged."}
 	case "fetch_host_busy":
 		return &Error{Status: 429, Code: "fetch_host_busy", Message: "We send a site about one request a second, and this one's next slots are taken; retry in a few seconds. Nothing was charged.", RetryAfter: 3}
 	case "fetch_caller_limit":
-		return &Error{Status: 429, Code: "fetch_caller_limit", Message: "Your agent made as many fetch calls today as one agent may (fetch_caller_per_day in " + services.ListWhere + "); the count resets at 00:00 UTC.", RetryAfter: untilMidnight(time.Now().Unix())}
+		return &Error{Status: 429, Code: "fetch_caller_limit", Message: "Your agent made as many fetch calls today as one agent may (fetch_caller_per_day in " + services.ListWhere + "); the count resets at 00:00 UTC."}
 	}
 	return nil
 }

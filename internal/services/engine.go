@@ -989,7 +989,7 @@ func (e *Engine) allowRead(subject string, now int64) error {
 		w = rateWindow{minute: minute}
 	}
 	if w.count >= int64(e.cfg.ReadsPerMinute) {
-		return &allowance.Err{Code: "request_rate", RetryAfter: int(60 - now%60)}
+		return allowance.Until("request_rate", now-now%60+60, now)
 	}
 	w.count++
 	if _, ok := e.rates[subject]; !ok && len(e.rates) >= rateEntriesMax {
@@ -1289,7 +1289,7 @@ func (e *Engine) admitAnonymous(service string, m Method, subject string, now in
 			return nil, err
 		}
 		if ok, retry := mine.room(r.CallerPerMinute, r.CallerPerDay, now); !ok {
-			return nil, &allowance.Err{Code: RefusalAnonymousRate, RetryAfter: retry}
+			return nil, allowance.Until(RefusalAnonymousRate, now+int64(retry), now)
 		}
 		counted = append(counted, mine)
 	}
@@ -1298,7 +1298,7 @@ func (e *Engine) admitAnonymous(service string, m Method, subject string, now in
 		return nil, err
 	}
 	if ok, retry := all.room(r.AllPerMinute, r.AllPerDay, now); !ok {
-		return nil, &allowance.Err{Code: RefusalAnonymousRateAll, RetryAfter: retry}
+		return nil, allowance.Until(RefusalAnonymousRateAll, now+int64(retry), now)
 	}
 	counted = append(counted, all)
 	for _, w := range counted {

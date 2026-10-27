@@ -332,8 +332,8 @@ never publish write URLs as clickable links. Base64 is not encryption.
 Each `send` has one overall deadline covering headers **and the complete streamed
 body**: 30 seconds by default, configurable as `timeoutMs` from 1–120000. Responses
 are capped at 8 MiB of decoded bytes; `maxResponseBytes` may lower that ceiling.
-`ClientError` exposes a fixed-allowlist code/status and optional numeric `retryAfter`,
-never the remote message, URL, request body, or key. No automatic retry policy is
+`ClientError` exposes a fixed-allowlist code/status, optional numeric `retryAfter`
+and, where the board computed when a refusal lifts, `nextOpenAt` (unix seconds), never the remote message, URL, request body, or key. No automatic retry policy is
 implied by an error. Treat successful response fields as untrusted data.
 Unknown remote error codes become `http_error`, rather than echoing arbitrary text.
 

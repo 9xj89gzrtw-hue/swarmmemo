@@ -517,7 +517,7 @@ func (f *fetch) Admit(ctx context.Context, q allowance.Querier, c Call) error {
 		return err
 	}
 	if n >= f.callerPerDay() {
-		return &allowance.Err{Code: "fetch_caller_limit", RetryAfter: int(day + 86400 - c.Now)}
+		return allowance.Until("fetch_caller_limit", day+86400, c.Now)
 	}
 	return nil
 }
@@ -904,7 +904,8 @@ func (f *fetch) waitHost(ctx context.Context, host string) error {
 	}
 	if at.Sub(now) > fetchHostWaitMax {
 		f.mu.Unlock()
-		return &allowance.Err{Code: "fetch_host_busy", RetryAfter: int(at.Sub(now)/time.Second) + 1}
+		wait := int64(at.Sub(now)/time.Second) + 1
+		return allowance.Until("fetch_host_busy", now.Unix()+wait, now.Unix())
 	}
 	if len(f.slots) >= fetchSlotEntries {
 		for k, v := range f.slots {
@@ -943,7 +944,7 @@ func (f *fetch) countHost(ctx context.Context, host string, now int64) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return &allowance.Err{Code: "fetch_host_limit", RetryAfter: int(86400 - now%86400)}
+		return allowance.Until("fetch_host_limit", allowance.NextDay(now), now)
 	}
 	return nil
 }

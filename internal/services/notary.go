@@ -315,7 +315,7 @@ func stampForAgent(ctx context.Context, tx *sql.Tx, key ed25519.PrivateKey, serv
 		return NotaryReceipt{}, false, err
 	}
 	if today >= NotaryPerAccountDay || !signed && today >= NotaryPerAnonymousDay {
-		return NotaryReceipt{}, false, refusal("notary_limit")
+		return NotaryReceipt{}, false, allowance.Until("notary_limit", allowance.NextDay(now), now)
 	}
 	r, err := insertReceipt(ctx, tx, key, serviceID, account, hash, now)
 	return r, false, err

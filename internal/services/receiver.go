@@ -1001,7 +1001,7 @@ func (r *receiver) admit(table map[string]*anonWindow, key string, perMinute, no
 		return &allowance.Err{Code: "request_rate", RetryAfter: 60}
 	}
 	if ok, retry := w.room(perMinute, 0, now); !ok {
-		return &allowance.Err{Code: "request_rate", RetryAfter: retry}
+		return allowance.Until("request_rate", now+int64(retry), now)
 	}
 	w.mcount++
 	return nil
@@ -1019,7 +1019,7 @@ func countDay(ctx context.Context, tx *sql.Tx, receiver string, now int64) error
 	if n, err := res.RowsAffected(); err != nil {
 		return err
 	} else if n == 0 {
-		return &allowance.Err{Code: "request_rate", RetryAfter: int(86400 - now%86400)}
+		return allowance.Until("request_rate", allowance.NextDay(now), now)
 	}
 	return nil
 }
@@ -1173,7 +1173,7 @@ func (r *receiver) deliver(ctx context.Context, tx *sql.Tx, meter Meter, d Deliv
 	if _, err = meter.Spend(ctx, tx, subject, allowance.Credit, cost, ledger.Ref{Service: ReceiverID, Op: "receive", Method: "deliver"}, now); err != nil {
 		var ae *allowance.Err
 		if errors.As(err, &ae) && (ae.Code == "quota_exhausted" || ae.Code == "global_quota_exhausted" || ae.Code == "tier_has_no_share") {
-			return DeliveryReceipt{}, "", &allowance.Err{Code: "receiver_quota_exhausted", RetryAfter: ae.RetryAfter}
+			return DeliveryReceipt{}, "", &allowance.Err{Code: "receiver_quota_exhausted", RetryAfter: ae.RetryAfter, NextOpenAt: ae.NextOpenAt}
 		}
 		return DeliveryReceipt{}, "", err
 	}

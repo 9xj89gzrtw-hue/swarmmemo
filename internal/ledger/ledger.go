@@ -245,7 +245,7 @@ func refuse(code string) error { return &allowance.Err{Code: code} }
 
 // refuseDay is a refusal that clears at the next UTC midnight.
 func refuseDay(code string, now int64) error {
-	return &allowance.Err{Code: code, RetryAfter: int(86400 - mod(now, 86400))}
+	return allowance.Until(code, allowance.NextDay(now), now)
 }
 
 // ErrNotFound is a missing parameter version, hold or transfer.

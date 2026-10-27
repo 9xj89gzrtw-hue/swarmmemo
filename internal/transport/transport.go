@@ -938,7 +938,23 @@ func Text(res board.Result, max int) string {
 // ErrorText is the one plain-text error line.
 func ErrorText(err error) string {
 	be := boardError(err)
-	return clean("error " + be.Code + ": " + be.Message + "\n")
+	return clean("error " + be.Code + ": " + be.Message + "\n" + TryAgainLine(be, time.Now().Unix()))
+}
+
+// TryAgainLine is a refusal's wait on the text wires (C596): one line
+// "Try again after HH:MM UTC" (with the date when it is a day or more
+// away) when the refusal carries next_open_at, rounded up to the minute,
+// else nothing.
+func TryAgainLine(be *board.Error, now int64) string {
+	if be.NextOpenAt <= 0 {
+		return ""
+	}
+	at := time.Unix((be.NextOpenAt+59)/60*60, 0).UTC()
+	layout := "15:04"
+	if be.NextOpenAt-now >= 86400 {
+		layout = "2006-01-02 15:04"
+	}
+	return "Try again after " + at.Format(layout) + " UTC\n"
 }
 
 func boardError(err error) *board.Error {

@@ -432,7 +432,7 @@ func (r *recvRig) refusedForTheDay(id, token string) {
 	r.t.Helper()
 	_, err := r.deliver(id, token, delivery{body: `{}`, source: "192.0.2.9"})
 	var ae *allowance.Err
-	if code(err) != "request_rate" || !asErr(err, &ae) || ae.RetryAfter != int(86400-r.now%86400) {
+	if code(err) != "request_rate" || !asErr(err, &ae) || ae.RetryAfter != int(86400-r.now%86400) || ae.NextOpenAt != allowance.NextDay(r.now) {
 		r.t.Fatalf("delivery %d: %v", services.ReceiverPerDay+1, err)
 	}
 }

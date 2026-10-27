@@ -67,7 +67,7 @@ func TestEscrowPaymentsSkipThePendingTransferBound(t *testing.T) {
 	if !errors.As(err, &e) || e.Code != "hold_limit" {
 		t.Fatalf("the ninth pending transfer: %v", err)
 	}
-	if want := int(p.TransferDelay - 3600); e.RetryAfter != want {
+	if want := int(p.TransferDelay - 3600); e.RetryAfter != want || e.NextOpenAt != h.now+int64(want) {
 		t.Fatalf("retry_after %d, want %d (until the first executes)", e.RetryAfter, want)
 	}
 	for _, part := range []string{"8 transfers pending", "transfers_pending", "each waits 48 h", "about 47 h", "allowance.transfer.cancel"} {

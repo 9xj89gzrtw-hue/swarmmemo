@@ -144,7 +144,8 @@ func (l *Ledger) CredentialLimited(ctx context.Context, q allowance.Querier, cre
 func spendLimitRefusal(which string, value, now int64) error {
 	e := &allowance.Err{Code: "spend_limit", SpendLimit: which, SpendLimitValue: value}
 	if which == "per_day" {
-		e.RetryAfter = int(86400 - mod(now, 86400))
+		e.NextOpenAt = allowance.NextDay(now)
+		e.RetryAfter = int(e.NextOpenAt - now)
 	}
 	return e
 }

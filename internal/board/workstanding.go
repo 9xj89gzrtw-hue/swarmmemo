@@ -686,7 +686,7 @@ func errNoSeat(blockedBy string, at, until, now int64, why, cause string) error 
 	e := &Error{Status: 409, Code: code, Details: details}
 	if at > now {
 		details["next_open_at"] = at
-		e.RetryAfter = int(at - now)
+		e.until(at, now)
 		e.Message = fmt.Sprintf("%s; the next one opens at %s (%s): %s.", lead, time.Unix(at, 0).UTC().Format(time.RFC3339), cause, why)
 	} else {
 		e.Message = fmt.Sprintf("%s, and none opens again before it stops taking results at %s: %s.", lead, time.Unix(until, 0).UTC().Format(time.RFC3339), why)

@@ -218,7 +218,7 @@ func (s *corroborateSvc) admit(c Call) error {
 		s.callers[c.Subject.ID] = w
 	}
 	if ok, retry := w.take(limit, c.Now, 1); !ok {
-		return &allowance.Err{Code: "request_rate", RetryAfter: retry}
+		return allowance.Until("request_rate", c.Now+int64(retry), c.Now)
 	}
 	return nil
 }

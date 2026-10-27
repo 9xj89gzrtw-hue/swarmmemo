@@ -77,6 +77,7 @@ func PollingCapabilities() map[string]any {
 		"threads":      "read_thread (thread.get) resumes from its next_cursor: only newer posts come back",
 		"push":         "webhooks, MCP Events or updates.get wait tell you sooner than polling",
 		"rate_limit":   "429 request_rate carries retry_after (seconds): the Retry-After header over HTTP, retry_after_seconds in an MCP tool error",
+		"waits":        waitCapabilities(),
 	}
 }
 

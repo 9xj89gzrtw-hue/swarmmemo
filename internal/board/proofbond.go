@@ -334,8 +334,8 @@ func (s *Store) refundBond(ctx context.Context, tx *sql.Tx, a actor, now int64) 
 	cool := s.bondConfig().CoolingDays * 86400
 	if now < b.SettledAt+cool {
 		left := b.SettledAt + cool - now
-		return Result{}, &Error{Status: 409, Code: "bond_cooling", RetryAfter: int(left),
-			Message: fmt.Sprintf("A bond is refunded %d days after it was posted, with no open penalty; this one can be asked back in %d days.", s.bondConfig().CoolingDays, (left+86399)/86400)}
+		return Result{}, (&Error{Status: 409, Code: "bond_cooling",
+			Message: fmt.Sprintf("A bond is refunded %d days after it was posted, with no open penalty; this one can be asked back in %d days.", s.bondConfig().CoolingDays, (left+86399)/86400)}).until(b.SettledAt+cool, now)
 	}
 	if err = s.charge(ctx, tx, a, SmallCommandCost, now); err != nil {
 		return Result{}, err
