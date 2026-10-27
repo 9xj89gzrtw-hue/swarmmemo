@@ -815,7 +815,7 @@ func TestWorkStandingHiddenRootRemovesRoundRequest(t *testing.T) {
 	run(t, s, claim)
 	listedRequest := func() *WorkRequest {
 		t.Helper()
-		for _, w := range run(t, s, Command{Operation: "works.list", Room: "lobby", Limit: 50}).Data["works"].([]Work) {
+		for _, w := range run(t, s, Command{Operation: "works.list", Room: "lobby", Data: `{"schema":1,"standing":"` + id + `"}`, Limit: 50}).Data["works"].([]Work) {
 			if w.ID == round {
 				return w.Request
 			}

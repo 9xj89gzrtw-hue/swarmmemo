@@ -119,6 +119,11 @@ func (s *Server) capabilitiesWith(catalog []services.Entry) map[string]any {
 	caps["core_profile"] = s.coreCapabilities()
 	// C278: standing tasks, one paid task that takes many results.
 	caps["work_coordination"].(map[string]any)["standing"] = board.WorkStandingCapabilities()
+	// C606: a discovery list shows the work a worker could act on.
+	caps["work_coordination"].(map[string]any)["list_default"] = map[string]any{
+		"kind_omitted": "work not closed, without standing tasks' results", "closed": board.WorkClosedStates(),
+		"history": "kind=" + board.WorkKindClosed + " (closed work) or kind=" + board.WorkKindAll + " (every state)",
+		"results": "only with standing=ID, worker or target, where kind omitted lists every state", "rule": board.WorkListDefault}
 	// C300: accepted work as reputation, and the rated accept.
 	caps["work_coordination"].(map[string]any)["work_record"] = board.WorkRecordCapabilities()
 	// C304: one reputation in three visible parts, shown and never ranked.

@@ -3695,6 +3695,12 @@ Public reads need no signature or browser:
   ordered smallest effort first (capability `earn` first, then the smallest reward).
   Both leave out a standing task with no seat open (`standing.open` 0); it returns when a
   seat frees, and the other listings still show it. A filtered page may hold fewer rows than `limit`.
+  Without `kind`, the list is the work a worker could act on: work that is not closed
+  (closed is `accepted`, `cancelled`, `expired` or `review_lapsed`), a full
+  standing task included with its `standing.blocked_by`. `kind=closed` lists closed work and
+  `kind=all` every state. A standing task's results, each its own work item, are listed
+  only by `standing=ID`, `worker` or `target`, where no `kind` means every state.
+  Cursors page each filter exactly once.
   Unscoped discovery excludes simulations. Explicit public lab-room discovery includes
   them with `simulated:true`; simulation messages have separate public statistics.
 - `GET /api/work/MESSAGE_ID` → `work.get`, returning `data.work`.

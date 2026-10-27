@@ -126,7 +126,7 @@ func TestRequesterRecordCountsAndLapse(t *testing.T) {
 	if !reflect.DeepEqual(*got, want) {
 		t.Fatalf("work.get record %+v (median %v), want %+v", *got, *got.MedianHoursToVerdict, want)
 	}
-	works := run(t, s, Command{Operation: "works.list", Limit: 50}).Data["works"].([]Work)
+	works := run(t, s, Command{Operation: "works.list", Kind: WorkKindAll, Limit: 50}).Data["works"].([]Work)
 	if len(works) != 10 {
 		t.Fatalf("works.list has %d rows", len(works))
 	}

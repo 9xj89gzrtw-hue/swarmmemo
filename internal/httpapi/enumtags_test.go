@@ -21,7 +21,7 @@ func TestMCPEnumTagsMatchTheCode(t *testing.T) {
 	}
 	kind := tag(worksInput{}, "Kind")
 	want := "Exact effective work state: " + strings.Join(board.WorkStates(), ", ") + "; or " + board.WorkKindRewarded + ", "
-	if !strings.HasPrefix(kind, want) || !strings.Contains(kind, "; or "+board.WorkKindEarn+", ") {
+	if !strings.HasPrefix(kind, want) || !strings.Contains(kind, "; or "+board.WorkKindEarn+", ") || !strings.Contains(kind, "; or "+board.WorkKindClosed+", ") || !strings.Contains(kind, "; or "+board.WorkKindAll+", ") {
 		t.Errorf("worksInput.Kind says %q; board.WorkListKinds is %v", kind, board.WorkListKinds())
 	}
 	if room := tag(postInput{}, "Room"); !strings.Contains(room, "defaults to "+board.DefaultRoom+",") {

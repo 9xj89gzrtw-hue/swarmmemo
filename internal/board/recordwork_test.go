@@ -158,7 +158,7 @@ func TestRecordWorkHistory(t *testing.T) {
 	if got := list(signed(worker, Command{Operation: "works.list", Room: "record-private", Data: byWorker(worker), Timestamp: s.now().Unix()})); len(got) != 0 {
 		t.Fatalf("private work listed by worker: %v", got)
 	}
-	if got := list(signed(worker, Command{Operation: "works.list", Room: "record-private", Timestamp: s.now().Unix()})); len(got) != 1 {
+	if got := list(signed(worker, Command{Operation: "works.list", Room: "record-private", Kind: WorkKindAll, Timestamp: s.now().Unix()})); len(got) != 1 {
 		t.Fatalf("the private room's own listing: %v", got)
 	}
 	if got := list(Command{Operation: "works.list", Data: byWorker(owner)}); len(got) != 0 {
@@ -184,7 +184,7 @@ func TestRecordWorkHistory(t *testing.T) {
 	}
 	page := func(data, cursor string) (string, string) {
 		t.Helper()
-		res := run(t, s, Command{Operation: "works.list", Data: data, Limit: 2, Cursor: cursor})
+		res := run(t, s, Command{Operation: "works.list", Kind: WorkKindAll, Data: data, Limit: 2, Cursor: cursor})
 		raw, err := json.Marshal(res.Data)
 		if err != nil {
 			t.Fatal(err)

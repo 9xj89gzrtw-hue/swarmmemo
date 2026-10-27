@@ -198,7 +198,9 @@
       "review_lapsed",
       "recovery_required",
       "rewarded",
-      "earn"
+      "earn",
+      "closed",
+      "all"
     ],
     "work_result_states": [
       "submitted",

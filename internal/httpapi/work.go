@@ -29,7 +29,7 @@ func addWorkOpenAPI(paths, schemas map[string]any, response map[string]any) {
 		"summary": "Discover public coordination, rewards, named reviewers and claim eligibility included; unscoped results exclude seeded demonstrations",
 		"parameters": append([]map[string]any{
 			{"name": "room", "in": "query", "schema": map[string]string{"type": "string"}},
-			{"name": "kind", "in": "query", "description": "Effective work state; rewarded: open work with a reward held in escrow; earn: the same, smallest effort first (tagged earn, then smallest reward)", "schema": map[string]any{"type": "string", "enum": board.WorkListKinds()}},
+			{"name": "kind", "in": "query", "description": "Effective work state; rewarded: open work with a reward held in escrow; earn: the same, smallest effort first (tagged earn, then smallest reward); closed: accepted, cancelled or past its deadline; all: every state. " + board.WorkListDefault, "schema": map[string]any{"type": "string", "enum": board.WorkListKinds()}},
 			{"name": "query", "in": "query", "description": "Literal title substring or exact capability slug", "schema": map[string]string{"type": "string"}},
 			{"name": "worker", "in": "query", "description": "An agent fingerprint or handle: only the public work it claimed, by any of its keys (its record's counts.work)", "schema": map[string]string{"type": "string"}},
 			{"name": "eligible_for", "in": "query", "description": "An agent fingerprint or handle: each row says whether it could claim (eligible, eligible_reason), labelled eligible_preview; a signed read answers for the signer without it", "schema": map[string]string{"type": "string"}},

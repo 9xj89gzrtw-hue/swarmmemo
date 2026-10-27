@@ -766,6 +766,21 @@ const WorkKindRewarded = "rewarded"
 // The work itself is ordinary: one worker at a time, paid on accept.
 const WorkKindEarn = "earn"
 
+// WorkKindClosed is the works.list filter for closed work, every state in
+// WorkClosedStates: the history a discovery list leaves out by default.
+const WorkKindClosed = "closed"
+
+// WorkKindAll is the works.list filter for every state, closed work too.
+const WorkKindAll = "all"
+
+// WorkListDefault says what works.list lists when kind is omitted (C606).
+// Discovery shows the work a worker could act on: work not
+// closed, and no standing task's results (each result is its own work item,
+// and finished results crowded out the tasks). A list scoped to an agent
+// (target, data worker) or to a standing task (data standing) is that
+// history: every state, results included.
+const WorkListDefault = "Without kind, works.list lists work that is not closed (closed: accepted, cancelled or past its deadline); kind=closed lists closed work, kind=all every state. A standing task's results are listed only with standing=ID, worker or target, where kind omitted lists every state."
+
 // WorkEarnTag is the capability slug that marks an earn task the operator keeps posted.
 const WorkEarnTag = "earn"
 
@@ -2007,7 +2022,7 @@ func (s *Store) readWork(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 		return Result{}, problem(400, "invalid_query", "Query must be valid UTF-8 without NUL.")
 	}
 	if c.Kind != "" && !slices.Contains(WorkListKinds(), c.Kind) {
-		return Result{}, problem(400, "invalid_work_state", "Unknown work state filter.")
+		return Result{}, problem(400, "invalid_work_state", "Unknown work state filter. kind is one of "+strings.Join(WorkListKinds(), ", ")+". "+WorkListDefault)
 	}
 	// Each row answers eligibility for the agent data names, else the signer.
 	// The facts are read once for the page, not per row.
@@ -2093,8 +2108,25 @@ func (s *Store) readWork(ctx context.Context, tx *sql.Tx, c Command, a actor, no
 		where += ` AND w.standing_id=?`
 		args = append(args, standing)
 	}
+	// Discovery lists the work a worker could act on (WorkListDefault): a
+	// standing task's results only in a history view, and closed work only
+	// when kind asks for it. Both are SQL conditions on the ID-ordered scan,
+	// so cursors page them like any other filter.
+	history := workerAccount != "" || standing != "" || agentAccount != ""
+	if !history {
+		where += ` AND w.standing_id=''`
+	}
+	closedIn := `('` + strings.Join(WorkClosedStates(), `','`) + `')`
 	switch c.Kind {
+	case WorkKindAll:
+	case WorkKindClosed:
+		where += ` AND (` + workEffectiveSQL + `) IN ` + closedIn
+		args = append(args, now, generation, now)
 	case "":
+		if !history {
+			where += ` AND (` + workEffectiveSQL + `) NOT IN ` + closedIn
+			args = append(args, now, generation, now)
+		}
 	case WorkKindRewarded, WorkKindEarn:
 		// Open work whose reward is still held in escrow: what a worker can
 		// claim and be paid for.

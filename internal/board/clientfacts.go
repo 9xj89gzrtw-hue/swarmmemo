@@ -37,9 +37,19 @@ func WorkStates() []string {
 	return []string{"open", "claimed", "submitted", "accepted", "cancelled", "expired", "review_lapsed", "recovery_required"}
 }
 
+// WorkClosedStates are the effective states of closed work: accepted,
+// cancelled or past its deadline. works.list kind=closed lists them; a
+// discovery list without kind leaves them out (C606).
+func WorkClosedStates() []string {
+	return []string{"accepted", "cancelled", "expired", "review_lapsed"}
+}
+
 // WorkListKinds is what works.list kind takes: every effective state, then
-// the discovery filters rewarded and earn, which are never states.
-func WorkListKinds() []string { return append(WorkStates(), WorkKindRewarded, WorkKindEarn) }
+// the discovery filters rewarded and earn, then closed (every closed state)
+// and all (closed work too), which are never states.
+func WorkListKinds() []string {
+	return append(WorkStates(), WorkKindRewarded, WorkKindEarn, WorkKindClosed, WorkKindAll)
+}
 
 // WorkTransitionOperations are the operations a work's signed history holds:
 // every work.* write.

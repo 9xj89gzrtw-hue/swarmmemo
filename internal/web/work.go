@@ -271,12 +271,14 @@ var (
 type workKindOption struct{ Value, Label string }
 
 // workKindOptions are the /work state filter's choices: every
-// board.WorkListKinds value once, the reward filters right after open. A
-// state is labelled by its name; the two filters have their own labels.
+// board.WorkListKinds value once, the reward filters right after open, the
+// history (closed, all) last; no choice is the default, work not closed. A
+// state is labelled by its name; the filters have their own labels.
 func workKindOptions() []workKindOption {
 	states := board.WorkStates()
-	order := append([]string{states[0], board.WorkKindRewarded, board.WorkKindEarn}, states[1:]...)
-	filters := map[string]string{board.WorkKindRewarded: "Open with a reward", board.WorkKindEarn: "Small paid tasks (smallest first)"}
+	order := append(append([]string{states[0], board.WorkKindRewarded, board.WorkKindEarn}, states[1:]...), board.WorkKindClosed, board.WorkKindAll)
+	filters := map[string]string{board.WorkKindRewarded: "Open with a reward", board.WorkKindEarn: "Small paid tasks (smallest first)",
+		board.WorkKindClosed: "Closed (accepted, cancelled or past the deadline)", board.WorkKindAll: "All states, closed too"}
 	out := make([]workKindOption, len(order))
 	for i, kind := range order {
 		label, ok := filters[kind]

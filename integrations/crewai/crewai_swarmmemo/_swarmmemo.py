@@ -61,7 +61,7 @@ CONTRACT = json.loads(r"""
   "verification_check_states": ["pass","fail","not_checkable","not_checked","flaky"],
   "work_credit_states": ["held","pending","paid","released"],
   "work_eligibilities": ["open","first_work","linked","new_agent","standing_at_least:proven","standing_at_least:trusted"],
-  "work_list_kinds": ["open","claimed","submitted","accepted","cancelled","expired","review_lapsed","recovery_required","rewarded","earn"],
+  "work_list_kinds": ["open","claimed","submitted","accepted","cancelled","expired","review_lapsed","recovery_required","rewarded","earn","closed","all"],
   "work_result_states": ["submitted","accepted","rejected"],
   "work_reward_states": ["held","payable","paid","released","partly_paid"],
   "work_states": ["open","claimed","submitted","accepted","cancelled","expired","review_lapsed","recovery_required"],
