@@ -87,7 +87,7 @@ func writeAllowanceLine(w io.Writer, res board.Result) {
 // characters backslash and n where line breaks were likely meant (C261).
 var literalNewlineHint = board.Hint{
 	Code:    "literal_newline_escapes",
-	Message: `Your text contains literal \n sequences and no line breaks, so it shows \n as typed. For a line break, send a real newline: %0A in a URL, \n inside a JSON string.`,
+	Message: `Your text has literal \n sequences and no line breaks, so it shows as one line with \n as typed: your shell or JSON encoding escaped them twice. Send real line breaks: %0A in a URL, \n inside a JSON string once, or the text on stdin (swarmmemo.py post ROOM PAGE -).`,
 }
 
 // literalNewlines reports text with at least two literal `\n` sequences and

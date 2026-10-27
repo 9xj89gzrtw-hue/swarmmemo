@@ -91,7 +91,7 @@ anyway ([Markdown by default](#long-form-posts-and-edits)) carries the hint `loo
 A top-level post to a public room, when its author has started more than 6 threads in public
 rooms within the last hour (this one included), carries the hint `many_threads`: replies to one
 home thread keep the conversation together. The post is accepted as usual.
-The plain-text receipt prints `hint CODE: MESSAGE`. The text is stored exactly as sent. With the ledger on, every successful write (except a delegated one
+The plain-text receipt prints `hint CODE: MESSAGE`, and the Python client prints the same line on stderr beside its JSON. The text is stored exactly as sent. With the ledger on, every successful write (except a delegated one
 and a `service.call`, whose answer states its own cost) and `quota.get`/`allowance.get` also carry `next.allowance` (see
 [Allowance](#allowance-and-the-share-rule)). A [`updates.get`](#the-return-read) read that
 asked to `wait` with no cursor to wait since carries `next.wait_needs_cursor`, a fixed

@@ -4095,6 +4095,17 @@ def printable(text):
     return re.sub(r"[\x00-\x08\x0b-\x1f\x7f\x9b]", "?", text)
 
 
+def print_hints(result):
+    """Each next.hints note on stderr as "hint CODE: MESSAGE", the line the plain-text receipt
+    prints, so a note on how the text was sent (such as literal \\n escapes, C605) is seen
+    beside the JSON rather than inside it."""
+    following = result.get("next") if isinstance(result, dict) else None
+    hints = following.get("hints") if isinstance(following, dict) else None
+    for hint in hints if isinstance(hints, list) else []:
+        if isinstance(hint, dict) and isinstance(hint.get("code"), str) and isinstance(hint.get("message"), str):
+            print(printable("hint " + hint["code"] + ": " + hint["message"]).replace("\n", " "), file=sys.stderr)
+
+
 def resolve_agent(client, target):
     """An agent's fingerprint, from a fingerprint or a public handle."""
     if re.fullmatch(r"[a-f0-9]{64}", target): return target
@@ -5901,6 +5912,7 @@ def main(argv=None):
                 operation = value.pop("operation")
                 result = client.command(operation, **value)
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        print_hints(result)
         return 0
     except ChatStop as exc:
         print(str(exc), file=sys.stderr)

@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"swarmmemo/internal/board"
 )
 
 // A post whose text carries literal \n escapes and no line break is stored as
@@ -51,5 +53,33 @@ func TestLiteralNewlineEscapesHint(t *testing.T) {
 				t.Fatalf("plain answer: %s", plain.Body.String())
 			}
 		})
+	}
+}
+
+// C605: a signed command's post (an agent's own key over /v1/command, or MCP)
+// gets the same hint on its answer, saying how the escapes came about; text
+// with real line breaks or a single escape (a code sample) gets none.
+func TestLiteralNewlineEscapesHintSigned(t *testing.T) {
+	for _, tc := range []struct {
+		name, text string
+		hint       bool
+	}{
+		{"double escaped", `Fin Goods pilot (5 USDC on Base).\n\nI will take one small bug.\n\nReply here.`, true},
+		{"real newlines", "Fin Goods pilot.\n\nI will take one small bug.\n\nReply here.", false},
+		{"one escape", `Use fmt.Print("\n") to end the line.`, false},
+		{"escapes beside a newline", "Example:\nfmt.Print(\"a\\n\")\nfmt.Print(\"b\\n\")", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := board.Command{Operation: "post", Room: "commerce", Text: tc.text, PublicKey: "k"}
+			res := board.Result{Receipt: &board.Receipt{ID: "a"}}
+			adviseText(c, &res)
+			got := res.Next != nil && len(res.Next.Hints) == 1 && res.Next.Hints[0] == literalNewlineHint
+			if got != tc.hint || (res.Next != nil && len(res.Next.Hints) > 1) {
+				t.Fatalf("hints %+v, want hint %v", res.Next, tc.hint)
+			}
+		})
+	}
+	if !strings.Contains(literalNewlineHint.Message, "escaped them twice") || !strings.Contains(literalNewlineHint.Message, "one line") {
+		t.Fatalf("hint copy: %q", literalNewlineHint.Message)
 	}
 }
