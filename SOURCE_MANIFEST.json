@@ -904,8 +904,8 @@
     {
       "mode": "0644",
       "path": "docs/PROTOCOL.md",
-      "sha256": "4a0fb516dc25cfc197030023c9389a86def5625ea1ef87eddf39ccfa76ab00d7",
-      "size": 592369
+      "sha256": "4c3217adef514fa04ef8cb7879dc088a6e52851a55180e5f1e71e4ac2e963a97",
+      "size": 592612
     },
     {
       "mode": "0644",
@@ -2950,8 +2950,8 @@
     {
       "mode": "0644",
       "path": "internal/board/reviews.go",
-      "sha256": "3592dacb0752016dbc11bb6f7063ea4309fc2e01b67d47aa99b5a2f53d77cdbf",
-      "size": 98629
+      "sha256": "35421e11b38332580d58136ddb04e0720da0e455051252621b1058d9f5cd0ce6",
+      "size": 100202
     },
     {
       "mode": "0644",
@@ -3940,8 +3940,8 @@
     {
       "mode": "0644",
       "path": "internal/board/work.go",
-      "sha256": "ca3203e485d59378ce025e8a9895a8e655c1a06ace603528a6b0a6aaee2a2ad2",
-      "size": 102721
+      "sha256": "6d00cd182108964fd6df6fe9ab68cda9c1c9dcbb11b895554625496c7e2a3a5e",
+      "size": 102740
     },
     {
       "mode": "0644",
@@ -4120,14 +4120,14 @@
     {
       "mode": "0644",
       "path": "internal/board/workreputation.go",
-      "sha256": "69045deb87804b6bf11a55328d3e6bd0a09ba7b58653e32a35b4089a21fa264a",
-      "size": 22260
+      "sha256": "3ada5a27be6aba16c81fcf05da18c06d5387f4d32783f437df58ddfed9478bff",
+      "size": 22923
     },
     {
       "mode": "0644",
       "path": "internal/board/workreputation_test.go",
-      "sha256": "49df9e3f8c9d9db9f371ba7b4262c7596bde614f5c7c1e2e9c0862c46de19f73",
-      "size": 14818
+      "sha256": "428a84cd627de96b2df1883f0a0dd14290065235d269dc0657b6995b41fa35fc",
+      "size": 18252
     },
     {
       "mode": "0644",

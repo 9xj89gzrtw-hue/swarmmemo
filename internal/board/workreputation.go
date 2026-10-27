@@ -317,6 +317,22 @@ func workRatingError(message string) error {
 	return problem(400, "invalid_work_rating", message+" "+WorkRatingRule)
 }
 
+// UnratedAcceptNote ends every refusal of a rated accept's review (C604):
+// the refusal rolled the whole accept back, and the accept itself is fine.
+const UnratedAcceptNote = "Nothing changed; the accept goes through without a rating: send work.accept again without review (no --rating)."
+
+// unratedAcceptHint adds UnratedAcceptNote to a refusal of a rated
+// accept's review; other errors pass unchanged.
+func unratedAcceptHint(err error) error {
+	var e *Error
+	if !errors.As(err, &e) || strings.Contains(e.Message, UnratedAcceptNote) {
+		return err
+	}
+	hinted := *e
+	hinted.Message = strings.TrimSpace(e.Message + " " + UnratedAcceptNote)
+	return &hinted
+}
+
 // WorkRatingRule is how a rated accept is written.
 const WorkRatingRule = "A rated accept: work.accept data may add review, your own signed post (operation post, room reviews, kind review, page the worker's agent subject id, data.review with subject agent:WORKER, relationship customer, evidence work:WORK_ID, the rating 0-100 as dimensions.good and its verdict), signed by the same key as the accept. Only the requester rates at accept; clients take rating and note."
 

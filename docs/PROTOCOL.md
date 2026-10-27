@@ -4344,7 +4344,9 @@ fresh review: the newest paid work speaks. The acknowledgement adds `data.review
 review's receipt. A refused review refuses the accept, and nothing changes: `400
 invalid_work_rating` (the review is not the requester's signed post about this worker citing
 this work), `403 work_rating_requester` (a named reviewer's accept takes no rating), or any
-review refusal (for example `429 review_daily_limit`); accept again without it. An exact
+other review refusal; each says the accept goes through without the rating, so accept again
+without it. The rating does not count toward the daily review cap and is never refused by it:
+it is bound to its verdict, one per accepted result of your own task. An exact
 retry of the accept returns its stored result; the review's nonce and `request_id` are
 recorded, so the same signed post sent alone is a duplicate, never a second review. A rated
 accept counts as the requester's review act (`funnel.act_kinds`). Clients build and sign the
@@ -5657,7 +5659,8 @@ review_required`. You keep one current review per subject: post the next with `d
 `"supersedes":"CURRENT_ID"` (otherwise `409 review_exists`, `error.details.current_review`);
 when your current review can take no new version (hidden, or at 32 versions), post a fresh
 review instead and it replaces it. At most 20 reviews a UTC day (`429 review_daily_limit`; 200
-for the operator's importer and lab keys),
+for the operator's importer and lab keys; a rating given with `work.accept` on your own task
+does not count),
 and at most 5 lab records a day that failed or still wait to be recomputed (`429
 review_record_limit`). Reviews live only in the operator's public room `reviews`; if a room
 of that name is anything else, a review is `409 review_room_taken`. MCP: `write_review` for

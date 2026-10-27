@@ -316,3 +316,65 @@ func TestWorkRatingPostScale(t *testing.T) {
 		t.Fatalf("agent subject id vector: %s", got)
 	}
 }
+
+// C604: a rated accept's review is bound to its verdict (one per accepted
+// result of the requester's own task), so the daily review cap neither
+// counts nor refuses it; every other review stays capped, and a review
+// that merely cites an accepted work frees nothing more.
+func TestRatedAcceptPastReviewCap(t *testing.T) {
+	s := reputationStore(t)
+	owner, worker := keyFor(240), keyFor(241)
+	register(t, s, owner)
+	register(t, s, worker)
+	mintCredit(t, s, keyID(owner), allowance.Paid, 1_000_000)
+	task := func() (string, int64) {
+		id := rewardRequest(t, s, owner, "lobby")
+		run(t, s, rewardCreate(s, owner, id, 12_000, 0))
+		return id, claimAndSubmit(t, s, worker, id, "lobby")
+	}
+	// One normal review short of the cap, then two rated accepts.
+	for i := 0; i < ReviewsPerAccountDay-1; i++ {
+		run(t, s, reviewPost(t, owner, fmt.Sprintf("site:https://c604-%d.example.com/", i), map[string]any{}, ""))
+	}
+	var accepted []string
+	for _, rating := range []int{80, 40} {
+		id, fence := task()
+		res := run(t, s, ratedAccept(t, s, owner, id, fence, keyID(worker), rating, ""))
+		receipt := res.Data["review"].(*Receipt)
+		var good int
+		if err := s.db.QueryRow("SELECT good FROM reviews WHERE event_id=?", receipt.ID).Scan(&good); err != nil || good != rating {
+			t.Fatalf("rating stored %d (%v), want %d", good, err, rating)
+		}
+		accepted = append(accepted, id)
+	}
+	// The ratings did not count: the cap's last normal review still posts.
+	cites := map[string]any{"relationship": "customer", "evidence": []string{"work:" + accepted[0]}}
+	run(t, s, reviewPost(t, owner, "site:https://c604-last.example.com/", cites, ""))
+	// Now at the cap: a normal review is refused, even one citing an
+	// accepted work (each accepted result frees one review, its rating).
+	fails(t, s, reviewPost(t, owner, "site:https://c604-over.example.com/", map[string]any{}, ""), "review_daily_limit")
+	fails(t, s, reviewPost(t, owner, "site:https://c604-over2.example.com/", map[string]any{"relationship": "customer", "evidence": []string{"work:" + accepted[1]}}, ""), "review_daily_limit")
+	// At the cap, a third rated accept still goes through, rating stored.
+	id, fence := task()
+	res := run(t, s, ratedAccept(t, s, owner, id, fence, keyID(worker), 95, "Spot on."))
+	if res.Data["ack"].(WorkAck).State != "accepted" {
+		t.Fatalf("rated accept at the cap %+v", res.Data)
+	}
+	if n := sqlCount(t, s, "SELECT count(*) FROM reviews r JOIN review_evidence v ON v.event_id=r.event_id AND v.evidence=? WHERE r.account=? AND r.good=95", "work:"+id, keyID(owner)); n != 1 {
+		t.Fatalf("rating at the cap stored %d times", n)
+	}
+	// The verdict is one per result: accepting it again refuses, no second rating.
+	if _, err := s.Execute(testContext, ratedAccept(t, s, owner, id, fence, keyID(worker), 10, ""), "test-origin"); err == nil {
+		t.Fatal("a second rated accept of one result went through")
+	}
+	if n := sqlCount(t, s, "SELECT count(*) FROM reviews r JOIN review_evidence v ON v.event_id=r.event_id AND v.evidence=? WHERE r.account=?", "work:"+id, keyID(owner)); n != 1 {
+		t.Fatalf("ratings of one result: %d", n)
+	}
+	// A refused rating says the accept goes through without it.
+	id, fence = task()
+	msg := failsWith(t, s, ratedAccept(t, s, owner, id, fence, keyID(owner), 90, ""), "invalid_work_rating")
+	if !strings.Contains(msg, UnratedAcceptNote) {
+		t.Fatalf("refusal %q lacks the unrated-accept note", msg)
+	}
+	acceptWork(t, s, owner, id, fence)
+}

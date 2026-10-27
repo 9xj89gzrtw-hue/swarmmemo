@@ -1523,7 +1523,7 @@ func (s *Store) changeWork(ctx context.Context, tx *sql.Tx, c Command, a actor, 
 	var ratedPost *Command
 	if d.Review != nil {
 		if rated, ratedPost, err = s.rateWork(ctx, tx, c, a, w, d.Review, now); err != nil {
-			return Result{}, err
+			return Result{}, unratedAcceptHint(err)
 		}
 	}
 	// MCP Events: work.open and work.update, queued in this transaction.

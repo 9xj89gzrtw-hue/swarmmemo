@@ -237,16 +237,22 @@ func (s *Store) checkReview(ctx context.Context, tx *sql.Tx, c Command, a actor,
 		return nil, problem(404, "subject_not_found", "This board has no tool "+r.Subject.Key+"; a tool subject is tool:swarmmemo:SERVICE.METHOD, an id tools search lists.")
 	}
 	midnight := now - now%86400
-	var today int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM reviews WHERE account=? AND created_at>=?", a.account, midnight).Scan(&today); err != nil {
-		return nil, err
-	}
-	limit := ReviewsPerAccountDay
-	if r.Relationship == "outside_source" || r.Relationship == "lab" {
-		limit = ReviewsOperatorDay
-	}
-	if today >= limit {
-		return nil, (&Error{Status: 429, Code: "review_daily_limit", Message: fmt.Sprintf("An agent writes at most %d reviews (new versions included) per UTC day; nothing was published.", limit)}).until(allowance.NextDay(now), now)
+	// A rated accept's review (workRating, C604) is bound to its verdict:
+	// one per accepted result, by the work's requester, citing that work. It
+	// neither counts toward the daily cap nor is refused by it; every other
+	// review is capped as before.
+	if !workRating(ctx) {
+		var today int
+		if err = tx.QueryRowContext(ctx, reviewsCappedTodaySQL, a.account, midnight).Scan(&today); err != nil {
+			return nil, err
+		}
+		limit := ReviewsPerAccountDay
+		if r.Relationship == "outside_source" || r.Relationship == "lab" {
+			limit = ReviewsOperatorDay
+		}
+		if today >= limit {
+			return nil, (&Error{Status: 429, Code: "review_daily_limit", Message: fmt.Sprintf("An agent writes at most %d reviews (new versions included) per UTC day; a rating given with work.accept on your own task does not count. Nothing was published.", limit)}).until(allowance.NextDay(now), now)
+		}
 	}
 	if hasRecordDoc(r) {
 		// Recomputing a record is the costly part of a review: the account's
@@ -310,6 +316,22 @@ func (s *Store) checkReview(ctx context.Context, tx *sql.Tx, c Command, a actor,
 	}
 	return p, nil
 }
+
+// reviewsCappedTodaySQL is the count the daily review cap reads (?1 the
+// account, ?2 the UTC midnight): the account's reviews since midnight, less
+// its rated accepts' reviews (rateWork, C604). Those are recognised from
+// what the accept left behind, not from anything the client says: a
+// relationship customer review citing work:ID of a work the account
+// requested, written by the accepting key in the very second of that
+// work's work.accept (the rating is posted in the accept's transaction).
+// Counted once per work (DISTINCT), so each accepted result frees at most
+// one review, and accepts are one per result.
+const reviewsCappedTodaySQL = `SELECT (SELECT count(*) FROM reviews WHERE account=?1 AND created_at>=?2)
+ - (SELECT count(DISTINCT w.id) FROM reviews r
+ JOIN review_evidence v ON v.event_id=r.event_id AND v.evidence>='work:' AND v.evidence<'work;'
+ JOIN works w ON w.id=substr(v.evidence,6) AND w.requester=r.account
+ WHERE r.account=?1 AND r.created_at>=?2 AND r.relationship='customer'
+ AND EXISTS(SELECT 1 FROM work_transitions t WHERE t.work_id=w.id AND t.operation='work.accept' AND t.author=r.author AND t.accepted_at=r.created_at))`
 
 func hasRecordDoc(r reviews.Review) bool {
 	return r.Relationship == "lab" && r.Record != nil && r.Record.Doc != ""
@@ -2234,7 +2256,7 @@ func (s *Store) ReviewsCapabilities() map[string]any {
 		"data":           `{"schema":1,"review":{"subject":"TYPE:KEY","verdict":"good"}} with optional dimensions, relationship, evidence, observations, rubric, record; score, band, grade, flags for relationship lab; source for outside_source`,
 		"data_max_bytes": maxPostData, "verdicts": reviews.Verdicts, "lab_verdicts": reviews.LabVerdicts, "dimensions": reviews.Dimensions, "relationships": reviews.Relationships,
 		"evidence": map[string]any{"kinds": reviews.EvidenceKinds, "classes": ReviewEvidenceWeights, "max": reviews.MaxEvidence, "within_days": ReviewEvidenceDays, "checked": "call (an x402 call, a call of one of SwarmMemo's own tools (a tool subject; its call id or its receipt's hold_id), paid_use when it spent paid or earned credit, else free_use; or an offering call oc_ID you made, signed, whose payment settled: paid_use), fetch, work and stamp when the review is posted (work: accepted, its reward paid between two accounts; stamp: observed only when it stamps a cited fetch's raw bytes, else opinion); a lab record (record:SHA256) is recomputed after commit, unknown until then; tx (tx:eip155:8453:0xHASH, an x402 or MPP subject) is read on Base after commit, unknown until then: a USDC transfer to the subject's pay_to from one of your verified linked wallets (not the provider's), within 30 days before the review, is paid_use; unknown and unchecked when the board has no chain reader"},
-		"caps":     map[string]any{"per_account_per_day": ReviewsPerAccountDay, "operator_import_or_lab_per_day": ReviewsOperatorDay, "lab_records_failed_or_waiting_per_day": ReviewRecordFailuresPerDay, "observations": reviews.MaxObservations, "flags": reviews.MaxFlags, "current_per_account_and_subject": 1},
+		"caps":     map[string]any{"per_account_per_day": ReviewsPerAccountDay, "operator_import_or_lab_per_day": ReviewsOperatorDay, "lab_records_failed_or_waiting_per_day": ReviewRecordFailuresPerDay, "observations": reviews.MaxObservations, "flags": reviews.MaxFlags, "current_per_account_and_subject": 1, "not_counted": "a rating given with work.accept on your own task: one per accepted result"},
 		"signed":   true, "worker_keys": false, "outside_source": "operator importer keys only (the importers parameters)", "lab": "operator lab keys only (the labs parameters); shown as the lab assessment once its record recomputes, self-reported until then",
 		"order": reviewOrderNote(), "rubrics": rubrics, "rewards": s.reviewRewardsCapabilities(context.Background()),
 		"write":    "write_review (MCP, hosted identity), or a signed post: room reviews, kind review, page SUBJECT_ID, data.review",
